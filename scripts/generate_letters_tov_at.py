@@ -1,4 +1,13 @@
-"""Одноразова генерація ЕЛЕКТРОННИХ листів між ТОВ та АТ — з КЕП + QR."""
+"""Генерація електронної переписки ТОВ ⇄ АТ — з КЕП-відміткою та QR-кодом.
+
+Демонструє електронні листи (is_electronic=True): реквізит 22 — електронний
+підпис (§4.4), відмітка про КЕП за даними сертифіката + QR 21×21 мм (§5.10).
+Три листи: ТОВ→АТ, АТ→ТОВ (чинний сертифікат) та АТ→ТОВ зі СКАСОВАНИМ
+сертифікатом (Art.25) — щоб показати статус НЕДІЙСНИЙ (Art.24) і QR-флаг X.
+
+Запуск:
+    PYTHONPATH=src python3 scripts/generate_letters_tov_at.py [output_dir]
+"""
 
 from __future__ import annotations
 
@@ -123,11 +132,51 @@ def at_to_tov():
     return doc, content
 
 
+def at_to_tov_invalid():
+    """АТ → ТОВ: підпис СКАСОВАНИМ сертифікатом (Art.25) — статус НЕДІЙСНИЙ."""
+    doc = _e_letter("ELIST-AT-2026-205", "205/07-09")
+    content = DocumentContent(
+        org_name="АКЦІОНЕРНЕ ТОВАРИСТВО «ЕНЕРГОМАШ»",
+        doc_type="",
+        date_text="13.06.2026",
+        reg_index="205/07-09",
+        title="Про розгляд комерційної пропозиції",
+        body=(
+            "Шановний пане директоре!",
+            "АТ «Енергомаш» розглянуло Вашу комерційну пропозицію від 13.06.2026 "
+            "№ 118/02-15 щодо постачання обладнання.",
+            "Повідомляємо про готовність укласти договір на запропонованих умовах "
+            "після узгодження графіка постачання.",
+        ),
+        signature_position="Генеральний директор АТ «Енергомаш»",
+        signature_name="В. КОВАЛЬЧУК",
+        addressees=(
+            "ТОВ «ТЕХНОПРОМ»\nДиректору\nп. Лисенку М. О.",
+        ),
+        e_signature=ElectronicSignatureMark(
+            signer="КОВАЛЬЧУК Володимир Сергійович",
+            certificate_serial="A20C5E9148BD7F36",
+            issuer="АЦСК АТ «КБ «ПРИВАТБАНК»",
+            valid_from="15.02.2026",
+            valid_to="15.02.2028",
+            timestamp="13.06.2026 18:18:47 EET",
+            is_qualified=True,
+            # сертифікат скасовано за ст.25 → certificate_valid = False (Art.24)
+            status=CertificateStatus.CANCELLED,
+        ),
+    )
+    return doc, content
+
+
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     out_dir = Path(argv[0]) if argv else Path("samples/tov_at_e")
     rule_set = DefaultRuleSetProvider()
-    builders = {"tov_to_at": tov_to_at, "at_to_tov": at_to_tov}
+    builders = {
+        "tov_to_at": tov_to_at,
+        "at_to_tov": at_to_tov,
+        "at_to_tov_invalid": at_to_tov_invalid,
+    }
 
     for fmt, writer in (("docx", DocxDocumentWriter()), ("pdf", PdfDocumentWriter())):
         fmt_dir = out_dir / fmt
