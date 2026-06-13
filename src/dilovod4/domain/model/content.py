@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ..errors import InvariantViolation
+from .signature import ElectronicSignatureMark
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,9 @@ class DocumentContent:
     signature_position: str  # посада підписанта
     signature_name: str  # розшифрування підпису (І. ПРІЗВИЩЕ)
     addressees: tuple[str, ...] = field(default_factory=tuple)
+    # §4.4 реквізит 22 для е-документів: відмітка про КЕП/печатку (Art.18/24).
+    # Якщо задано — підпис відтворюється як відмітка по ключу, а не рукописний.
+    e_signature: ElectronicSignatureMark | None = None
 
     def __post_init__(self) -> None:
         if not self.org_name.strip():

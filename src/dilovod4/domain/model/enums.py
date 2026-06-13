@@ -49,3 +49,11 @@ class DateStyle(Enum):
     DIGITAL = "Digital"  # 07.12.2019  (день.місяць.рік)
     REVERSE_DIGITAL = "ReverseDigital"  # 2019.05.25  (рік.місяць.день)
     VERBAL_NUMERIC = "VerbalNumeric"  # 07 грудня 2019 року
+
+
+class CertificateStatus(Enum):
+    """Закон 2155-VIII, Art.24/Art.25. Статус кваліфікованого сертифіката."""
+
+    ACTIVE = "Active"  # чинний
+    BLOCKED = "Blocked"  # заблокований
+    CANCELLED = "Cancelled"  # скасований

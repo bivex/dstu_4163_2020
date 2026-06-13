@@ -4,12 +4,14 @@ from .content import DocumentContent
 from .document import Document
 from .enums import (
     BlankType,
+    CertificateStatus,
     DateStyle,
     PaperFormat,
     PrintSide,
     RequisiteAlignment,
     StorageTerm,
 )
+from .signature import ElectronicSignatureMark
 from .value_objects import (
     BlankSpec,
     DateSpec,
@@ -27,7 +29,9 @@ from .value_objects import (
 __all__ = [
     "Document",
     "DocumentContent",
+    "ElectronicSignatureMark",
     "BlankType",
+    "CertificateStatus",
     "DateStyle",
     "PaperFormat",
     "PrintSide",
