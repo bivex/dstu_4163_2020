@@ -8,6 +8,7 @@ from .pdf_writer import PdfDocumentWriter
 from .repository import InMemoryDocumentRepository
 from .rule_set_provider import DefaultRuleSetProvider
 from .uapki import (
+    CertInfo,
     SignResult,
     UapkiClient,
     UapkiError,
@@ -30,5 +31,6 @@ __all__ = [
     "UapkiError",
     "UapkiLibraryNotFound",
     "SignResult",
+    "CertInfo",
     "sign_file_pkcs12",
 ]

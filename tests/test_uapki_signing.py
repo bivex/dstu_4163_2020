@@ -112,3 +112,47 @@ def test_sign_result_to_signature_mark():
     assert mark.certificate_serial == result.cert_serial
     assert mark.certificate_valid
     assert mark.is_qualified
+
+
+def test_cert_info_extraction():
+    """GET_CERT + CERT_INFO витягують реальні поля X.509 підписувача."""
+    _client_or_skip()
+    _require_testdata()
+    result = sign_file_pkcs12(
+        file_path=str(_DATA / "test-fox.txt"),
+        pkcs12_path=str(_P12),
+        password="testpassword",
+        cert_cache_dir=str(_DATA / "certs"),
+        crl_cache_dir=str(_DATA / "crls"),
+        signature_format="CMS",
+        parse_cert=True,
+    )
+    assert result.cert is not None, "сертифікат підписувача має розібратися"
+    c = result.cert
+    assert c.serial_number
+    assert c.subject_cn  # напр. 'ДП ДІЯ (Тестування)'
+    assert c.issuer_cn  # надавач (АЦСК)
+    assert c.not_before and c.not_after
+
+
+def test_signature_mark_auto_from_real_cert():
+    """to_signature_mark_auto заповнює відмітку повністю з X.509, без хардкоду."""
+    _client_or_skip()
+    _require_testdata()
+    result = sign_file_pkcs12(
+        file_path=str(_DATA / "test-fox.txt"),
+        pkcs12_path=str(_P12),
+        password="testpassword",
+        cert_cache_dir=str(_DATA / "certs"),
+        crl_cache_dir=str(_DATA / "crls"),
+        signature_format="CMS",
+    )
+    mark = result.to_signature_mark_auto()
+    # поля взяті з реального сертифіката
+    assert mark.signer == result.cert.subject_cn or mark.signer == result.cert.subject_o
+    assert mark.certificate_serial == result.cert.serial_number
+    assert mark.issuer
+    # тестовий сертифікат Дія прострочений (дійсний до 2024) -> Art.24 НЕДІЙСНИЙ
+    assert result.cert.is_expired
+    assert not mark.certificate_valid
+    assert mark.status == CertificateStatus.CANCELLED

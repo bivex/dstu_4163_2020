@@ -164,6 +164,14 @@ class UapkiClient:
     def select_key(self, key_id: str) -> dict:
         return self.call("SELECT_KEY", {"id": key_id})
 
+    def get_cert(self, cert_id: str) -> str:
+        """Отримати сертифікат (base64 DER) за certId зі сховища сертифікатів."""
+        return self.call("GET_CERT", {"certId": cert_id})["bytes"]
+
+    def cert_info(self, cert_b64: str) -> dict:
+        """Розпарсити X.509-сертифікат (base64 DER) -> структура CERT_INFO."""
+        return self.call("CERT_INFO", {"bytes": cert_b64})
+
     def sign_bytes(
         self,
         data: bytes,
@@ -218,14 +226,102 @@ def _dir(path: str) -> str:
 
 
 @dataclass(frozen=True)
+class CertInfo:
+    """Розібрані поля X.509-сертифіката (підмножина CERT_INFO для відмітки)."""
+
+    serial_number: str
+    subject_cn: str
+    subject_o: str
+    issuer_cn: str
+    issuer_o: str
+    not_before: str  # "YYYY-MM-DD HH:MM:SS"
+    not_after: str
+
+    @staticmethod
+    def from_cert_info(info: dict) -> "CertInfo":
+        subj = info.get("subject", {})
+        iss = info.get("issuer", {})
+        val = info.get("validity", {})
+        return CertInfo(
+            serial_number=info.get("serialNumber", ""),
+            subject_cn=subj.get("CN", ""),
+            subject_o=subj.get("O", ""),
+            issuer_cn=iss.get("CN", ""),
+            issuer_o=iss.get("O", ""),
+            not_before=val.get("notBefore", ""),
+            not_after=val.get("notAfter", ""),
+        )
+
+    @property
+    def is_expired(self) -> bool:
+        """Art.24: чи минув строк дії сертифіката на поточний момент."""
+        from datetime import datetime, timezone
+
+        if not self.not_after:
+            return False
+        try:
+            na = datetime.strptime(self.not_after, "%Y-%m-%d %H:%M:%S").replace(
+                tzinfo=timezone.utc
+            )
+        except ValueError:
+            return False
+        return datetime.now(timezone.utc) > na
+
+
+def _date_display(ts: str) -> str:
+    """'2022-04-05 17:57:59' -> '05.04.2022' (стиль §5.10)."""
+    parts = ts.split(" ", 1)[0].split("-")
+    if len(parts) == 3:
+        y, m, d = parts
+        return f"{d}.{m}.{y}"
+    return ts
+
+
+@dataclass(frozen=True)
 class SignResult:
     """Результат підписання: контейнер + дані для доменної відмітки."""
 
     container: bytes  # CMS/CAdES контейнер (декодований з base64)
     signing_time: str | None
     key_id: str
-    cert_serial: str
+    cert_id: str  # SID сертифіката підписувача (для GET_CERT)
     signature_format: str
+    cert: CertInfo | None = None  # розібраний сертифікат підписувача (якщо є)
+
+    @property
+    def cert_serial(self) -> str:
+        """Серійний номер сертифіката (з розбору) або SID як запасний варіант."""
+        return self.cert.serial_number if self.cert else self.cert_id
+
+    def to_signature_mark_auto(
+        self,
+        *,
+        signer: str | None = None,
+        is_qualified: bool = True,
+    ) -> ElectronicSignatureMark:
+        """Зібрати ElectronicSignatureMark ПОВНІСТЮ з розібраного сертифіката.
+
+        Підписувач/видавець/строки беруться з X.509; статус виводиться за Art.24
+        (прострочений сертифікат -> CANCELLED-еквівалент через is_expired).
+        Потребує cert (виклик із sign_file_pkcs12, що тягне CERT_INFO).
+        """
+        if self.cert is None:
+            raise UapkiError("CERT_INFO", -1, {"error": "cert info not available"})
+        c = self.cert
+        status = (
+            CertificateStatus.CANCELLED if c.is_expired else CertificateStatus.ACTIVE
+        )
+        return ElectronicSignatureMark(
+            signer=signer or c.subject_cn or c.subject_o,
+            certificate_serial=c.serial_number,
+            issuer=c.issuer_cn or c.issuer_o,
+            valid_from=_date_display(c.not_before),
+            valid_to=_date_display(c.not_after),
+            timestamp=self.signing_time or "",
+            is_qualified=is_qualified,
+            status=status,
+            validity_period_expired=c.is_expired,
+        )
 
     def to_signature_mark(
         self,
@@ -237,12 +333,7 @@ class SignResult:
         is_qualified: bool = True,
         status: CertificateStatus = CertificateStatus.ACTIVE,
     ) -> ElectronicSignatureMark:
-        """Зібрати доменну ElectronicSignatureMark з результату підписання.
-
-        signer/issuer/valid_* поки що передаються явно (повний розбір X.509 із
-        контейнера — наступний крок через uapkif/CERT_INFO). timestamp береться з
-        кваліфікованої позначки часу UAPKI, якщо є.
-        """
+        """Зібрати ElectronicSignatureMark з явно переданими полями (ручний режим)."""
         return ElectronicSignatureMark(
             signer=signer,
             certificate_serial=self.cert_serial,
@@ -266,11 +357,13 @@ def sign_file_pkcs12(
     signature_format: str = "CMS",
     detached: bool = False,
     library_path: str | None = None,
+    parse_cert: bool = True,
 ) -> SignResult:
     """Високорівнева зручність: підписати файл ключем із PKCS#12-контейнера.
 
-    Виконує весь lifecycle INIT->OPEN->SELECT_KEY->SIGN->CLOSE->DEINIT і повертає
-    SignResult. key_id=None -> береться перший ключ контейнера.
+    Виконує lifecycle INIT->OPEN->SELECT_KEY->(GET_CERT/CERT_INFO)->SIGN->CLOSE.
+    key_id=None -> перший ключ контейнера. parse_cert=True тягне сертифікат
+    підписувача й розбирає його (subject/issuer/строки) для авто-відмітки.
     """
     with UapkiClient(library_path) as client:
         client.init(cert_cache_dir, crl_cache_dir, offline=True)
@@ -280,7 +373,16 @@ def sign_file_pkcs12(
             raise UapkiError("KEYS", -1, {"error": "no keys in container"})
         kid = key_id or keys[0]["id"]
         sel = client.select_key(kid)
-        cert_serial = sel.get("certId", "") or ""
+        cert_id = sel.get("certId", "") or ""
+
+        cert: CertInfo | None = None
+        if parse_cert and cert_id:
+            try:
+                cert_b64 = client.get_cert(cert_id)
+                cert = CertInfo.from_cert_info(client.cert_info(cert_b64))
+            except UapkiError:
+                cert = None
+
         sig = client.sign_bytes(
             _read(file_path),
             signature_format=signature_format,
@@ -290,8 +392,9 @@ def sign_file_pkcs12(
             container=base64.b64decode(sig["bytes"]),
             signing_time=sig.get("signingTime"),
             key_id=kid,
-            cert_serial=cert_serial,
+            cert_id=cert_id,
             signature_format=signature_format,
+            cert=cert,
         )
 
 
