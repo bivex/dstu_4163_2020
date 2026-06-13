@@ -46,6 +46,34 @@ dilovod4 samples/conformant.json
 Код повернення: `0` — документ відповідає, `1` — є порушення норми, `2` — помилка
 вхідних даних.
 
+## Генерація .docx
+
+Двигун уміє не лише перевіряти, а й **створювати** документи, що фізично
+реалізують оформлення ДСТУ (поля, Times New Roman, кеглі, інтервал, нумерація
+сторінок). Це окремий вихідний адаптер (порт `DocumentWriter`).
+
+```bash
+pip install -e ".[docx]"          # потрібен python-docx
+PYTHONPATH=src python3 scripts/generate_samples.py samples/docx
+```
+
+Скрипт збирає три реалістичні документи (наказ, лист, протокол), генерує .docx і
+перевіряє кожен на відповідність нормі. Готові зразки — у `samples/docx/`.
+
+Програмно:
+
+```python
+from dilovod4.application.generate_document import GenerateDocument
+from dilovod4.infrastructure.docx_writer import DocxDocumentWriter
+from dilovod4.infrastructure.rule_set_provider import DefaultRuleSetProvider
+
+use_case = GenerateDocument(writer=DocxDocumentWriter(), rule_set=DefaultRuleSetProvider())
+result = use_case.execute(document, content, "out.docx")  # перевіряє + пише
+```
+
+`Document` несе ПАРАМЕТРИ оформлення, `DocumentContent` — фактичний ТЕКСТ
+реквізитів. Розділення дозволяє перевіряти оформлення окремо від наповнення.
+
 ## Конфігурація (через оточення)
 
 | Env | Призначення | Типово |
