@@ -371,6 +371,40 @@ merged = combine_signatures(
 Усі підписи мають покривати однакові дані. Підписанти можуть бути рознесені в
 часі — кожен підписує свій CMS, потім їх зводять.
 
+### Підпис апаратним токеном (E.Key Almaz-1C, headless)
+
+Захищені носії (ЗНКІ) не віддають приватний ключ — підпис робить сам токен.
+UAPKI працює лише з файловими контейнерами, тож для токена є окремий адаптер
+`infrastructure/token_sign.py` — JSON-RPC до рідного native-messaging host ІІТ
+`euscpnmh` (його ставить «ІІТ Користувач ЦСК»). Протокол і структури відреверсено
+з euscprpc.dylib (idalib) + референс-клієнтів EUSignES6 / SA-SignInfo.
+
+```python
+from dilovod4.infrastructure.token_sign import sign_file_with_token
+
+res = sign_file_with_token(
+    file_path="document.pdf",
+    pin="…",                                   # лише у пам'яті, не логувати
+    cmp_url="ca.tax.gov.ua/services/cmp/",     # КНЕДП-емітент (повний шлях!)
+    with_timestamp=True,                        # CAdES-T (Art.26.4)
+    tsp_url="ca.tax.gov.ua/services/tsp/",
+    ocsp_url="ca.tax.gov.ua/services/ocsp/",
+)
+res.container        # CMS (CAdES-BES/T); res.has_timestamp; res.sign_type
+```
+
+Потік: euscp сам дотягує сертифікат підписувача з КНЕДП за ключем носія
+(`GetKeyInfo` → `GetCertificatesByKeyInfo`), у сховище кладеться ланцюг БЕЗ
+Key-Agreement-серта (інакше Sign code 50), підпис — через контекст
+`CtxCreate`→`CtxReadPrivateKey`→`CtxSign`. CAdES-T валідує позначку часу онлайн,
+тож потрібен досяжний OCSP. Перевірено: реальний токен E.Key Almaz-1C, КНЕДП ДПС,
+czo.gov.ua приймає як **Кваліфікований** підпис (CAdES-T з timeStampToken).
+CLI: `TOKEN_PIN='…' TOKEN_CADES_T=1 python3 scripts/token_sign_nmh.py <файл>`.
+
+УВАГА: апаратний токен має ліміт спроб ПІН (~3) → блокування. Невірний ПІН дає
+code 0x18 і ВИТРАЧАЄ спробу; помилки формату/носія (code 2/0x11) до автентифікації
+спробу не витрачають. ПІН — лише через пам'ять/env, ніколи в аргументах чи логах.
+
 ## Конфігурація (через оточення)
 
 | Env | Призначення | Типово |

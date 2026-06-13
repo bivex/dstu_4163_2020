@@ -24,6 +24,13 @@ from .uapki import (
 )
 from .cmp import CmpError, CmpResponse, build_request, fetch_certificate
 from .ca_registry import CaEndpoints, CaRegistryError, find_by_issuer_cn, list_providers
+from .token_sign import (
+    EuscpnmhClient,
+    TokenError,
+    TokenHostNotFound,
+    TokenSignResult,
+    sign_file_with_token,
+)
 
 __all__ = [
     "AppConfig",
@@ -57,4 +64,9 @@ __all__ = [
     "CaRegistryError",
     "find_by_issuer_cn",
     "list_providers",
+    "EuscpnmhClient",
+    "TokenError",
+    "TokenHostNotFound",
+    "TokenSignResult",
+    "sign_file_with_token",
 ]
