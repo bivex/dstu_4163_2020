@@ -177,12 +177,55 @@ class _Layout:
             self._wrapped(para, first_indent_mm=self.doc.left_indents.paragraph_mm)
             self._gap(0.3)
 
-        # підпис: посада + розшифрування
+        # підпис (§4.4 реквізит 22):
+        #   е-документ із відміткою КЕП → рамка-відмітка по ключу (Art.18/24);
+        #   інакше → рукописний реквізит «посада + розшифрування».
         self._gap(1.5)
-        self._line(
-            f"{self.content.signature_position}"
-            f"{' ' * 12}{self.content.signature_name}"
-        )
+        if self.doc.is_electronic and self.content.e_signature is not None:
+            self._draw_e_signature_mark(self.content.e_signature)
+        else:
+            self._line(
+                f"{self.content.signature_position}"
+                f"{' ' * 12}{self.content.signature_name}"
+            )
 
         # завершальна сторінка: номер (якщо 2+)
         self._draw_page_number()
+
+    def _draw_e_signature_mark(self, mark) -> None:
+        """Відмітка про електронний підпис, побудована за даними сертифіката.
+
+        Стик §4.4(22) ДСТУ ↔ Art.18/24 Закону 2155-VIII. Якщо сертифікат
+        нечинний (Art.24) — відмітка позначається як НЕДІЙСНА.
+        """
+        lines = [
+            (mark.signature_kind, _FONT_BOLD),
+            (f"Підписувач: {mark.signer}", _FONT_REGULAR),
+            (f"Сертифікат: {mark.certificate_serial}", _FONT_REGULAR),
+            (f"Видавець: {mark.issuer}", _FONT_REGULAR),
+            (f"Чинний: {mark.valid_from} – {mark.valid_to}", _FONT_REGULAR),
+            (f"Позначка часу: {mark.timestamp}", _FONT_REGULAR),
+        ]
+        if mark.certificate_valid:
+            lines.append(("Статус сертифіката: ЧИННИЙ", _FONT_BOLD))
+        else:
+            lines.append(("Статус сертифіката: НЕДІЙСНИЙ (ст.24)", _FONT_BOLD))
+
+        small = max(self.body_pt - 2, 8)  # §7.2: довідкові дані 8–12 pt
+        pad = 3 * mm
+        line_h = small * 1.25
+        box_h = line_h * len(lines) + 2 * pad
+        box_w = min(self.text_width, 95 * mm)  # §7.6: ширина реквізиту ≤73–95 мм
+
+        self._ensure_space(box_h + line_h)
+        top = self.y
+        bottom = top - box_h
+        self.c.setLineWidth(0.6)
+        self.c.rect(self.left, bottom, box_w, box_h, stroke=1, fill=0)
+
+        ty = top - pad - small
+        for text, font in lines:
+            self.c.setFont(font, small)
+            self.c.drawString(self.left + pad, ty, text)
+            ty -= line_h
+        self.y = bottom - line_h
