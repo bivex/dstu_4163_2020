@@ -197,6 +197,19 @@ class UapkiClient:
             sig["content"] = content_b64
         return self.call("VERIFY", {"signature": sig, "reportTime": True})
 
+    def modify_cms_add_signer(self, base_cms_b64: str, add_cms_b64: str, *, sign_index: int = 0) -> str:
+        """Додати SignerInfo з add_cms у base_cms -> один SignedData з кількома підписами.
+
+        Так реалізується підпис кількома КЕП: кожен підписує окремо (свій CMS),
+        потім підписи зводяться в один контейнер. Повертає об'єднаний CMS (base64).
+        """
+        res = self.call("MODIFY_CMS", {
+            "bytes": base_cms_b64,
+            "add": {"bytes": add_cms_b64, "signIndex": sign_index},
+            "options": {"returnContent": True},
+        })
+        return res["bytes"]
+
     def list_certs(self, *, offset: int = 0, page_size: int = 100) -> list[str]:
         """Перелік certId усіх сертифікатів у кеші."""
         return self.call("LIST_CERTS", {"offset": offset, "pageSize": page_size}).get(
@@ -719,3 +732,30 @@ def sign_file_auto(
         tsp_url=tsp,
         library_path=library_path,
     )
+
+
+def combine_signatures(
+    containers: list[bytes],
+    *,
+    cert_cache_dir: str,
+    crl_cache_dir: str,
+    library_path: str | None = None,
+) -> bytes:
+    """Звести кілька окремих CMS-підписів одного документа в один контейнер.
+
+    Кожен підписувач підписує документ своїм КЕП окремо (detached CMS); ця
+    функція зводить їх у єдиний SignedData з кількома SignerInfo (підпис кількома
+    КЕП «для факту»). Усі containers мають підписувати ОДНІ Й ТІ САМІ дані.
+
+    Реалізує патерн із MODIFY_CMS: береться перший CMS, у нього послідовно
+    додаються SignerInfo з решти. Повертає об'єднаний CMS (DER).
+    """
+    if len(containers) < 2:
+        raise UapkiError("MODIFY_CMS", -1, {"error": "потрібно щонайменше два підписи"})
+    with UapkiClient(library_path) as client:
+        client.init(cert_cache_dir, crl_cache_dir, offline=True)
+        merged_b64 = base64.b64encode(containers[0]).decode("ascii")
+        for extra in containers[1:]:
+            extra_b64 = base64.b64encode(extra).decode("ascii")
+            merged_b64 = client.modify_cms_add_signer(merged_b64, extra_b64)
+        return base64.b64decode(merged_b64)

@@ -349,6 +349,28 @@ res = sign_file_auto(
 `registry_source=<шлях|URL>`. Перевірено: `sign_file_auto(..., 'monobank')` →
 CAdES-T 4452 B із timeStampToken, адреси визначено автоматично.
 
+### Підпис кількома КЕП (кілька SignerInfo)
+
+UAPKI за один SIGN створює один SignerInfo. Щоб підписати документ кількома КЕП
+«для факту», кожен підписує окремо, а підписи зводяться в один CMS через
+MODIFY_CMS (один SignedData з кількома SignerInfo):
+
+```python
+from dilovod4.infrastructure.uapki import combine_signatures
+
+# cms1, cms2 — detached-підписи ОДНИХ І ТИХ САМИХ даних різними КЕП
+merged = combine_signatures(
+    [cms1, cms2],
+    cert_cache_dir="certs", crl_cache_dir="crls",
+)
+# merged — один контейнер із двома підписами; VERIFY поверне 2 signatureInfos
+```
+
+Перевірено на реальних ключах: документ підписано КЕП Monobank і тестовим КЕП
+Дія → об'єднано в один CMS 3382 B → VERIFY: 2 SignerInfo, обидва TOTAL-VALID.
+Усі підписи мають покривати однакові дані. Підписанти можуть бути рознесені в
+часі — кожен підписує свій CMS, потім їх зводять.
+
 ## Конфігурація (через оточення)
 
 | Env | Призначення | Типово |

@@ -18,6 +18,7 @@ from dilovod4.infrastructure.uapki import (
     UapkiError,
     UapkiLibraryNotFound,
     check_cert_status_online,
+    combine_signatures,
     sign_file_pkcs12,
     sign_file_with_remote_cert,
     verify_signature,
@@ -279,3 +280,44 @@ def test_sign_with_remote_cert_full_flow(tmp_path):
     )
     assert v.is_valid
     assert v.status == "TOTAL-VALID"
+
+
+def test_combine_two_signatures_one_container():
+    """Підпис двома КЕП: два окремі CMS зводяться в один SignedData (2 SignerInfo).
+
+    Використовує той самий тестовий ключ двічі над одними даними — доводить
+    механіку MODIFY_CMS (об'єднання підписів), не потребуючи другого ключа.
+    """
+    client = _client_or_skip()
+    _require_testdata()
+    data = b"document signed by two KEP\n"
+    client.init(str(_DATA / "certs"), str(_DATA / "crls"))
+    client.open_pkcs12(str(_P12), "testpassword")
+    client.select_key(client.list_keys()[0]["id"])
+
+    def _sign() -> bytes:
+        sig = client.sign_bytes(
+            data, signature_format="CAdES-BES", detached=True, ignore_cert_status=True
+        )
+        return base64.b64decode(sig["bytes"])
+
+    cms1, cms2 = _sign(), _sign()
+    client.close()
+
+    merged = combine_signatures(
+        [cms1, cms2],
+        cert_cache_dir=str(_DATA / "certs"),
+        crl_cache_dir=str(_DATA / "crls"),
+    )
+    # об'єднаний контейнер має містити обидва підписи й бути більшим за один
+    assert len(merged) > len(cms1)
+
+    v = verify_signature(
+        merged,
+        cert_cache_dir=str(_DATA / "certs"),
+        crl_cache_dir=str(_DATA / "crls"),
+        content=data,
+    )
+    infos = v.raw.get("signatureInfos", [])
+    assert len(infos) == 2  # два SignerInfo
+    assert all(si.get("statusSignature") == "VALID" for si in infos)
