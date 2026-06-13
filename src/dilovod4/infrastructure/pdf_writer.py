@@ -124,9 +124,10 @@ class _Layout:
             self.c.drawString(self.left + indent_mm * mm, self.y, text)
 
     def _wrapped(self, text: str, *, indent_mm: float = 0.0, first_indent_mm: float = 0.0,
-                 align=_ALIGN_FLAG) -> None:
+                 align=_ALIGN_FLAG, font=_FONT_REGULAR, size=None) -> None:
         """Перенесення абзацу по ширині тексту з урахуванням відступів (§7.7)."""
-        self.c.setFont(_FONT_REGULAR, self.body_pt)
+        size = size or self.body_pt
+        self.c.setFont(font, size)
         words = text.split()
         line = ""
         first = True
@@ -135,14 +136,20 @@ class _Layout:
         for word in words:
             trial = f"{line} {word}".strip()
             avail = avail_first if first else avail_rest
-            if pdfmetrics.stringWidth(trial, _FONT_REGULAR, self.body_pt) <= avail:
+            if pdfmetrics.stringWidth(trial, font, size) <= avail:
                 line = trial
             else:
-                self._line(line, indent_mm=first_indent_mm if first else indent_mm, align=align)
+                self._line(
+                    line, font=font, size=size,
+                    indent_mm=first_indent_mm if first else indent_mm, align=align,
+                )
                 first = False
                 line = word
         if line:
-            self._line(line, indent_mm=first_indent_mm if first else indent_mm, align=align)
+            self._line(
+                line, font=font, size=size,
+                indent_mm=first_indent_mm if first else indent_mm, align=align,
+            )
 
     def _gap(self, factor: float = 1.0) -> None:
         self.y -= self.leading * factor
@@ -154,29 +161,33 @@ class _Layout:
         if self.doc.is_electronic and self.content.e_signature is not None:
             self._draw_signature_qr(self.content.e_signature)
 
-        # 04 найменування юридичної особи — центрований, напівжирний
-        self._line(self.content.org_name, font=_FONT_BOLD, align=_ALIGN_CENTER)
+        # 04 найменування юридичної особи — центрований, напівжирний, з перенесенням
+        self._wrapped(self.content.org_name, align=_ALIGN_CENTER, font=_FONT_BOLD)
 
         # 09 назва виду — не на листах (§4.4), збільшений кегль (§7.2)
         if not self.doc.is_letter and self.content.doc_type.strip():
             self._gap(0.5)
-            self._line(
+            self._wrapped(
                 self.content.doc_type.upper(),
+                align=_ALIGN_CENTER,
                 font=_FONT_BOLD,
                 size=self.doc_type_pt,
-                align=_ALIGN_CENTER,
             )
 
         # 10 дата + 11 реєстраційний індекс
         self._gap()
         self._line(f"{self.content.date_text}    № {self.content.reg_index}")
 
-        # адресати — відступ 90 мм (§7.7)
+        # адресати — відступ 90 мм (§7.7), з перенесенням за шириною
         if self.content.addressees:
             self._gap()
             for addressee in self.content.addressees:
                 for part in addressee.split("\n"):
-                    self._line(part, indent_mm=self.doc.left_indents.addressee_mm)
+                    self._wrapped(
+                        part,
+                        indent_mm=self.doc.left_indents.addressee_mm,
+                        first_indent_mm=self.doc.left_indents.addressee_mm,
+                    )
 
         # 19 заголовок до тексту — центрований, напівжирний
         if self.content.title.strip():

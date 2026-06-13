@@ -226,3 +226,30 @@ def test_no_qr_for_paper_doc(tmp_path):
     page = pypdf.PdfReader(dest).pages[0]
     res = page.get("/Resources", {})
     assert "/XObject" not in res or not res["/XObject"]
+
+
+def test_long_org_name_and_addressee_wrap_within_margins(tmp_path):
+    """Регресія: довга шапка/адресат не виходять за поля, а переносяться."""
+    pypdf = pytest.importorskip("pypdf")
+    dest = str(tmp_path / "wrap.pdf")
+    long_content = DocumentContent(
+        org_name="ТОВАРИСТВО З ОБМЕЖЕНОЮ ВІДПОВІДАЛЬНІСТЮ «ТЕХНОПРОМ-ІНЖИНІРИНГ»",
+        doc_type="",
+        date_text="13.06.2026",
+        reg_index="01",
+        title="Тест",
+        body=("Текст.",),
+        signature_position="Директор",
+        signature_name="І. ТЕСТ",
+        addressees=("АКЦІОНЕРНЕ ТОВАРИСТВО «ЕНЕРГОМАШ-УКРАЇНА ХОЛДИНГ»",),
+    )
+    doc = conformant_document(is_letter=True)
+    _writer().write(doc, long_content, dest)
+    text = pypdf.PdfReader(dest).pages[0].extract_text() or ""
+    # довга назва перенеслася: токени присутні (можливо на різних рядках)
+    assert "ТЕХНОПРОМ-ІНЖИНІРИНГ" in text
+    assert "ЕНЕРГОМАШ-УКРАЇНА" in text
+    assert "ХОЛДИНГ" in text
+    # жоден рядок не довший за орієнтовну межу друкованих знаків
+    for line in text.splitlines():
+        assert len(line) <= 60, f"рядок завеликий (можливе виповзання): {line!r}"
