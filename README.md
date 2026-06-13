@@ -247,6 +247,31 @@ st.revocation_reason  # напр. CESSATION_OF_OPERATION
 Онлайн-перевірку (`offline=false`) виконуйте в окремому процесі або першою, до
 будь-якого offline-INIT у тому ж процесі.
 
+### Дотягування сертифіката з КНЕДП (CMP)
+
+Контейнери з лише приватними ключами (без вбудованого сертифіката) потребують
+дотягування сертифіката підписувача з КНЕДП за public-key-id. UAPKI вбудованого
+CMP-клієнта не має, тож `infrastructure/cmp.py` реалізує проприетарний
+IIT-«transport» формат (реверс jkurwa):
+
+```python
+from dilovod4.infrastructure.cmp import fetch_certificate
+
+# keyId = UAPKI keyId2 (ГОСТ 34.311 від стиснутої точки), hex -> bytes
+r = fetch_certificate(
+    key_id_primary=bytes.fromhex("…"),
+    cmp_url="http://ca.monobank.ua/services/cmp/",   # з реєстру CAs.json
+    key_id_secondary=bytes.fromhex("…"),
+)
+r.found          # True якщо сертифікат знайдено на CA
+r.result_code    # 1 = успіх; інакше сертифікат не знайдено
+```
+
+Адреси CMP/OCSP кожного КНЕДП — у реєстрі CAs.json (напр. iit.com.ua). Формат
+запиту: 120-байтовий payload з keyId на зміщеннях 0x0c/0x2c у ContentInfo
+type=data. ОБМЕЖЕННЯ: якщо сертифікат до ключів не випущено/знято, сервер
+повертає ненульовий код — це не помилка клієнта, а відсутність сертифіката.
+
 ## Конфігурація (через оточення)
 
 | Env | Призначення | Типово |

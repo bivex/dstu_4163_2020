@@ -19,6 +19,7 @@ from .uapki import (
     sign_file_pkcs12,
     verify_signature,
 )
+from .cmp import CmpError, CmpResponse, build_request, fetch_certificate
 
 __all__ = [
     "AppConfig",
@@ -41,4 +42,8 @@ __all__ = [
     "sign_file_pkcs12",
     "verify_signature",
     "check_cert_status_online",
+    "CmpError",
+    "CmpResponse",
+    "build_request",
+    "fetch_certificate",
 ]
