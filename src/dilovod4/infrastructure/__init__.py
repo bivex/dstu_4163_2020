@@ -3,6 +3,8 @@
 from .config import AppConfig
 from .document_mapper import MappingError, document_from_dict
 from .docx_writer import DocxDocumentWriter
+from .fonts import FontNotFoundError, FontPaths, resolve_times_new_roman
+from .pdf_writer import PdfDocumentWriter
 from .repository import InMemoryDocumentRepository
 from .rule_set_provider import DefaultRuleSetProvider
 
@@ -11,6 +13,10 @@ __all__ = [
     "MappingError",
     "document_from_dict",
     "DocxDocumentWriter",
+    "PdfDocumentWriter",
+    "FontPaths",
+    "FontNotFoundError",
+    "resolve_times_new_roman",
     "InMemoryDocumentRepository",
     "DefaultRuleSetProvider",
 ]
