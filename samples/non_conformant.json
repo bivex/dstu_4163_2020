@@ -1,0 +1,57 @@
+{
+  "doc_id": "DOC-2026-BAD",
+  "is_letter": false,
+  "is_electronic": false,
+  "requisites": {
+    "org_name": true,
+    "doc_type": false,
+    "date": true,
+    "reg_index": false,
+    "title": true,
+    "text": true,
+    "paper_signature": false,
+    "electronic_signature": false,
+    "electronic_seal": false
+  },
+  "geometry": {
+    "paper_format": "A4",
+    "margins": { "left": 25, "right": 10, "top": 20, "bottom": 20 },
+    "requisite_offset_mm": 5
+  },
+  "formatting": { "alignment": "Centered", "underlined_or_separated": true },
+  "typography": {
+    "is_times_new_roman": false,
+    "body_size_pt": 11,
+    "small_size_pt": 10,
+    "doc_type_size_pt": 18,
+    "multiline_row_chars": 40
+  },
+  "line_spacing": 2.0,
+  "left_indents": {
+    "paragraph_mm": 15,
+    "addressee_mm": 90,
+    "approval_mm": 100,
+    "restriction_mm": 100,
+    "signature_decode_mm": 125
+  },
+  "page_numbering": {
+    "page_count": 3,
+    "first_page_numbered": true,
+    "second_page_numbered": false,
+    "uses_word_or_punctuation": true
+  },
+  "storage_term": "Permanent",
+  "addressee_count": 6,
+  "appendix_count": 12,
+  "blank": { "blank_type": "SpecificView", "requisite_code": 6, "annual_units": 500 },
+  "date": { "style": "Digital", "is_joint_document": false },
+  "symbols": {
+    "coat_of_arms_height_mm": 20,
+    "coat_of_arms_width_mm": 12,
+    "emblem_height_mm": 20,
+    "qr_side_mm": 25,
+    "registration_zone_height_mm": 60,
+    "registration_zone_width_mm": 100
+  },
+  "tags": ["printed_both_sides"]
+}
