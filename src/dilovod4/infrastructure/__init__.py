@@ -7,6 +7,13 @@ from .fonts import FontNotFoundError, FontPaths, resolve_times_new_roman
 from .pdf_writer import PdfDocumentWriter
 from .repository import InMemoryDocumentRepository
 from .rule_set_provider import DefaultRuleSetProvider
+from .uapki import (
+    SignResult,
+    UapkiClient,
+    UapkiError,
+    UapkiLibraryNotFound,
+    sign_file_pkcs12,
+)
 
 __all__ = [
     "AppConfig",
@@ -19,4 +26,9 @@ __all__ = [
     "resolve_times_new_roman",
     "InMemoryDocumentRepository",
     "DefaultRuleSetProvider",
+    "UapkiClient",
+    "UapkiError",
+    "UapkiLibraryNotFound",
+    "SignResult",
+    "sign_file_pkcs12",
 ]
