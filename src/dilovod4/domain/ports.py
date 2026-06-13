@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from .model import Document
+from .model import Document, DocumentContent
 from .rules import ConformanceRule
 
 
@@ -28,4 +28,18 @@ class DocumentRepository(Protocol):
         ...
 
     def save(self, document: Document) -> None:
+        ...
+
+
+@runtime_checkable
+class DocumentWriter(Protocol):
+    """Порт: відтворення документа у конкретному форматі (.docx, .pdf, ...).
+
+    Адаптер фізично реалізує оформлення згідно з параметрами Document
+    (поля, гарнітура, кеглі, інтервал, нумерація) та наповнює його текстом
+    з DocumentContent. Домен не знає, у який саме формат і як саме.
+    """
+
+    def write(self, document: Document, content: DocumentContent, destination: str) -> str:
+        """Записати документ у destination. Повертає фактичний шлях."""
         ...

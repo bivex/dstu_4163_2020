@@ -2,7 +2,7 @@
 
 from .errors import DomainError, InvariantViolation
 from .events import DocumentValidated, DomainEvent
-from .ports import DocumentRepository, RuleSetProvider
+from .ports import DocumentRepository, DocumentWriter, RuleSetProvider
 
 __all__ = [
     "DomainError",
@@ -10,5 +10,6 @@ __all__ = [
     "DocumentValidated",
     "DomainEvent",
     "DocumentRepository",
+    "DocumentWriter",
     "RuleSetProvider",
 ]

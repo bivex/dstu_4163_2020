@@ -1,5 +1,6 @@
 """Доменна модель ДСТУ 4163:2020."""
 
+from .content import DocumentContent
 from .document import Document
 from .enums import (
     BlankType,
@@ -25,6 +26,7 @@ from .value_objects import (
 
 __all__ = [
     "Document",
+    "DocumentContent",
     "BlankType",
     "DateStyle",
     "PaperFormat",
