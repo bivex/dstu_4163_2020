@@ -19,6 +19,7 @@ from dilovod4.infrastructure.uapki import (
     UapkiLibraryNotFound,
     check_cert_status_online,
     sign_file_pkcs12,
+    sign_file_with_remote_cert,
     verify_signature,
 )
 
@@ -238,3 +239,43 @@ def test_online_ocsp_status():
     if st.is_revoked:
         assert st.revocation_time
         assert st.revocation_reason
+
+
+_INFORMJUST_CMP = "http://ca.informjust.ua/services/cmp/"
+
+
+def test_sign_with_remote_cert_full_flow(tmp_path):
+    """Єдиний потік: OPEN -> CMP fetch -> ADD_CERT -> CAdES-BES SIGN -> VERIFY.
+
+    Дотягує сертифікат тестового ключа Дія з ca.informjust.ua. Потребує мережі;
+    самопропускається офлайн або якщо CMP уже після offline-INIT у цьому процесі.
+    """
+    _client_or_skip()
+    _require_testdata()
+    target = tmp_path / "doc.bin"
+    target.write_bytes(b"document to sign with remote cert\n")
+    try:
+        res = sign_file_with_remote_cert(
+            file_path=str(target),
+            pkcs12_path=str(_P12),
+            password="testpassword",
+            cmp_url=_INFORMJUST_CMP,
+            cert_cache_dir=str(_DATA / "certs"),
+            crl_cache_dir=str(_DATA / "crls"),
+        )
+    except UapkiError as exc:
+        pytest.skip(f"CMP/підпис недоступні: {exc}")
+
+    assert len(res.container) > 0
+    assert res.cert is not None
+    assert res.cert.subject_cn  # підписувач із дотягнутого сертифіката
+
+    # верифікація detached-пари
+    v = verify_signature(
+        res.container,
+        cert_cache_dir=str(_DATA / "certs"),
+        crl_cache_dir=str(_DATA / "crls"),
+        content=target.read_bytes(),
+    )
+    assert v.is_valid
+    assert v.status == "TOTAL-VALID"

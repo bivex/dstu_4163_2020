@@ -585,3 +585,79 @@ def check_cert_status_online(
             )
         resp = client.cert_status_by_ocsp(issuer_cid, serial, ocsp_url)
         return OcspStatus.from_response(resp)
+
+
+def sign_file_with_remote_cert(
+    file_path: str,
+    pkcs12_path: str,
+    password: str,
+    cmp_url: str,
+    *,
+    cert_cache_dir: str,
+    crl_cache_dir: str,
+    key_id: str | None = None,
+    signature_format: str = "CAdES-BES",
+    detached: bool = True,
+    ignore_cert_status: bool = True,
+    library_path: str | None = None,
+) -> SignResult:
+    """Підписати файл, дотягнувши сертифікат підписувача з КНЕДП за CMP.
+
+    Повний потік для контейнерів БЕЗ вбудованого сертифіката (лише ключі):
+      OPEN -> SELECT_KEY -> CMP fetch за subjectKeyIdentifier -> ADD_CERT ->
+      CAdES-BES SIGN. Повертає SignResult із розібраним сертифікатом підписувача.
+
+    cmp_url — CMP-адреса КНЕДП із реєстру CAs.json
+              (напр. 'http://ca.monobank.ua/services/cmp/').
+    ignore_cert_status=True потрібен лише для прострочених/відкликаних ключів;
+    для чинного КЕП можна вимкнути. detached=True -> .p7s поряд із файлом.
+    """
+    # локальний імпорт, щоб уникнути циклічної залежності інфраструктури
+    from .cmp import CmpError, fetch_certificate
+
+    with UapkiClient(library_path) as client:
+        client.init(cert_cache_dir, crl_cache_dir, offline=True)
+        client.open_pkcs12(pkcs12_path, password)
+        keys = client.list_keys()
+        if not keys:
+            raise UapkiError("KEYS", -1, {"error": "no keys in container"})
+        kid = key_id or keys[0]["id"]
+        sel = client.select_key(kid)
+        ski = bytes.fromhex(sel["id"])  # subjectKeyIdentifier для CMP
+
+        # дотягуємо сертифікат підписувача (+ ланцюг) онлайн
+        try:
+            cmp_resp = fetch_certificate(ski, cmp_url)
+        except CmpError as exc:
+            raise UapkiError("CMP", -1, {"error": str(exc)}) from exc
+        if not cmp_resp.found or not cmp_resp.signer_cert:
+            raise UapkiError(
+                "CMP", cmp_resp.result_code,
+                {"error": "signer certificate not found on CA"},
+            )
+
+        # додаємо весь дотягнутий ланцюг у сховище
+        for cert_der in cmp_resp.certificates:
+            try:
+                client.add_cert(cert_der)
+            except UapkiError:
+                pass
+
+        cert = CertInfo.from_cert_info(
+            client.cert_info(base64.b64encode(cmp_resp.signer_cert).decode("ascii"))
+        )
+
+        sig = client.sign_bytes(
+            _read(file_path),
+            signature_format=signature_format,
+            detached=detached,
+            ignore_cert_status=ignore_cert_status,
+        )
+        return SignResult(
+            container=base64.b64decode(sig["bytes"]),
+            signing_time=sig.get("signingTime"),
+            key_id=kid,
+            cert_id=sel.get("certId", "") or "",
+            signature_format=signature_format,
+            cert=cert,
+        )

@@ -276,6 +276,34 @@ keyId2. Перевірено на ca.informjust.ua: дотягує повний 
 підпису CAdES-BES. ОБМЕЖЕННЯ: якщо сертифікат до ключів не випущено/знято, сервер
 повертає ненульовий код — це не помилка клієнта.
 
+### Єдиний потік: підпис із дотягуванням сертифіката
+
+`sign_file_with_remote_cert()` робить весь ланцюг одним викликом для контейнерів
+без вбудованого сертифіката (лише ключі): OPEN → CMP fetch за SKI → ADD_CERT →
+CAdES-BES SIGN.
+
+```python
+from dilovod4.infrastructure.uapki import sign_file_with_remote_cert, verify_signature
+
+res = sign_file_with_remote_cert(
+    file_path="document.pdf",
+    pkcs12_path="key.pfx", password="…",
+    cmp_url="http://ca.monobank.ua/services/cmp/",   # КНЕДП із CAs.json
+    cert_cache_dir="certs", crl_cache_dir="crls",
+)
+open("document.pdf.p7s", "wb").write(res.container)
+res.cert.subject_cn        # підписувач із дотягнутого сертифіката
+
+v = verify_signature(res.container, cert_cache_dir="certs",
+                     crl_cache_dir="crls", content=open("document.pdf","rb").read())
+v.is_valid                 # True -> TOTAL-VALID
+```
+
+Перевірено на реальному КЕП Monobank: контейнер лише з ключами → сертифікат
+дотягнуто з ca.monobank.ua → CAdES-BES → TOTAL-VALID. Для чинного КЕП можна
+вимкнути `ignore_cert_status`. УВАГА безпеки: `.p7s`/`.pfx`/`.p12` (реальні
+підписи та ключі — персональні дані) у `.gitignore`, у репозиторій не потрапляють.
+
 ## Конфігурація (через оточення)
 
 | Env | Призначення | Типово |

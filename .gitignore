@@ -28,3 +28,11 @@ htmlcov/
 .idea/
 *.swp
 .DS_Store
+
+# Real signatures / key material (personal data — never commit)
+*.p7s
+*.pfx
+*.p12
+*.dat
+*.key
+samples/uapki_signed/signed.pdf.p7s

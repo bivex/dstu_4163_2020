@@ -17,6 +17,7 @@ from .uapki import (
     VerifyResult,
     check_cert_status_online,
     sign_file_pkcs12,
+    sign_file_with_remote_cert,
     verify_signature,
 )
 from .cmp import CmpError, CmpResponse, build_request, fetch_certificate
@@ -40,6 +41,7 @@ __all__ = [
     "VerifyResult",
     "OcspStatus",
     "sign_file_pkcs12",
+    "sign_file_with_remote_cert",
     "verify_signature",
     "check_cert_status_online",
     "CmpError",
