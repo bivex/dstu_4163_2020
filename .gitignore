@@ -36,3 +36,4 @@ htmlcov/
 *.dat
 *.key
 samples/uapki_signed/signed.pdf.p7s
+samples/multipage/enakaz_3page.pdf
