@@ -17,10 +17,12 @@ from dilovod4.application.generate_document import GenerateDocument
 from dilovod4.domain.model import (
     BlankSpec,
     BlankType,
+    CertificateStatus,
     DateSpec,
     DateStyle,
     Document,
     DocumentContent,
+    ElectronicSignatureMark,
     FormattingSpec,
     Geometry,
     LeftIndents,
@@ -193,6 +195,57 @@ def build_protocol() -> tuple[Document, DocumentContent]:
     return doc, content
 
 
+def build_e_order() -> tuple[Document, DocumentContent]:
+    """Електронний наказ: реквізит 22 — КЕП (відмітка по ключу), Art.18/24."""
+    doc = Document(
+        doc_id="ENAKAZ-2026-031",
+        is_letter=False,
+        is_electronic=True,
+        requisites=RequisiteSet(True, True, True, True, True, True, False, True, False),
+        geometry=_conformant_geometry(),
+        formatting=FormattingSpec(RequisiteAlignment.CENTERED, False),
+        typography=_conformant_typography(),
+        line_spacing=LineSpacing(1.5),
+        left_indents=_conformant_indents(),
+        page_numbering=PageNumbering(1, False, False, False),
+        storage_term=StorageTerm.PERMANENT,
+        addressee_count=0,
+        appendix_count=0,
+        blank=BlankSpec(BlankType.SPECIFIC_VIEW, 9, 2500),
+        date=DateSpec(DateStyle.VERBAL_NUMERIC, False),
+        symbols=_conformant_symbols(),
+    )
+    content = DocumentContent(
+        org_name="ДЕРЖАВНЕ ПІДПРИЄМСТВО «УКРНДНЦ»",
+        doc_type="Наказ",
+        date_text="13 червня 2026 року",
+        reg_index="031-од",
+        title="Про перехід на електронний документообіг",
+        body=(
+            "Відповідно до Закону України «Про електронну ідентифікацію та електронні "
+            "довірчі послуги» НАКАЗУЮ:",
+            "1. Запровадити електронний документообіг із застосуванням кваліфікованого "
+            "електронного підпису.",
+            "2. Контроль за виконанням наказу залишаю за собою.",
+        ),
+        signature_position="Директор",
+        signature_name="О. ПЕТРЕНКО",
+        e_signature=ElectronicSignatureMark(
+            signer="ПЕТРЕНКО Олександр Іванович",
+            certificate_serial="58E2D9C1F0A4B7E3",
+            issuer="КН ЕДП «Дія»",
+            valid_from="01.01.2026",
+            valid_to="01.01.2028",
+            timestamp="13.06.2026 16:42:05 EET",
+            is_qualified=True,
+            status=CertificateStatus.ACTIVE,
+            validity_period_expired=False,
+            issuer_certificate_valid=True,
+        ),
+    )
+    return doc, content
+
+
 def _make_writer(fmt: str):
     if fmt == "docx":
         from dilovod4.infrastructure.docx_writer import DocxDocumentWriter
@@ -218,6 +271,7 @@ def main(argv: list[str] | None = None) -> int:
         "nakaz": build_order,
         "lyst": build_letter,
         "protokol": build_protocol,
+        "enakaz": build_e_order,
     }
 
     exit_code = 0

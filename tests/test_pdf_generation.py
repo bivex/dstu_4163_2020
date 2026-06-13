@@ -7,7 +7,11 @@ import pytest
 reportlab = pytest.importorskip("reportlab")
 
 from dilovod4.application.generate_document import GenerateDocument
-from dilovod4.domain.model import DocumentContent
+from dilovod4.domain.model import (
+    CertificateStatus,
+    DocumentContent,
+    ElectronicSignatureMark,
+)
 from dilovod4.infrastructure.fonts import FontNotFoundError, resolve_times_new_roman
 from dilovod4.infrastructure.pdf_writer import PdfDocumentWriter
 from dilovod4.infrastructure.rule_set_provider import DefaultRuleSetProvider
@@ -98,3 +102,79 @@ def test_font_resolves_on_system_or_skips():
 
     assert os.path.isfile(fonts.regular)
     assert os.path.isfile(fonts.bold)
+
+
+def _e_content(**mark_overrides) -> DocumentContent:
+    mark_kw = dict(
+        signer="ПЕТРЕНКО Олександр Іванович",
+        certificate_serial="58E2D9C1F0A4B7E3",
+        issuer="КН ЕДП «Дія»",
+        valid_from="01.01.2026",
+        valid_to="01.01.2028",
+        timestamp="13.06.2026 16:42:05 EET",
+    )
+    mark_kw.update(mark_overrides)
+    return DocumentContent(
+        org_name="ТОВ «ТЕСТ»",
+        doc_type="Наказ",
+        date_text="13.06.2026",
+        reg_index="01",
+        title="Електронний наказ",
+        body=("Текст електронного документа.",),
+        signature_position="Директор",
+        signature_name="І. ТЕСТ",
+        e_signature=ElectronicSignatureMark(**mark_kw),
+    )
+
+
+def test_e_signature_mark_rendered_for_electronic_doc(tmp_path):
+    pypdf = pytest.importorskip("pypdf")
+    dest = str(tmp_path / "esig.pdf")
+    doc = conformant_document(
+        is_electronic=True,
+        requisites=conformant_document().requisites,
+    )
+    _writer().write(doc, _e_content(), dest)
+    text = pypdf.PdfReader(dest).pages[0].extract_text() or ""
+    assert "Кваліфікований електронний підпис" in text
+    assert "58E2D9C1F0A4B7E3" in text
+    assert "ПЕТРЕНКО" in text
+    assert "ЧИННИЙ" in text
+
+
+def test_invalid_certificate_marked_as_invalid(tmp_path):
+    pypdf = pytest.importorskip("pypdf")
+    dest = str(tmp_path / "esig_bad.pdf")
+    doc = conformant_document(is_electronic=True)
+    content = _e_content(status=CertificateStatus.CANCELLED)
+    _writer().write(doc, content, dest)
+    text = pypdf.PdfReader(dest).pages[0].extract_text() or ""
+    assert "НЕДІЙСНИЙ" in text
+
+
+def test_paper_doc_keeps_handwritten_signature(tmp_path):
+    pypdf = pytest.importorskip("pypdf")
+    dest = str(tmp_path / "paper.pdf")
+    # паперовий документ ігнорує відмітку, навіть якщо її передано
+    doc = conformant_document(is_electronic=False)
+    _writer().write(doc, _e_content(), dest)
+    text = pypdf.PdfReader(dest).pages[0].extract_text() or ""
+    assert "Кваліфікований електронний підпис" not in text
+    assert "Директор" in text
+
+
+def test_certificate_valid_property():
+    mark = ElectronicSignatureMark(
+        signer="X",
+        certificate_serial="01",
+        issuer="CA",
+        valid_from="a",
+        valid_to="b",
+        timestamp="t",
+    )
+    assert mark.certificate_valid
+    blocked = ElectronicSignatureMark(
+        signer="X", certificate_serial="01", issuer="CA", valid_from="a",
+        valid_to="b", timestamp="t", status=CertificateStatus.BLOCKED,
+    )
+    assert not blocked.certificate_valid
