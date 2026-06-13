@@ -248,6 +248,9 @@ class _Layout:
         Кодує дані КЕП/печатки + кваліфіковану позначку часу (крос-лінк
         заголовка dstu-файлу). Навантаження будує домен (build_signature_qr_payload),
         растеризацію робить segno. Розмір — рівно 21 мм за нормою.
+
+        Щільність: компактний ASCII-payload + стандартна тиха зона (border=4) дають
+        читабельний модуль (~0.5 мм) на телефоні. Тиха зона ОБОВʼЯЗКОВА для сканування.
         """
         import segno  # локальний імпорт: залежність потрібна лише за наявності QR
 
@@ -255,14 +258,20 @@ class _Layout:
         qr = segno.make(payload, error="m")
 
         buf = io.BytesIO()
-        # без рамки (border=0): точний розмір контролюємо при розміщенні
+        # border=0: 21 мм — це САМ символ QR (§5.10). Тиху зону додаємо окремо
+        # білою підкладкою назовні, щоб не зменшувати модуль усередині 21 мм.
         qr.save(buf, kind="png", scale=10, border=0)
         buf.seek(0)
 
         side = _QR_SIDE_MM * mm
+        quiet = 3 * mm  # тиха зона назовні символу (критично для сканування)
         # верхній правий кут: усередині правого поля, на рівні верхнього поля
         x = self.page_w - self.right_margin - side
         y = self.page_h - self.top - side
+        # біла підкладка з тихою зоною навколо символу
+        self.c.setFillColorRGB(1, 1, 1)
+        self.c.rect(x - quiet, y - quiet, side + 2 * quiet, side + 2 * quiet, stroke=0, fill=1)
+        self.c.setFillColorRGB(0, 0, 0)
         self.c.drawImage(
             ImageReader(buf), x, y, width=side, height=side, preserveAspectRatio=True, mask="auto"
         )

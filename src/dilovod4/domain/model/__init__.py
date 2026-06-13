@@ -12,7 +12,11 @@ from .enums import (
     StorageTerm,
 )
 from .signature import ElectronicSignatureMark
-from .qr_payload import QR_PAYLOAD_VERSION, build_signature_qr_payload
+from .qr_payload import (
+    QR_PAYLOAD_PREFIX,
+    QR_PAYLOAD_VERSION,
+    build_signature_qr_payload,
+)
 from .value_objects import (
     BlankSpec,
     DateSpec,
@@ -33,6 +37,7 @@ __all__ = [
     "ElectronicSignatureMark",
     "build_signature_qr_payload",
     "QR_PAYLOAD_VERSION",
+    "QR_PAYLOAD_PREFIX",
     "BlankType",
     "CertificateStatus",
     "DateStyle",
