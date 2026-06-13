@@ -193,14 +193,26 @@ def build_protocol() -> tuple[Document, DocumentContent]:
     return doc, content
 
 
+def _make_writer(fmt: str):
+    if fmt == "docx":
+        from dilovod4.infrastructure.docx_writer import DocxDocumentWriter
+
+        return DocxDocumentWriter(), "docx"
+    if fmt == "pdf":
+        from dilovod4.infrastructure.pdf_writer import PdfDocumentWriter
+
+        return PdfDocumentWriter(), "pdf"
+    raise ValueError(f"невідомий формат: {fmt}")
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = argv if argv is not None else sys.argv[1:]
-    out_dir = Path(argv[0]) if argv else Path("samples/docx")
+    out_dir = Path(argv[0]) if argv else Path("samples")
+    # формати: другий аргумент CSV ('docx,pdf') або обидва за замовчуванням
+    formats = (argv[1].split(",") if len(argv) > 1 else ["docx", "pdf"])
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    writer = DocxDocumentWriter()
     rule_set = DefaultRuleSetProvider()
-    use_case = GenerateDocument(writer=writer, rule_set=rule_set)
 
     builders = {
         "nakaz": build_order,
@@ -209,19 +221,32 @@ def main(argv: list[str] | None = None) -> int:
     }
 
     exit_code = 0
-    for name, builder in builders.items():
-        doc, content = builder()
-        dest = str(out_dir / f"{name}.docx")
-        result = use_case.execute(doc, content, dest, validate=True)
-        report = result.report
-        status = "ВІДПОВІДАЄ" if (report and report.conforms) else "НЕ ВІДПОВІДАЄ"
-        findings = report.findings_count if report else "?"
-        print(f"[{status}] {result.path}  (знахідок: {findings})")
-        if report and not report.conforms:
-            exit_code = 1
-            for r in report.results:
-                for f in r.findings:
-                    print(f"    - {r.clause} {f.message}")
+    for fmt in formats:
+        fmt = fmt.strip()
+        try:
+            writer, ext = _make_writer(fmt)
+        except Exception as exc:  # noqa: BLE001 — діагностика на межі скрипта
+            print(f"[ПРОПУЩЕНО] формат {fmt}: {exc}")
+            continue
+
+        fmt_dir = out_dir / ext
+        fmt_dir.mkdir(parents=True, exist_ok=True)
+        # один і той самий use-case з різним адаптером (LSP)
+        use_case = GenerateDocument(writer=writer, rule_set=rule_set)
+
+        for name, builder in builders.items():
+            doc, content = builder()
+            dest = str(fmt_dir / f"{name}.{ext}")
+            result = use_case.execute(doc, content, dest, validate=True)
+            report = result.report
+            status = "ВІДПОВІДАЄ" if (report and report.conforms) else "НЕ ВІДПОВІДАЄ"
+            findings = report.findings_count if report else "?"
+            print(f"[{status}] {result.path}  (знахідок: {findings})")
+            if report and not report.conforms:
+                exit_code = 1
+                for r in report.results:
+                    for f in r.findings:
+                        print(f"    - {r.clause} {f.message}")
 
     print(f"\nЗгенеровано у: {out_dir.resolve()}")
     return exit_code
