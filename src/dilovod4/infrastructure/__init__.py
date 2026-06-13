@@ -9,11 +9,13 @@ from .repository import InMemoryDocumentRepository
 from .rule_set_provider import DefaultRuleSetProvider
 from .uapki import (
     CertInfo,
+    OcspStatus,
     SignResult,
     UapkiClient,
     UapkiError,
     UapkiLibraryNotFound,
     VerifyResult,
+    check_cert_status_online,
     sign_file_pkcs12,
     verify_signature,
 )
@@ -35,6 +37,8 @@ __all__ = [
     "SignResult",
     "CertInfo",
     "VerifyResult",
+    "OcspStatus",
     "sign_file_pkcs12",
     "verify_signature",
+    "check_cert_status_online",
 ]

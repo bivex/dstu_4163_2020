@@ -183,6 +183,38 @@ class UapkiClient:
             sig["content"] = content_b64
         return self.call("VERIFY", {"signature": sig, "reportTime": True})
 
+    def list_certs(self, *, offset: int = 0, page_size: int = 100) -> list[str]:
+        """Перелік certId усіх сертифікатів у кеші."""
+        return self.call("LIST_CERTS", {"offset": offset, "pageSize": page_size}).get(
+            "certIds", []
+        )
+
+    def cert_status_by_ocsp(
+        self, issuer_cert_id: str, serial_number: str, url: str, *, nonce_len: int = 20
+    ) -> dict:
+        """Онлайн-запит статусу сертифіката до OCSP-відповідача (Art.24).
+
+        Потрібен offline=false у INIT. Повертає сирий результат:
+        responseStatus, status (GOOD/REVOKED/UNKNOWN), revocationTime/Reason тощо.
+        """
+        return self.call("CERT_STATUS_BY_OCSP", {
+            "issuerCertId": issuer_cert_id,
+            "serialNumber": serial_number,
+            "url": url,
+            "nonceLen": nonce_len,
+        })
+
+    def find_issuer_cert_id(self, issuer_cn: str) -> str | None:
+        """Знайти certId сертифіката надавача в кеші за його CN."""
+        for cid in self.list_certs():
+            try:
+                info = self.cert_info(self.get_cert(cid))
+            except UapkiError:
+                continue
+            if info.get("subject", {}).get("CN") == issuer_cn:
+                return cid
+        return None
+
     def sign_bytes(
         self,
         data: bytes,
@@ -465,3 +497,68 @@ def verify_signature(
         content_b64 = base64.b64encode(content).decode("ascii") if content is not None else None
         report = client.verify(base64.b64encode(container).decode("ascii"), content_b64)
         return VerifyResult.from_verify(report)
+
+
+@dataclass(frozen=True)
+class OcspStatus:
+    """Онлайн-статус сертифіката за OCSP (Art.24)."""
+
+    response_status: str  # SUCCESSFUL / ... (статус OCSP-відповіді)
+    cert_status: str  # GOOD / REVOKED / UNKNOWN
+    produced_at: str | None
+    this_update: str | None
+    revocation_time: str | None
+    revocation_reason: str | None
+    raw: dict
+
+    @property
+    def is_good(self) -> bool:
+        return self.response_status == "SUCCESSFUL" and self.cert_status == "GOOD"
+
+    @property
+    def is_revoked(self) -> bool:
+        return self.cert_status == "REVOKED"
+
+    @staticmethod
+    def from_response(r: dict) -> "OcspStatus":
+        return OcspStatus(
+            response_status=r.get("responseStatus", ""),
+            cert_status=r.get("status", r.get("certStatus", "")),
+            produced_at=r.get("producedAt"),
+            this_update=r.get("thisUpdate"),
+            revocation_time=r.get("revocationTime"),
+            revocation_reason=r.get("revocationReason"),
+            raw=r,
+        )
+
+
+def check_cert_status_online(
+    cert_der: bytes,
+    *,
+    cert_cache_dir: str,
+    crl_cache_dir: str,
+    ocsp_url: str,
+    library_path: str | None = None,
+) -> OcspStatus:
+    """Онлайн-перевірка статусу сертифіката за OCSP (повна Art.24).
+
+    Парсить сертифікат, знаходить надавача в кеші за CN і запитує OCSP-відповідач.
+    Потребує мережі та сертифіката надавача (CA) у cert_cache_dir.
+
+    Обмеження: бібліотека — process-global singleton (один INIT на процес). Якщо
+    у цьому процесі вже виконано INIT з offline=True, онлайн-запит не спрацює —
+    виконуйте онлайн-перевірку в окремому процесі або першою.
+    """
+    with UapkiClient(library_path) as client:
+        client.init(cert_cache_dir, crl_cache_dir, offline=False)
+        info = client.cert_info(base64.b64encode(cert_der).decode("ascii"))
+        serial = info.get("serialNumber", "")
+        issuer_cn = info.get("issuer", {}).get("CN", "")
+        issuer_cid = client.find_issuer_cert_id(issuer_cn)
+        if not issuer_cid:
+            raise UapkiError(
+                "CERT_STATUS_BY_OCSP", -1,
+                {"error": f"issuer cert not found in cache: {issuer_cn}"},
+            )
+        resp = client.cert_status_by_ocsp(issuer_cid, serial, ocsp_url)
+        return OcspStatus.from_response(resp)

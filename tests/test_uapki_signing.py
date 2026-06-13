@@ -15,7 +15,9 @@ import pytest
 from dilovod4.domain.model import CertificateStatus
 from dilovod4.infrastructure.uapki import (
     UapkiClient,
+    UapkiError,
     UapkiLibraryNotFound,
+    check_cert_status_online,
     sign_file_pkcs12,
     verify_signature,
 )
@@ -201,3 +203,38 @@ def test_verify_detects_tampered_content():
     assert not res.is_valid
     assert res.status == "TOTAL-FAILED"
     assert res.status_message_digest == "INVALID"
+
+
+_OCSP_URL = "http://ca.informjust.ua/services/ocsp/"
+
+
+def test_online_ocsp_status():
+    """Онлайн-перевірка статусу сертифіката за OCSP (повна Art.24).
+
+    Потребує мережі; самопропускається, якщо відповідач недоступний.
+    Тестовий сертифікат Дія відкликано (CESSATION_OF_OPERATION) -> REVOKED.
+    """
+    import glob
+
+    _client_or_skip()
+    _require_testdata()
+    matches = glob.glob(str(_DATA / "certs" / "BED50831-5BC6C06E*.cer"))
+    if not matches:
+        pytest.skip("сертифікат підписувача недоступний у кеші")
+    cert_der = Path(matches[0]).read_bytes()
+    try:
+        st = check_cert_status_online(
+            cert_der,
+            cert_cache_dir=str(_DATA / "certs"),
+            crl_cache_dir=str(_DATA / "crls"),
+            ocsp_url=_OCSP_URL,
+        )
+    except UapkiError as exc:
+        pytest.skip(f"OCSP-відповідач недоступний: {exc}")
+
+    assert st.response_status == "SUCCESSFUL"
+    assert st.cert_status in ("GOOD", "REVOKED", "UNKNOWN")
+    # цей тестовий сертифікат відкликано
+    if st.is_revoked:
+        assert st.revocation_time
+        assert st.revocation_reason

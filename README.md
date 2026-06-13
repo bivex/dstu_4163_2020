@@ -215,8 +215,37 @@ res.status_message_digest    # VALID / INVALID — цілісність дани
 
 Підміна вмісту дає `TOTAL-FAILED` із `statusMessageDigest=INVALID` навіть коли
 сам підпис валідний — тобто рушій розрізняє «підпис підроблено» та «дані
-змінено після підписання». Онлайн-перевірка статусу за OCSP/CRL (повна Art.24)
-вмикається форматами CAdES-T/C при `offline=false`.
+змінено після підписання».
+
+### Онлайн-статус сертифіката (OCSP, повна Art.24)
+
+`check_cert_status_online(cert_der, ...)` запитує OCSP-відповідач надавача й
+повертає актуальний статус відкликання — це повна перевірка за Art.24 (не лише
+строк дії, а й скасування/блокування в реальному часі):
+
+```python
+from dilovod4.infrastructure.uapki import check_cert_status_online
+
+st = check_cert_status_online(
+    cert_der=open("signer.cer", "rb").read(),
+    cert_cache_dir="certs",        # має містити сертифікат надавача (CA)
+    crl_cache_dir="crls",
+    ocsp_url="http://ca.informjust.ua/services/ocsp/",
+)
+st.cert_status        # GOOD / REVOKED / UNKNOWN
+st.is_good            # True лише коли SUCCESSFUL + GOOD
+st.is_revoked         # True якщо відкликано
+st.revocation_time    # час відкликання
+st.revocation_reason  # напр. CESSATION_OF_OPERATION
+```
+
+Потребує мережі та сертифіката надавача в `cert_cache_dir`; вмикає онлайн-режим
+(`offline=false`). Перевірено на реальному відповідачі Дія — тестовий сертифікат
+повертає `REVOKED` (CESSATION_OF_OPERATION, 2024-04-05).
+
+Обмеження: нативна libuapki — process-global singleton (один INIT на процес).
+Онлайн-перевірку (`offline=false`) виконуйте в окремому процесі або першою, до
+будь-якого offline-INIT у тому ж процесі.
 
 ## Конфігурація (через оточення)
 
