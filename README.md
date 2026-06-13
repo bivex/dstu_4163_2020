@@ -252,7 +252,7 @@ st.revocation_reason  # напр. CESSATION_OF_OPERATION
 Контейнери з лише приватними ключами (без вбудованого сертифіката) потребують
 дотягування сертифіката підписувача з КНЕДП за public-key-id. UAPKI вбудованого
 CMP-клієнта не має, тож `infrastructure/cmp.py` реалізує проприетарний
-IIT-«transport» формат (реверс jkurwa):
+IIT-«transport» формат (сумісний із реалізацією jkurwa):
 
 ```python
 from dilovod4.infrastructure.cmp import fetch_certificate
@@ -376,8 +376,8 @@ merged = combine_signatures(
 Захищені носії (ЗНКІ) не віддають приватний ключ — підпис робить сам токен.
 UAPKI працює лише з файловими контейнерами, тож для токена є окремий адаптер
 `infrastructure/token_sign.py` — JSON-RPC до рідного native-messaging host ІІТ
-`euscpnmh` (його ставить «ІІТ Користувач ЦСК»). Протокол і структури відреверсено
-з euscprpc.dylib (idalib) + референс-клієнтів EUSignES6 / SA-SignInfo.
+`euscpnmh` (його ставить «ІІТ Користувач ЦСК»). Протокол і структури звірено
+з референс-клієнтами ІІТ EUSignES6 / SA-SignInfo.
 
 ```python
 from dilovod4.infrastructure.token_sign import sign_file_with_token
