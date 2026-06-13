@@ -219,13 +219,21 @@ class UapkiClient:
         self,
         data: bytes,
         *,
-        signature_format: str = "CMS",
+        signature_format: str = "CAdES-BES",
         detached: bool = False,
         include_cert: bool = True,
         include_time: bool = True,
+        ignore_cert_status: bool = False,
         doc_id: str = "doc-0",
     ) -> dict:
-        """Підписати дані вибраним ключем. Повертає об'єкт підпису (bytes у base64)."""
+        """Підписати дані вибраним ключем. Повертає об'єкт підпису (bytes у base64).
+
+        За замовчуванням CAdES-BES: SignerInfo version 1 (issuerAndSerialNumber) +
+        ESS signing-certificate — сумісно з українськими веб-перевірятниками
+        (czo.gov.ua). Формат 'CMS' дає SID за keyId (version 3), який деякі портали
+        не розпізнають ('не містить підписів'). ignore_cert_status — для CAdES
+        дозволяє підписати навіть простроченим/відкликаним тестовим сертифікатом.
+        """
         params: dict = {
             "signParams": {
                 "signatureFormat": signature_format,
@@ -236,6 +244,8 @@ class UapkiClient:
         if signature_format != "RAW":
             params["signParams"]["includeCert"] = include_cert
             params["signParams"]["includeTime"] = include_time
+        if ignore_cert_status:
+            params["options"] = {"ignoreCertStatus": True}
         result = self.call("SIGN", params)
         return result["signatures"][0]
 
@@ -397,8 +407,9 @@ def sign_file_pkcs12(
     cert_cache_dir: str,
     crl_cache_dir: str,
     key_id: str | None = None,
-    signature_format: str = "CMS",
+    signature_format: str = "CAdES-BES",
     detached: bool = False,
+    ignore_cert_status: bool = False,
     library_path: str | None = None,
     parse_cert: bool = True,
 ) -> SignResult:
@@ -407,6 +418,8 @@ def sign_file_pkcs12(
     Виконує lifecycle INIT->OPEN->SELECT_KEY->(GET_CERT/CERT_INFO)->SIGN->CLOSE.
     key_id=None -> перший ключ контейнера. parse_cert=True тягне сертифікат
     підписувача й розбирає його (subject/issuer/строки) для авто-відмітки.
+    Формат CAdES-BES (типово) сумісний із czo.gov.ua; для прострочених тестових
+    сертифікатів додайте ignore_cert_status=True.
     """
     with UapkiClient(library_path) as client:
         client.init(cert_cache_dir, crl_cache_dir, offline=True)
@@ -430,6 +443,7 @@ def sign_file_pkcs12(
             _read(file_path),
             signature_format=signature_format,
             detached=detached,
+            ignore_cert_status=ignore_cert_status,
         )
         return SignResult(
             container=base64.b64decode(sig["bytes"]),

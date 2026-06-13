@@ -1,9 +1,14 @@
 """Реальне підписання згенерованого PDF ключем через UAPKI.
 
-Демонструє повний ланцюг: згенерувати документ -> підписати його файл реальним
-ключем (DSTU 4145) через UAPKI -> зібрати ElectronicSignatureMark ПОВНІСТЮ з
-розібраного сертифіката -> перегенерувати PDF із КЕП-відміткою та QR за реальними
-даними підпису. Підпис (.p7s) зберігається поряд.
+Повний ланцюг:
+  1. згенерувати чернетку PDF;
+  2. підписати її, щоб витягти сертифікат і зібрати ElectronicSignatureMark;
+  3. перегенерувати ФІНАЛЬНИЙ PDF із КЕП-відміткою та QR за реальними даними;
+  4. підписати САМЕ фінальний PDF -> signed.pdf.p7s (detached);
+  5. перевірити пару (signed.pdf + signed.pdf.p7s) -> має бути TOTAL-VALID.
+
+Ключове: detached-підпис покриває той файл, що його показують (signed.pdf),
+а не чернетку — інакше дайджест не збігається й верифікація провалюється.
 
 Запуск:
     PYTHONPATH=src python3 scripts/sign_pdf_with_uapki.py [output_dir]
@@ -37,7 +42,11 @@ from dilovod4.domain.model import (
 )
 from dilovod4.infrastructure.pdf_writer import PdfDocumentWriter
 from dilovod4.infrastructure.rule_set_provider import DefaultRuleSetProvider
-from dilovod4.infrastructure.uapki import UapkiLibraryNotFound, sign_file_pkcs12
+from dilovod4.infrastructure.uapki import (
+    UapkiLibraryNotFound,
+    sign_file_pkcs12,
+    verify_signature,
+)
 
 UAPKI_DATA = (
     Path(__file__).resolve().parents[1]
@@ -80,6 +89,19 @@ def _build_e_document():
     return doc, content
 
 
+def _sign(path: str, p12: Path):
+    return sign_file_pkcs12(
+        file_path=path,
+        pkcs12_path=str(p12),
+        password="testpassword",
+        cert_cache_dir=str(UAPKI_DATA / "certs"),
+        crl_cache_dir=str(UAPKI_DATA / "crls"),
+        signature_format="CAdES-BES",  # SID issuerAndSerial (v1) — сумісно з czo.gov.ua
+        detached=True,  # відокремлений підпис .p7s поряд із PDF
+        ignore_cert_status=True,  # тестовий сертифікат прострочений/відкликаний
+    )
+
+
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     out_dir = Path(argv[0]) if argv else Path("samples/uapki_signed")
@@ -94,41 +116,22 @@ def main(argv=None):
     rule_set = DefaultRuleSetProvider()
     doc, content = _build_e_document()
 
-    # 1) Згенерувати PDF (поки що з placeholder-підписом)
+    # 1) Чернетка PDF (placeholder-підпис) — лише щоб витягти сертифікат
     draft = str(out_dir / "draft.pdf")
     GenerateDocument(writer=writer, rule_set=rule_set).execute(doc, content, draft)
-    print(f"[1] Чернетку PDF згенеровано: {draft}")
+    print(f"[1] Чернетку згенеровано: {draft}")
 
-    # 2) Підписати файл реальним ключем -> розібрати сертифікат
+    # 2) Підписати чернетку -> розібрати сертифікат -> зібрати відмітку
     try:
-        res = sign_file_pkcs12(
-            file_path=draft,
-            pkcs12_path=str(p12),
-            password="testpassword",
-            cert_cache_dir=str(UAPKI_DATA / "certs"),
-            crl_cache_dir=str(UAPKI_DATA / "crls"),
-            signature_format="CMS",
-            detached=True,  # відокремлений підпис .p7s поряд із PDF
-        )
+        res_draft = _sign(draft, p12)
     except UapkiLibraryNotFound:
-        print("libuapki не зібрана. Зберіть: external/UAPKI/library/bash build-uapki.sh macos-arm64")
+        print("libuapki не зібрана: external/UAPKI/library/ -> bash build-uapki.sh macos-arm64")
         return 1
+    mark = res_draft.to_signature_mark_auto()
+    print(f"[2] Відмітку зібрано з X.509: {mark.signer} | {mark.certificate_serial}")
+    print(f"      статус: {'ЧИННИЙ' if mark.certificate_valid else 'НЕДІЙСНИЙ (Art.24)'}")
 
-    p7s = out_dir / "draft.pdf.p7s"
-    p7s.write_bytes(res.container)
-    print(f"[2] Файл підписано (CMS, detached). Контейнер: {len(res.container)}B -> {p7s}")
-
-    # 3) Зібрати КЕП-відмітку ПОВНІСТЮ з реального сертифіката
-    mark = res.to_signature_mark_auto()
-    print(f"[3] Відмітку зібрано з X.509:")
-    print(f"      підписувач: {mark.signer}")
-    print(f"      сертифікат: {mark.certificate_serial}")
-    print(f"      видавець  : {mark.issuer}")
-    print(f"      чинний    : {mark.valid_from} – {mark.valid_to}")
-    print(f"      позначка  : {mark.timestamp}")
-    print(f"      статус    : {'ЧИННИЙ' if mark.certificate_valid else 'НЕДІЙСНИЙ (Art.24)'}")
-
-    # 4) Перегенерувати фінальний PDF із реальною відміткою + QR
+    # 3) ФІНАЛЬНИЙ PDF із реальною відміткою + QR
     signed_content = DocumentContent(
         org_name=content.org_name,
         doc_type=content.doc_type,
@@ -142,9 +145,30 @@ def main(argv=None):
     )
     final = str(out_dir / "signed.pdf")
     GenerateDocument(writer=writer, rule_set=rule_set).execute(doc, signed_content, final)
-    print(f"[4] Фінальний PDF із реальною КЕП-відміткою та QR: {final}")
+    print(f"[3] Фінальний PDF із КЕП-відміткою та QR: {final}")
+
+    # 4) Підписати САМЕ фінальний PDF -> signed.pdf.p7s
+    res_final = _sign(final, p12)
+    p7s = out_dir / "signed.pdf.p7s"
+    p7s.write_bytes(res_final.container)
+    print(f"[4] Підпис фінального файла: {len(res_final.container)}B -> {p7s}")
+
+    # 5) Перевірити пару (signed.pdf + signed.pdf.p7s)
+    verdict = verify_signature(
+        res_final.container,
+        cert_cache_dir=str(UAPKI_DATA / "certs"),
+        crl_cache_dir=str(UAPKI_DATA / "crls"),
+        content=Path(final).read_bytes(),
+    )
+    print(f"[5] Перевірка пари: status={verdict.status} "
+          f"(підпис={verdict.status_signature}, дайджест={verdict.status_message_digest})")
+
     print(f"\nЗгенеровано у: {out_dir.resolve()}")
-    return 0
+    # видаляємо застарілий чернетковий підпис, якщо лишився від старих запусків
+    old = out_dir / "draft.pdf.p7s"
+    if old.exists():
+        old.unlink()
+    return 0 if verdict.is_valid else 2
 
 
 if __name__ == "__main__":
