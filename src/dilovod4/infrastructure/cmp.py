@@ -1,35 +1,35 @@
 """CMP-клієнт КНЕДП (IIT-сумісний) — онлайн-дотягування сертифіката за keyId.
 
 Контейнери з лише приватними ключами (без вбудованого сертифіката) потребують
-дотягування сертифіката підписувача з КНЕДП за public-key-id. UAPKI вбудованого
-CMP-клієнта не має, тож реалізуємо проприетарний IIT-«transport» формат
-(перевірено реверсом jkurwa, https://github.com/muromec/jkurwa).
+дотягування сертифіката підписувача з КНЕДП. UAPKI вбудованого CMP-клієнта не
+має, тож реалізуємо проприетарний IIT-«transport» формат (реверс jkurwa,
+https://github.com/muromec/jkurwa).
 
-Формат запиту (НЕ RFC 4210): 120-байтовий payload з public-key-id на фіксованих
-зміщеннях, загорнутий у ContentInfo type=data:
+ВАЖЛИВО про ідентифікатор: CMP-сервер індексує сертифікати за
+**subjectKeyIdentifier** ключа (його UAPKI віддає як `id` у SELECT_KEY/KEYS —
+це SKI, напр. '5BC6C06E…'), а НЕ за keyId2 (ГОСТ-хеш стиснутої точки).
+Перевірено на ca.informjust.ua: із SKI сервер повертає повний ланцюг, із keyId2
+— код 9 (не знайдено).
+
+Формат запиту (НЕ RFC 4210): 120-байтовий payload з id на фіксованих зміщеннях,
+загорнутий у ContentInfo type=data:
     offset 0x00 = 0x0d  (маркер)
-    offset 0x08 = 0x02  (кількість keyId)
-    offset 0x0c = keyId[0]  (32 байти ГОСТ 34.311 від стиснутої точки)
-    offset 0x2c = keyId[1]  (другий keyId або повтор першого)
+    offset 0x08 = 0x02  (кількість id)
+    offset 0x0c = id[0]  (32 байти subjectKeyIdentifier)
+    offset 0x2c = id[1]  (другий id або повтор першого)
     offset 0x6c = 0x01
     offset 0x70 = 0x01
 
-public-key-id = ГОСТ 34.311 (блок замін №1, нульовий IV) від octet string зі
-стиснутою точкою відкритого ключа. UAPKI віддає його як `keyId2` у SELECT_KEY.
-
-Відповідь: ContentInfo type=data з payload, де перші байти — код результату
-(readInt32LE(4) == 1 -> успіх; інакше сертифікат не знайдено). За успіху payload
-містить вкладений ContentInfo із сертифікатами.
-
-ОБМЕЖЕННЯ: якщо до ключів не випущено (або знято) сертифікат, сервер повертає
-ненульовий код — це не помилка клієнта, а відсутність сертифіката на CA.
+Відповідь: ContentInfo type=data, OCTET STRING якого містить
+    [marker 0x0d | 0x000000 | resultLE(4) | вкладений CMS SignedData з сертифікатами]
+result == 1 -> успіх; інакше (напр. 9) сертифікат не знайдено.
 """
 
 from __future__ import annotations
 
 import struct
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # ContentInfo data: OID 1.2.840.113549.1.7.1
 _OID_DATA = bytes.fromhex("06092A864886F70D010701")
@@ -46,6 +46,22 @@ class CmpError(RuntimeError):
     """Помилка CMP-обміну (мережа або ненульовий код результату)."""
 
 
+# --- мінімальний DER-парсер (tag, length, value) ---
+def _read_tlv(buf: bytes, pos: int) -> tuple[int, int, int, int]:
+    """Повернути (tag, content_start, content_len, next_pos) для TLV на позиції pos."""
+    tag = buf[pos]
+    p = pos + 1
+    first = buf[p]
+    p += 1
+    if first < 0x80:
+        length = first
+    else:
+        nbytes = first & 0x7F
+        length = int.from_bytes(buf[p : p + nbytes], "big")
+        p += nbytes
+    return tag, p, length, p + length
+
+
 def _der_len(n: int) -> bytes:
     if n < 0x80:
         return bytes([n])
@@ -58,9 +74,9 @@ def _tlv(tag: int, value: bytes) -> bytes:
 
 
 def build_request(key_id_primary: bytes, key_id_secondary: bytes | None = None) -> bytes:
-    """Зібрати CMP-запит (IIT transport) для дотягування сертифіката за keyId.
+    """Зібрати CMP-запит (IIT transport) для дотягування сертифіката за id.
 
-    key_id_* — 32 байти public-key-id (ГОСТ 34.311), напр. UAPKI keyId2 (hex->bytes).
+    key_id_* — 32 байти subjectKeyIdentifier ключа (UAPKI `id` із SELECT_KEY).
     """
     if len(key_id_primary) != 32:
         raise CmpError(f"key_id_primary має бути 32 байти, отримано {len(key_id_primary)}")
@@ -81,31 +97,100 @@ def build_request(key_id_primary: bytes, key_id_secondary: bytes | None = None) 
     return _tlv(0x30, _OID_DATA + explicit)
 
 
+def _extract_octet_payload(resp: bytes) -> bytes | None:
+    """ContentInfo data -> вміст внутрішнього OCTET STRING."""
+    try:
+        tag, cs, cl, _ = _read_tlv(resp, 0)  # SEQUENCE
+        if tag != 0x30:
+            return None
+        pos = cs
+        # OID
+        t, s, l, nxt = _read_tlv(resp, pos)
+        pos = nxt
+        # [0] explicit
+        t, s, l, nxt = _read_tlv(resp, pos)
+        if t != 0xA0:
+            return None
+        # OCTET STRING всередині
+        t, s, l, nxt = _read_tlv(resp, s)
+        if t != 0x04:
+            return None
+        return resp[s : s + l]
+    except (IndexError, ValueError):
+        return None
+
+
+def _extract_certificates(inner_cms: bytes) -> list[bytes]:
+    """Витягти DER-сертифікати з вкладеного CMS SignedData (поле certificates [0])."""
+    certs: list[bytes] = []
+    try:
+        # ContentInfo SEQUENCE
+        t, cs, cl, _ = _read_tlv(inner_cms, 0)
+        if t != 0x30:
+            return certs
+        pos = cs
+        t, s, l, nxt = _read_tlv(inner_cms, pos)  # OID signedData
+        pos = nxt
+        t, s, l, nxt = _read_tlv(inner_cms, pos)  # [0]
+        if t != 0xA0:
+            return certs
+        # SignedData SEQUENCE
+        t, sd_s, sd_l, _ = _read_tlv(inner_cms, s)
+        if t != 0x30:
+            return certs
+        p = sd_s
+        end = sd_s + sd_l
+        # version INTEGER
+        _, _, _, p = _read_tlv(inner_cms, p)
+        # digestAlgorithms SET
+        _, _, _, p = _read_tlv(inner_cms, p)
+        # encapContentInfo SEQUENCE
+        _, _, _, p = _read_tlv(inner_cms, p)
+        # certificates [0] (IMPLICIT)
+        if p < end:
+            t, cert_s, cert_l, _ = _read_tlv(inner_cms, p)
+            if t == 0xA0:
+                cp = cert_s
+                cend = cert_s + cert_l
+                while cp < cend:
+                    ct_tag, _, _, cnext = _read_tlv(inner_cms, cp)
+                    if ct_tag == 0x30:  # Certificate SEQUENCE
+                        certs.append(inner_cms[cp:cnext])
+                    cp = cnext
+    except (IndexError, ValueError):
+        pass
+    return certs
+
+
 @dataclass(frozen=True)
 class CmpResponse:
     """Розібрана відповідь CMP."""
 
     result_code: int  # 1 = успіх; інакше сертифікат не знайдено
     raw: bytes
+    certificates: tuple[bytes, ...] = field(default_factory=tuple)
 
     @property
     def found(self) -> bool:
         return self.result_code == 1
 
+    @property
+    def signer_cert(self) -> bytes | None:
+        """Перший сертифікат у ланцюгу — зазвичай сертифікат підписувача."""
+        return self.certificates[0] if self.certificates else None
+
 
 def parse_response(resp: bytes) -> CmpResponse:
-    """Витягти код результату з відповіді CMP (readInt32LE на payload offset 4)."""
-    # payload — у вкладеному OCTET STRING; для коду достатньо останніх/перших байт
-    # IIT кладе [marker(0x0d) | 0x000000 | resultLE(4) | ...]. Беремо int32 LE з offset 4
-    # всередині OCTET STRING. Знаходимо OCTET STRING (тег 0x04) у структурі.
-    code = -1
-    idx = resp.find(b"\x04\x08")  # OCTET STRING довжиною 8 у короткій відповіді
-    if idx >= 0 and idx + 2 + 8 <= len(resp):
-        payload = resp[idx + 2 : idx + 2 + 8]
-        code = struct.unpack("<I", payload[4:8])[0]
-    elif len(resp) >= 4:
-        code = struct.unpack("<I", resp[-4:])[0]
-    return CmpResponse(result_code=code, raw=resp)
+    """Розібрати відповідь CMP: код результату + вкладені сертифікати."""
+    payload = _extract_octet_payload(resp)
+    if payload is None or len(payload) < 8:
+        # коротка відповідь без обгортки — спроба прочитати хвіст
+        code = struct.unpack("<I", resp[-4:])[0] if len(resp) >= 4 else -1
+        return CmpResponse(result_code=code, raw=resp)
+    # [marker(0x0d) 0x000000 | resultLE(4) | inner CMS]
+    code = struct.unpack("<I", payload[4:8])[0]
+    certs = tuple(_extract_certificates(payload[8:])) if code == 1 else ()
+    return CmpResponse(result_code=code, raw=resp, certificates=certs)
 
 
 def fetch_certificate(
@@ -115,11 +200,10 @@ def fetch_certificate(
     key_id_secondary: bytes | None = None,
     timeout: int = 30,
 ) -> CmpResponse:
-    """Дотягнути сертифікат за keyId з CMP-сервера КНЕДП.
+    """Дотягнути сертифікат за subjectKeyIdentifier з CMP-сервера КНЕДП.
 
-    cmp_url — напр. 'http://ca.monobank.ua/services/cmp/' (з реєстру CAs.json).
-    Повертає CmpResponse; .found == True означає, що сертифікат знайдено
-    (повний розбір вкладених сертифікатів — наступний крок за потреби).
+    cmp_url — напр. 'http://ca.informjust.ua/services/cmp/' (з реєстру CAs.json).
+    .found == True та .signer_cert містить DER сертифіката підписувача за успіху.
     """
     payload = build_request(key_id_primary, key_id_secondary)
     req = urllib.request.Request(

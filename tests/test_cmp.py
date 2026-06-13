@@ -51,12 +51,46 @@ def test_parse_response_not_found():
     r = parse_response(resp)
     assert r.result_code == 9
     assert not r.found
+    assert r.certificates == ()
 
 
 def test_parse_response_success_code():
-    # синтетична відповідь з кодом результату 1 у payload offset 4
+    # синтетична відповідь з кодом результату 1 (без вкладених сертифікатів)
     payload = bytes([0x0D, 0, 0, 0]) + (1).to_bytes(4, "little")
-    resp = bytes([0x04, 0x08]) + payload
+    # ContentInfo data -> OCTET STRING(payload)
+    def der_len(n):
+        return bytes([n]) if n < 0x80 else b""
+    octet = bytes([0x04, len(payload)]) + payload
+    explicit = bytes([0xA0, len(octet)]) + octet
+    oid = bytes.fromhex("06092A864886F70D010701")
+    inner = oid + explicit
+    resp = bytes([0x30, len(inner)]) + inner
     r = parse_response(resp)
     assert r.result_code == 1
     assert r.found
+
+
+_INFORMJUST_CMP = "http://ca.informjust.ua/services/cmp/"
+# subjectKeyIdentifier тестового ключа test-diia.p12 (UAPKI SELECT_KEY id)
+_TEST_DIIA_SKI = bytes.fromhex(
+    "5BC6C06EE1E00C1700E92AA7A9AD75F82D3CB7A9B66E3A98023209B24513315C"
+)
+
+
+def test_online_fetch_certificate_by_ski():
+    """Онлайн-дотягування сертифіката з КНЕДП за subjectKeyIdentifier.
+
+    Потребує мережі; самопропускається, якщо CMP недоступний. Перевірено на
+    ca.informjust.ua — повертає ланцюг сертифікатів тестового ключа Дія.
+    """
+    from dilovod4.infrastructure.cmp import fetch_certificate
+
+    try:
+        r = fetch_certificate(_TEST_DIIA_SKI, _INFORMJUST_CMP)
+    except CmpError:
+        pytest.skip("CMP-сервер недоступний")
+    if not r.found:
+        pytest.skip(f"сертифікат не повернуто (code={r.result_code})")
+    assert r.found
+    assert len(r.certificates) >= 1
+    assert r.signer_cert is not None

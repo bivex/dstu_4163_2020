@@ -172,6 +172,15 @@ class UapkiClient:
         """Розпарсити X.509-сертифікат (base64 DER) -> структура CERT_INFO."""
         return self.call("CERT_INFO", {"bytes": cert_b64})
 
+    def add_cert(self, cert_der: bytes, *, permanent: bool = False) -> dict:
+        """Додати сертифікат (DER) до сховища (напр. дотягнутий по CMP)."""
+        import base64 as _b64
+
+        return self.call("ADD_CERT", {
+            "certificates": [_b64.b64encode(cert_der).decode("ascii")],
+            "permanent": permanent,
+        })
+
     def verify(self, container_b64: str, content_b64: str | None = None) -> dict:
         """Перевірити підпис (CMS/CAdES, base64). Для detached — додати content.
 

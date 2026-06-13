@@ -257,20 +257,24 @@ IIT-«transport» формат (реверс jkurwa):
 ```python
 from dilovod4.infrastructure.cmp import fetch_certificate
 
-# keyId = UAPKI keyId2 (ГОСТ 34.311 від стиснутої точки), hex -> bytes
+# id = subjectKeyIdentifier ключа (UAPKI SELECT_KEY 'id'), hex -> bytes
 r = fetch_certificate(
-    key_id_primary=bytes.fromhex("…"),
-    cmp_url="http://ca.monobank.ua/services/cmp/",   # з реєстру CAs.json
-    key_id_secondary=bytes.fromhex("…"),
+    key_id_primary=bytes.fromhex("5BC6C06E…"),
+    cmp_url="http://ca.informjust.ua/services/cmp/",   # з реєстру CAs.json
 )
 r.found          # True якщо сертифікат знайдено на CA
 r.result_code    # 1 = успіх; інакше сертифікат не знайдено
+r.signer_cert    # DER сертифіката підписувача (за успіху)
+r.certificates   # повний дотягнутий ланцюг (DER)
 ```
 
 Адреси CMP/OCSP кожного КНЕДП — у реєстрі CAs.json (напр. iit.com.ua). Формат
-запиту: 120-байтовий payload з keyId на зміщеннях 0x0c/0x2c у ContentInfo
-type=data. ОБМЕЖЕННЯ: якщо сертифікат до ключів не випущено/знято, сервер
-повертає ненульовий код — це не помилка клієнта, а відсутність сертифіката.
+запиту: 120-байтовий payload з id на зміщеннях 0x0c/0x2c у ContentInfo type=data.
+ВАЖЛИВО: сервер індексує за **subjectKeyIdentifier** ключа (UAPKI `id`), а НЕ за
+keyId2. Перевірено на ca.informjust.ua: дотягує повний ланцюг тестового КЕП Дія.
+Далі сертифікат додається у сховище через `client.add_cert(der)` і доступний для
+підпису CAdES-BES. ОБМЕЖЕННЯ: якщо сертифікат до ключів не випущено/знято, сервер
+повертає ненульовий код — це не помилка клієнта.
 
 ## Конфігурація (через оточення)
 
