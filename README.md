@@ -54,7 +54,7 @@ dilovod4 samples/conformant.json
 
 ```bash
 pip install -e ".[docx]"          # потрібен python-docx
-PYTHONPATH=src python3 scripts/generate_samples.py samples/docx
+PYTHONPATH=src python3 scripts/generate_samples.py samples docx
 ```
 
 Скрипт збирає три реалістичні документи (наказ, лист, протокол), генерує .docx і
@@ -73,6 +73,35 @@ result = use_case.execute(document, content, "out.docx")  # перевіряє +
 
 `Document` несе ПАРАМЕТРИ оформлення, `DocumentContent` — фактичний ТЕКСТ
 реквізитів. Розділення дозволяє перевіряти оформлення окремо від наповнення.
+
+## Генерація .pdf
+
+PDF-адаптер реалізує **той самий** порт `DocumentWriter` (LSP) — взаємозамінний
+з docx без зміни use-case. Будується на reportlab; кирилицю забезпечує системний
+TTF Times New Roman.
+
+```bash
+pip install -e ".[pdf]"           # потрібен reportlab
+PYTHONPATH=src python3 scripts/generate_samples.py samples pdf
+# обидва формати одразу (типово):
+PYTHONPATH=src python3 scripts/generate_samples.py samples
+```
+
+```python
+from dilovod4.infrastructure.pdf_writer import PdfDocumentWriter
+use_case = GenerateDocument(writer=PdfDocumentWriter(), rule_set=DefaultRuleSetProvider())
+result = use_case.execute(document, content, "out.pdf")
+```
+
+Шрифт шукається автоматично (macOS/Linux). Перевизначити шлях — через оточення:
+
+| Env | Призначення |
+|---|---|
+| `DILOVOD4_FONT_REGULAR` | шлях до TTF звичайного накреслення |
+| `DILOVOD4_FONT_BOLD` | шлях до TTF напівжирного (необовʼязково) |
+
+Якщо Times New Roman відсутній — використовуйте метрично сумісну Liberation Serif
+або вкажіть власний TTF через env. Готові зразки — у `samples/pdf/`.
 
 ## Конфігурація (через оточення)
 
