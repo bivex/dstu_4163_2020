@@ -327,6 +327,28 @@ res = sign_file_with_remote_cert(
 довіреної позначки (а не самозаявлений час хоста). TSP/OCSP/CMP-адреси — у
 реєстрі CAs.json.
 
+### Автоматичний підпис за реєстром КНЕДП
+
+`sign_file_auto()` сам визначає CMP/TSP-адреси з реєстру CAs.json за назвою
+надавача — URL вручну не потрібні:
+
+```python
+from dilovod4.infrastructure.uapki import sign_file_auto
+
+res = sign_file_auto(
+    file_path="document.pdf",
+    pkcs12_path="key.pfx", password="…",
+    provider_cn="monobank",        # issuer CN КНЕДП (частковий збіг ок)
+    cert_cache_dir="certs", crl_cache_dir="crls",
+    with_timestamp=True,           # CAdES-T із кваліфікованою позначкою часу
+)
+```
+
+Реєстр (снапшот `infrastructure/data/CAs.json`, ~30 КНЕДП) резолвить cmp/tsp/ocsp
+за issuer CN. Оновити — завантажити свіжий із iit.com.ua або передати
+`registry_source=<шлях|URL>`. Перевірено: `sign_file_auto(..., 'monobank')` →
+CAdES-T 4452 B із timeStampToken, адреси визначено автоматично.
+
 ## Конфігурація (через оточення)
 
 | Env | Призначення | Типово |

@@ -17,10 +17,12 @@ from .uapki import (
     VerifyResult,
     check_cert_status_online,
     sign_file_pkcs12,
+    sign_file_auto,
     sign_file_with_remote_cert,
     verify_signature,
 )
 from .cmp import CmpError, CmpResponse, build_request, fetch_certificate
+from .ca_registry import CaEndpoints, CaRegistryError, find_by_issuer_cn, list_providers
 
 __all__ = [
     "AppConfig",
@@ -41,6 +43,7 @@ __all__ = [
     "VerifyResult",
     "OcspStatus",
     "sign_file_pkcs12",
+    "sign_file_auto",
     "sign_file_with_remote_cert",
     "verify_signature",
     "check_cert_status_online",
@@ -48,4 +51,8 @@ __all__ = [
     "CmpResponse",
     "build_request",
     "fetch_certificate",
+    "CaEndpoints",
+    "CaRegistryError",
+    "find_by_issuer_cn",
+    "list_providers",
 ]

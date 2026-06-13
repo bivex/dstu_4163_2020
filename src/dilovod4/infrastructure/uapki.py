@@ -670,3 +670,52 @@ def sign_file_with_remote_cert(
             signature_format=signature_format,
             cert=cert,
         )
+
+
+def sign_file_auto(
+    file_path: str,
+    pkcs12_path: str,
+    password: str,
+    provider_cn: str,
+    *,
+    cert_cache_dir: str,
+    crl_cache_dir: str,
+    with_timestamp: bool = True,
+    ignore_cert_status: bool = True,
+    registry_source: str | None = None,
+    library_path: str | None = None,
+) -> SignResult:
+    """Підписати файл, визначивши CMP/TSP-адреси КНЕДП автоматично з реєстру.
+
+    provider_cn — issuer CN надавача (напр. 'monobank' або повна назва);
+    CMP/TSP резолвляться з CAs.json за цим CN, тож URL вручну не потрібні.
+    with_timestamp=True -> CAdES-T із кваліфікованою позначкою часу (Art.26.4),
+    інакше CAdES-BES. registry_source — шлях/URL до власної копії CAs.json.
+    """
+    from .ca_registry import CaRegistryError, find_by_issuer_cn
+
+    try:
+        ca = find_by_issuer_cn(provider_cn, source=registry_source)
+    except CaRegistryError as exc:
+        raise UapkiError("CA_REGISTRY", -1, {"error": str(exc)}) from exc
+    if not ca.cmp_url:
+        raise UapkiError("CA_REGISTRY", -1, {"error": f"немає CMP-адреси для {provider_cn!r}"})
+
+    fmt = "CAdES-T" if with_timestamp else "CAdES-BES"
+    tsp = ca.tsp_url if with_timestamp else None
+    if with_timestamp and not tsp:
+        raise UapkiError("CA_REGISTRY", -1, {"error": f"немає TSP-адреси для {provider_cn!r}"})
+
+    return sign_file_with_remote_cert(
+        file_path,
+        pkcs12_path,
+        password,
+        ca.cmp_url,
+        cert_cache_dir=cert_cache_dir,
+        crl_cache_dir=crl_cache_dir,
+        signature_format=fmt,
+        detached=True,
+        ignore_cert_status=ignore_cert_status,
+        tsp_url=tsp,
+        library_path=library_path,
+    )
