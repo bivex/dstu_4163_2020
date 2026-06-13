@@ -163,6 +163,35 @@ def test_paper_doc_keeps_handwritten_signature(tmp_path):
     assert "Директор" in text
 
 
+def test_kep_box_wraps_long_lines_within_width():
+    """Регресія: довгі рядки відмітки (серійник, видавець) переносяться у рамці."""
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    from dilovod4.infrastructure.fonts import FontNotFoundError, resolve_times_new_roman
+    from dilovod4.infrastructure.pdf_writer import _Layout
+
+    try:
+        fonts = resolve_times_new_roman()
+    except FontNotFoundError:
+        pytest.skip("Times New Roman недоступний")
+    pdfmetrics.registerFont(TTFont("DSTU-Serif", fonts.regular))
+
+    layout = _Layout.__new__(_Layout)  # лише для _wrap_to_width
+    small, avail = 12.0, 89.0  # ширина рамки мінус padding
+    avail_pt = avail / 25.4 * 72
+    long_lines = [
+        "Сертифікат: 3ED5083160DBC59B04000000A91E060073A57600",
+        'Видавець: "Дія". Кваліфікований надавач електронних довірчих послуг',
+    ]
+    for text in long_lines:
+        pieces = layout._wrap_to_width(text, "DSTU-Serif", small, avail)
+        assert len(pieces) >= 2, f"очікувався перенос: {text!r}"
+        for p in pieces:
+            w = pdfmetrics.stringWidth(p, "DSTU-Serif", small)
+            assert w <= avail_pt + 2, f"шматок ширший за рамку: {p!r}"
+
+
 def test_certificate_valid_property():
     mark = ElectronicSignatureMark(
         signer="X",

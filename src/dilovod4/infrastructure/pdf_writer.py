@@ -219,9 +219,10 @@ class _Layout:
         """Відмітка про електронний підпис, побудована за даними сертифіката.
 
         Стик §4.4(22) ДСТУ ↔ Art.18/24 Закону 2155-VIII. Якщо сертифікат
-        нечинний (Art.24) — відмітка позначається як НЕДІЙСНА.
+        нечинний (Art.24) — відмітка позначається як НЕДІЙСНА. Довгі рядки
+        (серійник, видавець) переносяться у межах рамки.
         """
-        lines = [
+        raw_lines = [
             (mark.signature_kind, _FONT_BOLD),
             (f"Підписувач: {mark.signer}", _FONT_REGULAR),
             (f"Сертифікат: {mark.certificate_serial}", _FONT_REGULAR),
@@ -230,16 +231,23 @@ class _Layout:
             (f"Позначка часу: {mark.timestamp}", _FONT_REGULAR),
         ]
         if mark.certificate_valid:
-            lines.append(("Статус сертифіката: ЧИННИЙ", _FONT_BOLD))
+            raw_lines.append(("Статус сертифіката: ЧИННИЙ", _FONT_BOLD))
         else:
-            lines.append(("Статус сертифіката: НЕДІЙСНИЙ (ст.24)", _FONT_BOLD))
+            raw_lines.append(("Статус сертифіката: НЕДІЙСНИЙ (ст.24)", _FONT_BOLD))
 
         small = max(self.body_pt - 2, 8)  # §7.2: довідкові дані 8–12 pt
         pad = 3 * mm
         line_h = small * 1.25
-        box_h = line_h * len(lines) + 2 * pad
         box_w = min(self.text_width, 95 * mm)  # §7.6: ширина реквізиту ≤73–95 мм
+        avail = box_w - 2 * pad
 
+        # перенесення кожного рядка по ширині рамки (із жорстким розривом токенів)
+        wrapped: list[tuple[str, str]] = []
+        for text, font in raw_lines:
+            for piece in self._wrap_to_width(text, font, small, avail):
+                wrapped.append((piece, font))
+
+        box_h = line_h * len(wrapped) + 2 * pad
         self._ensure_space(box_h + line_h)
         top = self.y
         bottom = top - box_h
@@ -247,11 +255,44 @@ class _Layout:
         self.c.rect(self.left, bottom, box_w, box_h, stroke=1, fill=0)
 
         ty = top - pad - small
-        for text, font in lines:
+        for text, font in wrapped:
             self.c.setFont(font, small)
             self.c.drawString(self.left + pad, ty, text)
             ty -= line_h
         self.y = bottom - line_h
+
+    def _wrap_to_width(self, text: str, font: str, size: float, avail: float) -> list[str]:
+        """Розбити рядок на частини за доступною шириною (мм -> pt).
+
+        Спершу по словах; якщо окреме слово (напр. серійник) ширше за рядок —
+        розриваємо його посимвольно.
+        """
+        avail_pt = avail / 25.4 * 72
+        out: list[str] = []
+        line = ""
+        for word in text.split(" "):
+            trial = f"{line} {word}".strip()
+            if pdfmetrics.stringWidth(trial, font, size) <= avail_pt:
+                line = trial
+                continue
+            if line:
+                out.append(line)
+                line = ""
+            # слово саме по собі може не вміщатися — ріжемо посимвольно
+            if pdfmetrics.stringWidth(word, font, size) <= avail_pt:
+                line = word
+            else:
+                chunk = ""
+                for ch in word:
+                    if pdfmetrics.stringWidth(chunk + ch, font, size) <= avail_pt:
+                        chunk += ch
+                    else:
+                        out.append(chunk)
+                        chunk = ch
+                line = chunk
+        if line:
+            out.append(line)
+        return out or [""]
 
     def _draw_signature_qr(self, mark) -> None:
         """QR-код 21×21 мм у верхньому правому куті (§5.10/§5.31).
