@@ -172,6 +172,17 @@ class UapkiClient:
         """Розпарсити X.509-сертифікат (base64 DER) -> структура CERT_INFO."""
         return self.call("CERT_INFO", {"bytes": cert_b64})
 
+    def verify(self, container_b64: str, content_b64: str | None = None) -> dict:
+        """Перевірити підпис (CMS/CAdES, base64). Для detached — додати content.
+
+        Повертає сирий результат VERIFY: signatureInfos зі status/validSignatures/
+        validDigests/statusSignature/statusMessageDigest тощо.
+        """
+        sig: dict = {"bytes": container_b64}
+        if content_b64 is not None:
+            sig["content"] = content_b64
+        return self.call("VERIFY", {"signature": sig, "reportTime": True})
+
     def sign_bytes(
         self,
         data: bytes,
@@ -401,3 +412,56 @@ def sign_file_pkcs12(
 def _read(path: str) -> bytes:
     with open(path, "rb") as fh:
         return fh.read()
+
+
+@dataclass(frozen=True)
+class VerifyResult:
+    """Результат перевірки підпису через UAPKI VERIFY."""
+
+    status: str  # TOTAL-VALID / TOTAL-FAILED / INDETERMINATE
+    valid_signatures: bool  # криптопідпис коректний
+    valid_digests: bool  # дайджест даних збігається (цілісність)
+    status_signature: str  # VALID / INVALID
+    status_message_digest: str  # VALID / INVALID
+    signing_time: str | None
+    signer_cert_id: str
+    raw: dict  # повний звіт VERIFY для деталізації
+
+    @property
+    def is_valid(self) -> bool:
+        return self.status == "TOTAL-VALID"
+
+    @staticmethod
+    def from_verify(report: dict) -> "VerifyResult":
+        infos = report.get("signatureInfos", [])
+        si = infos[0] if infos else {}
+        return VerifyResult(
+            status=si.get("status", "INDETERMINATE"),
+            valid_signatures=bool(si.get("validSignatures", False)),
+            valid_digests=bool(si.get("validDigests", False)),
+            status_signature=si.get("statusSignature", ""),
+            status_message_digest=si.get("statusMessageDigest", ""),
+            signing_time=si.get("signingTime"),
+            signer_cert_id=si.get("signerCertId", ""),
+            raw=report,
+        )
+
+
+def verify_signature(
+    container: bytes,
+    *,
+    cert_cache_dir: str,
+    crl_cache_dir: str,
+    content: bytes | None = None,
+    library_path: str | None = None,
+) -> VerifyResult:
+    """Перевірити підпис (CMS/CAdES). content — для detached-підпису (.p7s).
+
+    Перевіряє і криптопідпис (statusSignature), і цілісність даних
+    (statusMessageDigest). TOTAL-VALID лише коли обидва збігаються.
+    """
+    with UapkiClient(library_path) as client:
+        client.init(cert_cache_dir, crl_cache_dir, offline=True)
+        content_b64 = base64.b64encode(content).decode("ascii") if content is not None else None
+        report = client.verify(base64.b64encode(container).decode("ascii"), content_b64)
+        return VerifyResult.from_verify(report)

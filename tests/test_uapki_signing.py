@@ -17,6 +17,7 @@ from dilovod4.infrastructure.uapki import (
     UapkiClient,
     UapkiLibraryNotFound,
     sign_file_pkcs12,
+    verify_signature,
 )
 
 _UAPKI_ROOT = (
@@ -156,3 +157,47 @@ def test_signature_mark_auto_from_real_cert():
     assert result.cert.is_expired
     assert not mark.certificate_valid
     assert mark.status == CertificateStatus.CANCELLED
+
+
+def _sign_detached(data: bytes) -> bytes:
+    """Підписати дані detached-CMS і повернути контейнер (для verify-тестів)."""
+    client = _client_or_skip()
+    _require_testdata()
+    client.init(str(_DATA / "certs"), str(_DATA / "crls"))
+    client.open_pkcs12(str(_P12), "testpassword")
+    client.select_key(client.list_keys()[0]["id"])
+    sig = client.sign_bytes(data, signature_format="CMS", detached=True)
+    client.close()
+    return base64.b64decode(sig["bytes"])
+
+
+def test_verify_valid_signature():
+    data = b"The quick brown fox jumps over the lazy dog\n"
+    container = _sign_detached(data)
+    res = verify_signature(
+        container,
+        cert_cache_dir=str(_DATA / "certs"),
+        crl_cache_dir=str(_DATA / "crls"),
+        content=data,
+    )
+    assert res.is_valid
+    assert res.status == "TOTAL-VALID"
+    assert res.valid_signatures
+    assert res.valid_digests
+    assert res.status_signature == "VALID"
+    assert res.status_message_digest == "VALID"
+
+
+def test_verify_detects_tampered_content():
+    data = b"The quick brown fox jumps over the lazy dog\n"
+    container = _sign_detached(data)
+    res = verify_signature(
+        container,
+        cert_cache_dir=str(_DATA / "certs"),
+        crl_cache_dir=str(_DATA / "crls"),
+        content=b"tampered payload",
+    )
+    # криптопідпис коректний, але дайджест даних не збігається -> провал
+    assert not res.is_valid
+    assert res.status == "TOTAL-FAILED"
+    assert res.status_message_digest == "INVALID"

@@ -13,7 +13,9 @@ from .uapki import (
     UapkiClient,
     UapkiError,
     UapkiLibraryNotFound,
+    VerifyResult,
     sign_file_pkcs12,
+    verify_signature,
 )
 
 __all__ = [
@@ -32,5 +34,7 @@ __all__ = [
     "UapkiLibraryNotFound",
     "SignResult",
     "CertInfo",
+    "VerifyResult",
     "sign_file_pkcs12",
+    "verify_signature",
 ]

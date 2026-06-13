@@ -194,6 +194,30 @@ UAPKI підключається лише за потреби; без зібра
 самопропускаються (`UapkiLibraryNotFound`). Збірочні артефакти лишаються всередині
 підсабмодуля і не комітяться у головний репозиторій.
 
+### Верифікація підпису
+
+`verify_signature(container, ...)` перевіряє підпис через UAPKI VERIFY — і сам
+криптопідпис, і цілісність даних окремо:
+
+```python
+from dilovod4.infrastructure.uapki import verify_signature
+
+res = verify_signature(
+    container=open("out.pdf.p7s", "rb").read(),
+    cert_cache_dir="certs", crl_cache_dir="crls",
+    content=open("out.pdf", "rb").read(),   # для detached-підпису
+)
+res.is_valid                 # True лише при TOTAL-VALID
+res.status                   # TOTAL-VALID / TOTAL-FAILED / INDETERMINATE
+res.status_signature         # VALID / INVALID — криптопідпис
+res.status_message_digest    # VALID / INVALID — цілісність даних
+```
+
+Підміна вмісту дає `TOTAL-FAILED` із `statusMessageDigest=INVALID` навіть коли
+сам підпис валідний — тобто рушій розрізняє «підпис підроблено» та «дані
+змінено після підписання». Онлайн-перевірка статусу за OCSP/CRL (повна Art.24)
+вмикається форматами CAdES-T/C при `offline=false`.
+
 ## Конфігурація (через оточення)
 
 | Env | Призначення | Типово |
