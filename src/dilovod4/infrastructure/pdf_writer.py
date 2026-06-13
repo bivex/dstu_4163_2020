@@ -239,12 +239,12 @@ class _Layout:
         pad = 3 * mm
         line_h = small * 1.25
         box_w = min(self.text_width, 95 * mm)  # §7.6: ширина реквізиту ≤73–95 мм
-        avail = box_w - 2 * pad
+        avail_pt = box_w - 2 * pad  # доступна ширина у пунктах
 
         # перенесення кожного рядка по ширині рамки (із жорстким розривом токенів)
         wrapped: list[tuple[str, str]] = []
         for text, font in raw_lines:
-            for piece in self._wrap_to_width(text, font, small, avail):
+            for piece in self._wrap_to_width(text, font, small, avail_pt):
                 wrapped.append((piece, font))
 
         box_h = line_h * len(wrapped) + 2 * pad
@@ -261,13 +261,12 @@ class _Layout:
             ty -= line_h
         self.y = bottom - line_h
 
-    def _wrap_to_width(self, text: str, font: str, size: float, avail: float) -> list[str]:
-        """Розбити рядок на частини за доступною шириною (мм -> pt).
+    def _wrap_to_width(self, text: str, font: str, size: float, avail_pt: float) -> list[str]:
+        """Розбити рядок на частини за доступною шириною (у пунктах).
 
         Спершу по словах; якщо окреме слово (напр. серійник) ширше за рядок —
         розриваємо його посимвольно.
         """
-        avail_pt = avail / 25.4 * 72
         out: list[str] = []
         line = ""
         for word in text.split(" "):
