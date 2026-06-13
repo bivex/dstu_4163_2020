@@ -10,19 +10,26 @@
 
 from __future__ import annotations
 
+import io
+
 from reportlab.lib.pagesizes import A3, A4, A5
 from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
 from ..domain.model import Document, DocumentContent
+from ..domain.model.qr_payload import build_signature_qr_payload
 from .fonts import FontPaths, resolve_times_new_roman
 
 _FONT_REGULAR = "DSTU-Serif"
 _FONT_BOLD = "DSTU-Serif-Bold"
 
 _PAGE_SIZES = {"A4": A4, "A5": A5, "A3": A3}
+
+# §5.10: QR-код — рівно 21×21 мм.
+_QR_SIDE_MM = 21
 
 # §6.7: способи розташування реквізитів бланка
 _ALIGN_CENTER = "center"
@@ -142,6 +149,11 @@ class _Layout:
 
     # --- реквізити ---
     def render(self) -> None:
+        # §5.10/§5.31: QR-код 21×21 мм у верхньому правому куті — дані про
+        # КЕП/печатку + позначка часу. Малюємо першим, абсолютним позиціюванням.
+        if self.doc.is_electronic and self.content.e_signature is not None:
+            self._draw_signature_qr(self.content.e_signature)
+
         # 04 найменування юридичної особи — центрований, напівжирний
         self._line(self.content.org_name, font=_FONT_BOLD, align=_ALIGN_CENTER)
 
@@ -229,3 +241,28 @@ class _Layout:
             self.c.drawString(self.left + pad, ty, text)
             ty -= line_h
         self.y = bottom - line_h
+
+    def _draw_signature_qr(self, mark) -> None:
+        """QR-код 21×21 мм у верхньому правому куті (§5.10/§5.31).
+
+        Кодує дані КЕП/печатки + кваліфіковану позначку часу (крос-лінк
+        заголовка dstu-файлу). Навантаження будує домен (build_signature_qr_payload),
+        растеризацію робить segno. Розмір — рівно 21 мм за нормою.
+        """
+        import segno  # локальний імпорт: залежність потрібна лише за наявності QR
+
+        payload = build_signature_qr_payload(mark)
+        qr = segno.make(payload, error="m")
+
+        buf = io.BytesIO()
+        # без рамки (border=0): точний розмір контролюємо при розміщенні
+        qr.save(buf, kind="png", scale=10, border=0)
+        buf.seek(0)
+
+        side = _QR_SIDE_MM * mm
+        # верхній правий кут: усередині правого поля, на рівні верхнього поля
+        x = self.page_w - self.right_margin - side
+        y = self.page_h - self.top - side
+        self.c.drawImage(
+            ImageReader(buf), x, y, width=side, height=side, preserveAspectRatio=True, mask="auto"
+        )
