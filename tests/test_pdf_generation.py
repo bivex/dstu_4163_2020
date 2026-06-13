@@ -178,3 +178,51 @@ def test_certificate_valid_property():
         valid_to="b", timestamp="t", status=CertificateStatus.BLOCKED,
     )
     assert not blocked.certificate_valid
+
+
+def test_qr_embedded_for_electronic_doc(tmp_path):
+    pypdf = pytest.importorskip("pypdf")
+    pytest.importorskip("segno")
+    dest = str(tmp_path / "qr.pdf")
+    doc = conformant_document(is_electronic=True)
+    _writer().write(doc, _e_content(), dest)
+    page = pypdf.PdfReader(dest).pages[0]
+    # шукаємо вбудоване зображення (QR) у ресурсах сторінки
+    res = page.get("/Resources", {})
+    xobjs = res.get("/XObject", {})
+    found_image = False
+    for ref in (xobjs or {}).values():
+        obj = ref.get_object()
+        if obj.get("/Subtype") == "/Image":
+            found_image = True
+        # форма-обгортка може містити вкладені XObject
+        sub_res = obj.get("/Resources", {})
+        for sref in (sub_res.get("/XObject", {}) or {}).values():
+            if sref.get_object().get("/Subtype") == "/Image":
+                found_image = True
+    assert found_image, "QR-зображення не знайдено у PDF"
+
+
+def test_qr_sized_21mm(tmp_path):
+    import re
+
+    pypdf = pytest.importorskip("pypdf")
+    pytest.importorskip("segno")
+    dest = str(tmp_path / "qr_size.pdf")
+    _writer().write(conformant_document(is_electronic=True), _e_content(), dest)
+    page = pypdf.PdfReader(dest).pages[0]
+    content = page.get_contents().get_data().decode("latin-1")
+    m = re.search(r"([\d.]+) 0 0 ([\d.]+) [\d.]+ [\d.]+ cm\s*/FormXob\.\w+ Do", content)
+    assert m, "не знайдено малювання QR у потоці вмісту"
+    w_mm = round(float(m.group(1)) / 72 * 25.4)
+    h_mm = round(float(m.group(2)) / 72 * 25.4)
+    assert (w_mm, h_mm) == (21, 21)
+
+
+def test_no_qr_for_paper_doc(tmp_path):
+    pypdf = pytest.importorskip("pypdf")
+    dest = str(tmp_path / "paper_noqr.pdf")
+    _writer().write(conformant_document(is_electronic=False), _e_content(), dest)
+    page = pypdf.PdfReader(dest).pages[0]
+    res = page.get("/Resources", {})
+    assert "/XObject" not in res or not res["/XObject"]
