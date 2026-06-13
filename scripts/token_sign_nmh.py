@@ -124,6 +124,42 @@ def main(argv: list[str]) -> int:
         c_set, e2 = nmh.res("SetCMPSettings", [cmp])
         print(f"SetCMPSettings: code={e2.get('code')} ({e2.get('message')})")
 
+        # TSP-сервер КНЕДП (квал. позначка часу для CAdES-T, Art.26.4).
+        # поля EUSignES6 EndUserTSPSettings{getStamps,address,port}. TSP ДПС = ca.tax.gov.ua.
+        tsp = {
+            "className": "EndUserTSPSettings", "classVersion": 0,
+            "classFields": {
+                "getStamps": True,
+                "address": os.environ.get("TOKEN_TSP", "ca.tax.gov.ua/services/tsp/"),
+                "port": "80",
+            },
+        }
+        _, etsp = nmh.res("SetTSPSettings", [tsp])
+        print(f"SetTSPSettings: code={etsp.get('code')} ({etsp.get('message')})")
+
+        # CAdES-T робить онлайн-валідацію позначки часу -> потрібен OCSP.
+        # Вмикаємо використання OCSP access info із сертифікатів.
+        ocsp_mode = {
+            "className": "EndUserOCSPAccessInfoModeSettings", "classVersion": 0,
+            "classFields": {"enabled": True},
+        }
+        _, eocm = nmh.res("SetOCSPAccessInfoModeSettings", [ocsp_mode])
+        print(f"SetOCSPAccessInfoModeSettings: code={eocm.get('code')} ({eocm.get('message')})")
+
+        # явний OCSP-сервер КНЕДП ДПС (для валідації цепочки мітки часу CAdES-T).
+        # поля EUSignES6 EndUserOCSPSettings{useOCSP,beforeStore,address,port}.
+        ocsp = {
+            "className": "EndUserOCSPSettings", "classVersion": 0,
+            "classFields": {
+                "useOCSP": True,
+                "beforeStore": False,
+                "address": os.environ.get("TOKEN_OCSP", "ca.tax.gov.ua/services/ocsp/"),
+                "port": "80",
+            },
+        }
+        _, eo = nmh.res("SetOCSPSettings", [ocsp])
+        print(f"SetOCSPSettings: code={eo.get('code')} ({eo.get('message')})")
+
         # файлове сховище сертифікатів (інакше SaveCertificate -> code 49 STORAGE_FAILED).
         # поля з EUSignES6 EndUserFileStoreSettings.
         store_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
@@ -247,6 +283,11 @@ def main(argv: list[str]) -> int:
         if code not in (EU_OK, None):
             print(f"  -> читання ключа не вдалося ({code}).")
             return 6
+
+        # CAdES-T: квал. позначка часу. SignType=4 (CAdES_T) рантайм-параметром
+        # перед CtxSign; TSP вже налаштований вище.
+        _, ert = nmh.res("SetRuntimeParameter", ["SignType", 4])
+        print(f"SetRuntimeParameter(SignType=CAdES-T): code={ert.get('code')} ({ert.get('message')})")
 
         # CtxSign: signAlgo DSTU4145WithGOST34311 = 1, external=False, appendCert=True
         data_ba = {"className": "EndUserByteArray", "classVersion": 0,
