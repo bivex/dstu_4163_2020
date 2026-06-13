@@ -12,7 +12,8 @@ license = { text = "MIT" }
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+docx = ["python-docx>=1.1"]
+dev = ["pytest>=8.0", "python-docx>=1.1"]
 
 [project.scripts]
 dilovod4 = "dilovod4.presentation.cli:main"
