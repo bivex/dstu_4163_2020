@@ -1,0 +1,6 @@
+[submodule "external/trust_services.catala"]
+	path = external/trust_services.catala
+	url = https://github.com/bivex/trust_services.catala
+[submodule "external/UAPKI"]
+	path = external/UAPKI
+	url = https://github.com/bivex/UAPKI
