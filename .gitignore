@@ -21,6 +21,7 @@ ENV/
 .coverage
 htmlcov/
 .tox/
+.hypothesis/
 
 # Editors / OS
 .vscode/
