@@ -304,6 +304,29 @@ v.is_valid                 # True -> TOTAL-VALID
 вимкнути `ignore_cert_status`. УВАГА безпеки: `.p7s`/`.pfx`/`.p12` (реальні
 підписи та ключі — персональні дані) у `.gitignore`, у репозиторій не потрапляють.
 
+### Кваліфікована позначка часу (CAdES-T, Art.26.4)
+
+CAdES-BES несе лише недовірений час хоста — czo.gov.ua позначає його як «не
+підтверджено кваліфікованою позначкою часу». Для постійного зберігання Закон
+2155-VIII (ч.4 ст.26) вимагає **кваліфіковану позначку часу**. Це формат
+CAdES-T: передайте `signature_format='CAdES-T'` і `tsp_url` КНЕДП:
+
+```python
+res = sign_file_with_remote_cert(
+    file_path="document.pdf",
+    pkcs12_path="key.pfx", password="…",
+    cmp_url="http://ca.monobank.ua/services/cmp/",
+    cert_cache_dir="certs", crl_cache_dir="crls",
+    signature_format="CAdES-T",
+    tsp_url="http://ca.monobank.ua/services/tsp/dstu/",   # TSP із CAs.json
+)
+```
+
+Перевірено на реальному КЕП Monobank: підпис містить timeStampToken від TSP
+Надавача, VERIFY повертає `signatureFormat=CAdES-T` і `bestSignatureTime` від
+довіреної позначки (а не самозаявлений час хоста). TSP/OCSP/CMP-адреси — у
+реєстрі CAs.json.
+
 ## Конфігурація (через оточення)
 
 | Env | Призначення | Типово |

@@ -131,6 +131,7 @@ class UapkiClient:
         *,
         offline: bool = True,
         providers_dir: str | None = None,
+        tsp_url: str | None = None,
     ) -> None:
         # cmProviders.dir має закінчуватися '/' — UAPKI будує шлях як
         # dir + 'lib' + name + '.dylib'. За замовчуванням — каталог libuapki,
@@ -142,12 +143,16 @@ class UapkiClient:
             # native singleton не дозволяє; перевикористовуємо наявний стан.
             self._initialized = True
             return
-        self.call("INIT", {
+        params: dict = {
             "cmProviders": {"dir": _dir(prov_dir), "allowedProviders": [{"lib": "cm-pkcs12"}]},
             "certCache": {"path": _dir(cert_cache_dir), "trustedCerts": []},
             "crlCache": {"path": _dir(crl_cache_dir)},
             "offline": offline,
-        })
+        }
+        if tsp_url:
+            # кваліфікована позначка часу (Art.26.4) для CAdES-T
+            params["tsp"] = {"url": tsp_url}
+        self.call("INIT", params)
         _PROCESS_INITIALIZED = True
         self._initialized = True
 
@@ -599,24 +604,28 @@ def sign_file_with_remote_cert(
     signature_format: str = "CAdES-BES",
     detached: bool = True,
     ignore_cert_status: bool = True,
+    tsp_url: str | None = None,
     library_path: str | None = None,
 ) -> SignResult:
     """Підписати файл, дотягнувши сертифікат підписувача з КНЕДП за CMP.
 
     Повний потік для контейнерів БЕЗ вбудованого сертифіката (лише ключі):
       OPEN -> SELECT_KEY -> CMP fetch за subjectKeyIdentifier -> ADD_CERT ->
-      CAdES-BES SIGN. Повертає SignResult із розібраним сертифікатом підписувача.
+      SIGN. Повертає SignResult із розібраним сертифікатом підписувача.
 
     cmp_url — CMP-адреса КНЕДП із реєстру CAs.json
               (напр. 'http://ca.monobank.ua/services/cmp/').
+    tsp_url — TSP-адреса КНЕДП; якщо задано і signature_format='CAdES-T',
+              у підпис додається кваліфікована позначка часу (Art.26.4).
     ignore_cert_status=True потрібен лише для прострочених/відкликаних ключів;
     для чинного КЕП можна вимкнути. detached=True -> .p7s поряд із файлом.
     """
     # локальний імпорт, щоб уникнути циклічної залежності інфраструктури
     from .cmp import CmpError, fetch_certificate
 
+    # CMP-дотягування і TSP потребують онлайн-режиму
     with UapkiClient(library_path) as client:
-        client.init(cert_cache_dir, crl_cache_dir, offline=True)
+        client.init(cert_cache_dir, crl_cache_dir, offline=False, tsp_url=tsp_url)
         client.open_pkcs12(pkcs12_path, password)
         keys = client.list_keys()
         if not keys:
