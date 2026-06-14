@@ -360,3 +360,30 @@ def test_list_documents(client):
 
 def test_get_missing_404(client):
     assert client.get("/documents/NOPE").status_code == 404
+
+
+def test_delete_document_allows_recreate(client):
+    # створити, підписати-зіпсувати неможливо (422), але видалити й перестворити — так
+    client.post("/documents", json=_doc_payload(doc_id="DEL-1"))
+    assert client.get("/documents/DEL-1").status_code == 200
+    r = client.request("DELETE", "/documents/DEL-1")
+    assert r.status_code == 200
+    assert r.json()["deleted"] == "DEL-1"
+    # після видалення — 404, і той самий doc_id можна створити заново
+    assert client.get("/documents/DEL-1").status_code == 404
+    r2 = client.post("/documents", json=_doc_payload(doc_id="DEL-1"))
+    assert r2.status_code == 200
+
+
+def test_delete_missing_404(client):
+    assert client.request("DELETE", "/documents/NOPE").status_code == 404
+
+
+def test_delete_cascades_signers_and_audit(client):
+    # документ із чергою + подіями, далі видалення не лишає сиріт
+    client.post("/documents", json=_doc_payload(doc_id="DEL-2"))
+    client.post("/documents/DEL-2/generate")
+    client.post("/documents/DEL-2/submit")
+    client.request("DELETE", "/documents/DEL-2")
+    # перестворення з тим самим id успішне → попередні signers/events пішли
+    assert client.post("/documents", json=_doc_payload(doc_id="DEL-2")).status_code == 200

@@ -123,6 +123,20 @@ def get_document(doc_id: str) -> dict:
         return _doc_to_dict(doc)
 
 
+@app.delete("/documents/{doc_id}")
+def delete_document(doc_id: str) -> dict:
+    """Видалити документ разом із підписантами та аудитом (каскадно).
+
+    Дозволяє перестворити документ із тим самим doc_id — напр. коли у БД лишився
+    застарілий/тестовий підпис, через який зібраний ASiC-E не проходить перевірку.
+    """
+    with SessionLocal() as session:
+        doc = _load(session, doc_id)
+        session.delete(doc)  # cascade видаляє signers + audit_events
+        session.commit()
+        return {"deleted": doc_id}
+
+
 @app.put("/documents/{doc_id}")
 def edit_document(doc_id: str, payload: dict = Body(...)) -> dict:
     """Редагувати чернетку (лише поки DRAFT)."""

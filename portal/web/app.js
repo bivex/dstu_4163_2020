@@ -105,6 +105,18 @@ window.generateDoc = async () => {
 
 window.downloadDoc = () => { window.open(`${API}/documents/${docId()}/download`, "_blank"); };
 
+window.deleteDoc = async () => {
+  if (!confirm(`Видалити документ ${docId()} разом із підписами та аудитом?`)) return;
+  try {
+    await api(`/documents/${docId()}`, "DELETE");
+    toast("Документ видалено — можна створити заново");
+    document.getElementById("signerList").innerHTML = '<span class="muted">Створіть документ.</span>';
+    document.getElementById("docStatus").textContent = "";
+    renderReport(null);
+    document.getElementById("asiceBtn").disabled = true;
+  } catch (e) { toast("Помилка: " + e.message); }
+};
+
 window.submitDoc = async () => {
   try { await api(`/documents/${docId()}/submit`, "POST"); toast("Подано у чергу"); refresh(); }
   catch (e) { toast("Помилка: " + e.message); }
