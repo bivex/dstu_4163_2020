@@ -296,6 +296,40 @@ def test_asice_404_before_signed(client):
     assert r.status_code == 404
 
 
+def test_manifest_endpoint_returns_signable_bytes(client):
+    client.post("/documents", json=_doc_payload())
+    client.post("/documents/T-001/generate")
+    client.post("/documents/T-001/submit")
+    r = client.get("/documents/T-001/manifest")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/xml")
+    body = r.content
+    # це ASiCManifest для першого підписанта (signature001.p7s)
+    assert b"ASiCManifest" in body
+    assert b"signature001.p7s" in body
+    assert b"DigestValue" in body
+
+
+def test_manifest_before_generate_409(client):
+    client.post("/documents", json=_doc_payload())
+    client.post("/documents/T-001/submit")
+    r = client.get("/documents/T-001/manifest")
+    assert r.status_code == 409
+
+
+def test_manifest_advances_with_queue(client):
+    client.post("/documents", json=_doc_payload())
+    client.post("/documents/T-001/generate")
+    client.post("/documents/T-001/submit")
+    m0 = client.get("/documents/T-001/manifest").content
+    assert b"signature001.p7s" in m0
+    client.post("/documents/T-001/sign", json={
+        "signer_order_index": 0, "signature_b64": _b64("s0")})
+    # тепер активний другий підписант → манІфест для signature002
+    m1 = client.get("/documents/T-001/manifest").content
+    assert b"signature002.p7s" in m1
+
+
 def test_list_documents(client):
     client.post("/documents", json=_doc_payload(doc_id="L-1"))
     client.post("/documents", json=_doc_payload(doc_id="L-2"))

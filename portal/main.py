@@ -189,6 +189,28 @@ def validate_document(doc_id: str) -> dict:
         return bridge.validate(payload)
 
 
+@app.get("/documents/{doc_id}/manifest")
+def signing_manifest(doc_id: str) -> Response:
+    """Байти ASiCManifest, які поточний підписант у черзі підписує detached.
+
+    Клієнт (EUSign) підписує саме ЦІ байти detached-CAdES (signData з
+    isInternalSign=false) і повертає p7s у /sign. Так підпис покриває манІфест
+    (digest документа), як вимагає ETSI EN 319 162-1, тож контейнер пройде
+    перевірку (а не «помилка 33»).
+    """
+    with SessionLocal() as session:
+        doc = _load(session, doc_id)
+        if not doc.rendered:
+            raise HTTPException(409, "спершу згенеруйте документ (/generate)")
+        nxt = doc.next_signer
+        if nxt is None:
+            raise HTTPException(409, "немає активного підписанта")
+        manifest = bridge.manifest_for_signer(
+            doc.doc_id, doc.fmt, doc.rendered, nxt.order_index
+        )
+        return Response(content=manifest, media_type="application/xml")
+
+
 @app.get("/documents/{doc_id}/download/asice")
 def download_asice(doc_id: str) -> Response:
     """Завантажити ASiC-E контейнер (документ + усі КЕП-підписи)."""

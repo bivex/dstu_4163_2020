@@ -170,12 +170,16 @@ window.signCurrent = async () => {
     euSignFactory.readPrivateKeyButtonClick();
     if (!euSignFactory.pkReaded) { toast("Не вдалося прочитати ключ (пароль/файл)"); return; }
 
-    // 2) підписати дані документа (CMS, внутрішній підпис, з сертифікатом)
-    const dataToSign = `${doc.doc_id}|${doc.title}|signer#${next.order_index}`;
-    const cms = euSignFactory.signData(dataToSign, true, true, "def");
+    // 2) отримати з сервера точні байти ASiCManifest поточного підписанта
+    //    і підписати саме їх DETACHED-CAdES (isInternalSign=false) — так підпис
+    //    покриває digest документа за ETSI EN 319 162-1 (інакше «помилка 33»).
+    const mr = await fetch(`${API}/documents/${docId()}/manifest`);
+    if (!mr.ok) { toast("Не вдалося отримати манІфест: " + (await mr.text())); return; }
+    const manifest = await mr.text();
+    const cms = euSignFactory.signData(manifest, false, true, "def");
     if (!cms) { toast("Підпис не сформовано"); return; }
 
-    // 3) відправити готову КЕП на сервер (приватний ключ лишився у браузері)
+    // 3) відправити готову detached-КЕП на сервер (приватний ключ лишився у браузері)
     await api(`/documents/${docId()}/sign`, "POST", {
       signer_order_index: next.order_index,
       signature_b64: cms,

@@ -176,18 +176,29 @@ def content_from_json(s: str) -> dict[str, Any]:
 def build_asice(
     doc_id: str, fmt: str, rendered: bytes, signatures: list[tuple[str, bytes]], dest_path: str
 ) -> str:
-    """Зібрати ASiC-E контейнер: документ + КЕП-підписи підписантів.
+    """Зібрати ASiC-E контейнер: документ + detached-CAdES підписи над манІфестами.
 
-    signatures — [(label, cms_bytes), ...] у порядку черги.
-
-    ОБМЕЖЕННЯ (скелет): фронт EUSign підписує САМІ ДАНІ (internal CAdES), а
-    суворий ASiC-E за ETSI EN 319 162-1 вимагає detached-CAdES НАД МАНІФЕСТОМ.
-    Тут пакуємо отримані підписи як signatureNNN.p7s — контейнер містить усі
-    КЕП і документ, придатний для архіву/передачі, але для суворої ETSI-
-    валідації клієнт має підписувати manifest_for(i, data_files) (TODO продакшн).
+    signatures — [(label, detached_cms_bytes), ...] у порядку черги; i-та підпис
+    має бути detached-CAdES над manifest_for(i+1, data_files) — саме ці байти
+    клієнт отримує з manifest_for_signer() і підписує. build_asic_e перебудовує
+    ідентичні манІфести (та сама _build_manifest), тож digest співпадає й
+    контейнер проходить ETSI-перевірку.
     """
     from dilovod4.infrastructure.asic import AsicSignature, build_asic_e
 
     data_files = [(f"{doc_id}.{fmt}", rendered)]
     sigs = [AsicSignature(cms=cms, label=label) for label, cms in signatures]
     return build_asic_e(data_files, sigs, dest_path)
+
+
+def manifest_for_signer(doc_id: str, fmt: str, rendered: bytes, order_index: int) -> bytes:
+    """Точні байти ASiCManifest, які підписант №order_index має підписати detached.
+
+    order_index 0-based (як у черзі) → signatureNNN з NNN=order_index+1.
+    Клієнт підписує саме ці байти (detached CAdES), повертає p7s — build_asice
+    перебудує ідентичний манІфест, тож підпис верифікується.
+    """
+    from dilovod4.infrastructure.asic import manifest_for
+
+    data_files = [(f"{doc_id}.{fmt}", rendered)]
+    return manifest_for(order_index + 1, data_files)
