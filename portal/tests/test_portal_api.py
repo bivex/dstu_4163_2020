@@ -264,6 +264,61 @@ def test_publish_before_signed_rejected(client):
     assert r.status_code == 409
 
 
+# --- архівування ---
+def test_archive_and_unarchive(client):
+    """Архівування — організаційна позначка, не змінює workflow-статус."""
+    client.post("/documents", json=_doc_payload())
+    d = client.post("/documents/T-001/archive").json()
+    assert d["archived"] is True
+    assert d["archived_at"] is not None
+    assert d["status"] == "draft"  # workflow-статус не зачеплено
+    # відновлення
+    d2 = client.post("/documents/T-001/unarchive").json()
+    assert d2["archived"] is False
+    assert d2["archived_at"] is None
+
+
+def test_archive_idempotent(client):
+    """Повторне архівування не змінює мітку часу (ідемпотентно).
+
+    Порівнюємо без tz-суфікса: SQLite зберігає naive datetime, тож друге
+    читання приходить без «+00:00», хоча момент той самий.
+    """
+    client.post("/documents", json=_doc_payload())
+    d1 = client.post("/documents/T-001/archive").json()
+    first_at = d1["archived_at"]
+    d2 = client.post("/documents/T-001/archive").json()
+    norm = lambda s: s.replace("+00:00", "") if s else s  # noqa: E731
+    assert norm(d2["archived_at"]) == norm(first_at)
+
+
+def test_archive_preserves_through_signing(client):
+    """Архівований документ зберігає позначку незалежно від підпису."""
+    client.post("/documents", json=_doc_payload(signers=1))
+    client.post("/documents/T-001/generate")
+    client.post("/documents/T-001/archive")
+    client.post("/documents/T-001/submit", json={"auto_register": False})
+    d = client.post("/documents/T-001/sign", json={
+        "signer_order_index": 0, "signature_b64": _fake_cms()}).json()
+    assert d["status"] == "signed"
+    assert d["archived"] is True  # архів пережив підписання
+
+
+def test_archive_missing_404(client):
+    assert client.post("/documents/NOPE/archive").status_code == 404
+    assert client.post("/documents/NOPE/unarchive").status_code == 404
+
+
+def test_archived_appears_in_audit(client):
+    client.post("/documents", json=_doc_payload())
+    client.post("/documents/T-001/archive")
+    client.post("/documents/T-001/unarchive")
+    d = client.get("/documents/T-001").json()
+    kinds = [e["kind"] for e in d["events"]]
+    assert "archived" in kinds
+    assert "unarchived" in kinds
+
+
 def test_reject_returns_to_draft(client):
     client.post("/documents", json=_doc_payload())
     client.post("/documents/T-001/submit")

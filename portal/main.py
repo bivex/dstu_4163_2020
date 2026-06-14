@@ -666,6 +666,34 @@ def publish_document(doc_id: str) -> dict:
         return _doc_to_dict(doc)
 
 
+@app.post("/documents/{doc_id}/archive")
+def archive_document(doc_id: str) -> dict:
+    """Архівувати документ: організаційна позначка, ховає зі звичайного списку.
+
+    Не змінює workflow-статус і не видаляє — документ лишається у розділі
+    «Архів» і доступний для відновлення (/unarchive).
+    """
+    with SessionLocal() as session:
+        doc = _load(session, doc_id)
+        if doc.archived_at is None:
+            doc.archived_at = dt.datetime.now(dt.timezone.utc)
+            _audit(session, doc, "archived")
+            session.commit()
+        return _doc_to_dict(doc)
+
+
+@app.post("/documents/{doc_id}/unarchive")
+def unarchive_document(doc_id: str) -> dict:
+    """Відновити документ з архіву (повертає у звичайний список)."""
+    with SessionLocal() as session:
+        doc = _load(session, doc_id)
+        if doc.archived_at is not None:
+            doc.archived_at = None
+            _audit(session, doc, "unarchived")
+            session.commit()
+        return _doc_to_dict(doc)
+
+
 # --- helpers ---
 def _load(session, doc_id: str) -> Document:
     doc = session.query(Document).filter_by(doc_id=doc_id).first()
@@ -700,6 +728,8 @@ def _doc_to_dict(doc: Document, brief: bool = False) -> dict:
         "reg_number": doc.reg_number,
         "doc_type": doc.doc_type,
         "registered_at": doc.registered_at.isoformat() if doc.registered_at else None,
+        "archived": doc.archived_at is not None,
+        "archived_at": doc.archived_at.isoformat() if doc.archived_at else None,
     }
     if not brief:
         import json as _json

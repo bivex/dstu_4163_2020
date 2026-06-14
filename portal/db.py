@@ -92,6 +92,13 @@ class Document(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    # архівування: організаційна позначка (незалежна від workflow-статусу).
+    # Архівований документ ховається зі звичайного списку, але не видаляється —
+    # лишається доступним у розділі «Архів» та для відновлення.
+    archived_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
@@ -209,6 +216,8 @@ def init_db() -> None:
                 conn.execute(text("ALTER TABLE documents ADD COLUMN reg_date VARCHAR(64)"))
             if "registered_at" not in cols:
                 conn.execute(text("ALTER TABLE documents ADD COLUMN registered_at DATETIME"))
+            if "archived_at" not in cols:
+                conn.execute(text("ALTER TABLE documents ADD COLUMN archived_at DATETIME"))
     if "signers" in insp.get_table_names():
         scols = {c["name"] for c in insp.get_columns("signers")}
         with engine.begin() as conn:
