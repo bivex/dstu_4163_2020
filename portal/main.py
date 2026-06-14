@@ -343,11 +343,13 @@ def _favicon() -> Response:
 
 
 # --- актуальний перелік КНЕДП з офіційного джерела IIT ---
-# EUSign запитує /signdata/CAs.json. Замість застарілого бандла проксуємо
-# свіжий перелік з iit.com.ua (через сервер — обходимо CORS), кешуємо у памʼяті
-# на годину, із фолбеком на локальний signdata/CAs.json за збою мережі.
+# EUSign запитує /signdata/CAs.json. Замість застарілого бандла EUSignES6
+# проксуємо свіжий перелік з iit.com.ua (через сервер — обходимо CORS), кешуємо
+# у памʼяті на годину, із фолбеком на снапшот реєстру dilovod4 (data/CAs.json,
+# той самий, що використовує ca_registry для резолву CMP/TSP/OCSP) за збою мережі.
 _CAS_URL = os.environ.get("PORTAL_CAS_URL", "https://iit.com.ua/download/productfiles/CAs.json")
 _CAS_TTL = int(os.environ.get("PORTAL_CAS_TTL", "3600"))  # секунд
+_CAS_FALLBACK = _HERE.parent / "src" / "dilovod4" / "infrastructure" / "data" / "CAs.json"
 _cas_cache: dict = {"body": None, "ts": 0.0}
 
 
@@ -370,10 +372,9 @@ def cas_json() -> Response:
             raise ValueError("CAs.json не є переліком")
         _cas_cache.update(body=body, ts=now)
         return Response(content=body, media_type="application/json")
-    except Exception:  # noqa: BLE001 — фолбек на локальний бандл
-        local = _EUSIGN_DIR / "signdata" / "CAs.json"
-        if local.is_file():
-            return Response(content=local.read_bytes(), media_type="application/json")
+    except Exception:  # noqa: BLE001 — фолбек на снапшот реєстру dilovod4
+        if _CAS_FALLBACK.is_file():
+            return Response(content=_CAS_FALLBACK.read_bytes(), media_type="application/json")
         raise HTTPException(502, "не вдалося отримати перелік КНЕДП")
 
 
