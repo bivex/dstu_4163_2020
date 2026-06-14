@@ -82,6 +82,16 @@ class Document(Base):
     # звіт відповідності ДСТУ/НПА (JSON) на момент генерації
     conformance_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # реєстраційні дані (присвоюються автоматично при поданні у чергу /submit):
+    # наскрізний індекс за типом документа в межах року + дата реєстрації.
+    doc_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reg_number: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 1,2,3…
+    reg_index: Mapped[str | None] = mapped_column(String(64), nullable=True)  # «125»
+    reg_date: Mapped[str | None] = mapped_column(String(64), nullable=True)  # «14 червня 2026 р.»
+    registered_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
@@ -187,6 +197,18 @@ def init_db() -> None:
         if "rendered_marked" not in cols:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE documents ADD COLUMN rendered_marked BLOB"))
+        # реєстраційні колонки (авто-нумерація + автодата)
+        with engine.begin() as conn:
+            if "doc_type" not in cols:
+                conn.execute(text("ALTER TABLE documents ADD COLUMN doc_type VARCHAR(64)"))
+            if "reg_number" not in cols:
+                conn.execute(text("ALTER TABLE documents ADD COLUMN reg_number INTEGER"))
+            if "reg_index" not in cols:
+                conn.execute(text("ALTER TABLE documents ADD COLUMN reg_index VARCHAR(64)"))
+            if "reg_date" not in cols:
+                conn.execute(text("ALTER TABLE documents ADD COLUMN reg_date VARCHAR(64)"))
+            if "registered_at" not in cols:
+                conn.execute(text("ALTER TABLE documents ADD COLUMN registered_at DATETIME"))
     if "signers" in insp.get_table_names():
         scols = {c["name"] for c in insp.get_columns("signers")}
         with engine.begin() as conn:

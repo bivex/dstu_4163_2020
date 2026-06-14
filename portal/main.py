@@ -212,6 +212,40 @@ def create_document(payload: dict = Body(...)) -> dict:
         return _doc_to_dict(doc)
 
 
+@app.get("/registry")
+def registration_journal(year: int | None = None) -> dict:
+    """Реєстраційний журнал: зареєстровані документи з індексами та датами.
+
+    Згруповано за типом документа, відсортовано за номером. Опційний фільтр
+    за діловодним роком (default — поточний).
+    """
+    import datetime as _dt
+
+    target_year = year or _dt.datetime.now(_dt.timezone.utc).year
+    with SessionLocal() as session:
+        docs = (
+            session.query(Document)
+            .filter(Document.reg_number.isnot(None))
+            .order_by(Document.doc_type, Document.reg_number)
+            .all()
+        )
+        entries = [
+            {
+                "doc_id": d.doc_id,
+                "doc_type": d.doc_type,
+                "reg_index": d.reg_index,
+                "reg_number": d.reg_number,
+                "reg_date": d.reg_date,
+                "title": d.title,
+                "status": d.status.value,
+                "registered_at": d.registered_at.isoformat() if d.registered_at else None,
+            }
+            for d in docs
+            if d.registered_at and d.registered_at.year == target_year
+        ]
+        return {"year": target_year, "count": len(entries), "entries": entries}
+
+
 @app.get("/documents")
 def list_documents() -> dict:
     with SessionLocal() as session:
@@ -395,8 +429,26 @@ def submit_for_signing(doc_id: str) -> dict:
                 f"документ у статусі «{doc.status.value}» — повторне подання у чергу "
                 "неможливе (підписи вже зібрано або процес триває)",
             )
+
+        # АВТО-РЕЄСТРАЦІЯ: присвоїти наскрізний індекс за типом + дату реєстрації
+        # (нормальний документообіг — реєстрація при вході документа в обіг).
+        from . import registry
+
+        payload = bridge.content_from_json(doc.content_json)
+        doc_type = str(payload.get("doc_type", "Документ"))
+        registry.assign_registration(session, doc, doc_type)
+        # вписати реєстраційні дані у content_json, щоб вони зʼявились у PDF
+        payload["reg_index"] = doc.reg_index
+        payload["date_text"] = doc.reg_date
+        doc.content_json = bridge.content_to_json(payload)
+        # перегенерувати документ з присвоєним номером і датою (якщо вже рендерився)
+        if doc.rendered is not None:
+            _regenerate(session, doc, payload)
+
         doc.status = DocStatus.PENDING_SIGNATURES
         doc.signers[0].status = SignerStatus.INVITED
+        _audit(session, doc, "registered",
+               detail=f"reg_index={doc.reg_index} date={doc.reg_date}")
         _audit(session, doc, "submitted")
         session.commit()
         return _doc_to_dict(doc)
@@ -473,6 +525,24 @@ def sign_document(doc_id: str, payload: dict = Body(...)) -> dict:
 
         session.commit()
         return _doc_to_dict(doc)
+
+
+def _regenerate(session, doc: Document, payload: dict) -> None:
+    """Перегенерувати чистий документ + conformance після зміни даних (напр.
+    присвоєння реєстраційного індексу й дати при поданні у чергу)."""
+    with tempfile.NamedTemporaryFile(suffix=f".{doc.fmt}", delete=False) as tmp:
+        dest = tmp.name
+    try:
+        out = bridge.generate(payload, doc.fmt, dest)
+        with open(out["path"], "rb") as fh:
+            doc.rendered = fh.read()
+        import json as _json
+
+        doc.conformance_json = _json.dumps(out["report"], ensure_ascii=False)
+    finally:
+        for p in (dest, dest + f".{doc.fmt}"):
+            if os.path.exists(p):
+                os.remove(p)
 
 
 def _render_marked(session, doc: Document) -> None:
@@ -588,6 +658,11 @@ def _doc_to_dict(doc: Document, brief: bool = False) -> dict:
         ],
         "has_rendered": doc.rendered is not None,
         "has_asice": doc.asice is not None,
+        "reg_index": doc.reg_index,
+        "reg_date": doc.reg_date,
+        "reg_number": doc.reg_number,
+        "doc_type": doc.doc_type,
+        "registered_at": doc.registered_at.isoformat() if doc.registered_at else None,
     }
     if not brief:
         import json as _json
