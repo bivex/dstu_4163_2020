@@ -156,6 +156,7 @@ function readEditor(): Record<string, unknown> {
   return {
     doc_id: docId(),
     org_name: val("orgName"),
+    subject_type: val("subjectType"),
     doc_type: val("docType"),
     title: val("title"),
     reg_index: val("regIndex"),
@@ -562,6 +563,17 @@ Object.assign(window as unknown as Record<string, unknown>, {
 const searchEl = document.getElementById("search") as HTMLInputElement | null;
 if (searchEl) {
   searchEl.oninput = () => { searchTerm = searchEl.value.trim(); renderList(); };
+}
+
+// динамічний лейбл поля найменування залежно від типу суб'єкта
+const subjEl = document.getElementById("subjectType") as HTMLSelectElement | null;
+if (subjEl) {
+  const orgLabel = () => {
+    const lbl = document.getElementById("orgName")?.closest(".field")?.querySelector("label");
+    if (lbl) lbl.textContent = subjEl.value === "fop"
+      ? "ПІБ підприємця (ФОП)" : "Найменування юридичної особи";
+  };
+  subjEl.onchange = orgLabel;
 }
 
 // init

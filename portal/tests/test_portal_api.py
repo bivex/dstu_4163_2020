@@ -380,6 +380,23 @@ def test_marked_progressive_after_each_sign(client):
     assert t2.find(p0) < t2.find(p1)
 
 
+def test_fop_subject_prefixes_name_in_pdf(client):
+    """Документ типу ФОП: реквізит найменування формується з ПІБ підприємця
+    з префіксом «ФІЗИЧНА ОСОБА — ПІДПРИЄМЕЦЬ»."""
+    import io
+    from pypdf import PdfReader
+
+    payload = _doc_payload(doc_id="FOP-1")
+    payload["org_name"] = "ПЕТРЕНКО Олександр Іванович"
+    payload["subject_type"] = "fop"
+    client.post("/documents", json=payload)
+    client.post("/documents/FOP-1/generate")
+    r = client.get("/documents/FOP-1/download")
+    t = "".join((p.extract_text() or "") for p in PdfReader(io.BytesIO(r.content)).pages)
+    assert "ФІЗИЧНА ОСОБА — ПІДПРИЄМЕЦЬ" in t
+    assert "ПЕТРЕНКО Олександр Іванович" in t
+
+
 def test_asice_404_before_signed(client):
     client.post("/documents", json=_doc_payload())
     client.post("/documents/T-001/generate")

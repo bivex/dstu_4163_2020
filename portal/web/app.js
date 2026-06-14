@@ -128,6 +128,7 @@ function readEditor() {
   return {
     doc_id: docId(),
     org_name: val("orgName"),
+    subject_type: val("subjectType"),
     doc_type: val("docType"),
     title: val("title"),
     reg_index: val("regIndex"),
@@ -547,6 +548,15 @@ if (searchEl) {
     searchTerm = searchEl.value.trim();
     renderList();
   };
+}
+var subjEl = document.getElementById("subjectType");
+if (subjEl) {
+  const orgLabel = () => {
+    const lbl = document.getElementById("orgName")?.closest(".field")?.querySelector("label");
+    if (lbl)
+      lbl.textContent = subjEl.value === "fop" ? "ПІБ підприємця (ФОП)" : "Найменування юридичної особи";
+  };
+  subjEl.onchange = orgLabel;
 }
 initEUSign();
 reloadDocs();

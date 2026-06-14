@@ -98,6 +98,21 @@ def _mark_from_dict(d: dict[str, Any]) -> ElectronicSignatureMark:
     )
 
 
+def _subject_name(payload: dict[str, Any]) -> str:
+    """Реквізит «найменування» (§5.4 ДСТУ 4163) залежно від типу суб'єкта.
+
+    legal (юрособа) — назва як є («ДЕРЖАВНЕ ПІДПРИЄМСТВО …»).
+    fop (ФОП) — ПІБ підприємця з префіксом «ФІЗИЧНА ОСОБА — ПІДПРИЄМЕЦЬ»,
+    якщо користувач не вписав префікс самостійно.
+    """
+    name = str(payload.get("org_name", "")).strip()
+    if str(payload.get("subject_type", "legal")) == "fop":
+        low = name.lower()
+        if "фізична особа" not in low and "фоп" not in low:
+            name = f"ФІЗИЧНА ОСОБА — ПІДПРИЄМЕЦЬ {name}"
+    return name
+
+
 def build_content(payload: dict[str, Any], *, with_marks: bool = False) -> DocumentContent:
     """DocumentContent з payload порталу (мінімальний ввід користувача).
 
@@ -109,7 +124,7 @@ def build_content(payload: dict[str, Any], *, with_marks: bool = False) -> Docum
     e_sigs = tuple(_mark_from_dict(m) for m in payload.get("e_signatures", ())) \
         if with_marks else ()
     return DocumentContent(
-        org_name=str(payload["org_name"]),
+        org_name=_subject_name(payload),
         doc_type=str(payload.get("doc_type", "Наказ")),
         date_text=str(payload.get("date_text", "")),
         reg_index=str(payload.get("reg_index", "")),
