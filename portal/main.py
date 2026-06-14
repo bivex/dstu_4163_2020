@@ -414,8 +414,17 @@ def download_asice(doc_id: str) -> Response:
 
 
 @app.post("/documents/{doc_id}/submit")
-def submit_for_signing(doc_id: str) -> dict:
-    """Перевести чернетку у чергу підписання: перший підписант → INVITED."""
+def submit_for_signing(doc_id: str, payload: dict = Body(default={})) -> dict:
+    """Перевести чернетку у чергу підписання: перший підписант → INVITED.
+
+    Реєстрація (індекс + дата) опційна:
+    - auto_register=True (default) і поля порожні → присвоюються автоматично
+      (наскрізний індекс за типом + поточна дата);
+    - якщо у картці вже задано reg_index та/або date_text вручну — вони
+      поважаються, авто-присвоєння для заданого поля пропускається;
+    - auto_register=False → реєстрація не виконується взагалі (беремо що є).
+    """
+    auto_register = bool(payload.get("auto_register", True))
     with SessionLocal() as session:
         doc = _load(session, doc_id)
         if not doc.signers:
@@ -430,25 +439,43 @@ def submit_for_signing(doc_id: str) -> dict:
                 "неможливе (підписи вже зібрано або процес триває)",
             )
 
-        # АВТО-РЕЄСТРАЦІЯ: присвоїти наскрізний індекс за типом + дату реєстрації
-        # (нормальний документообіг — реєстрація при вході документа в обіг).
         from . import registry
 
-        payload = bridge.content_from_json(doc.content_json)
-        doc_type = str(payload.get("doc_type", "Документ"))
-        registry.assign_registration(session, doc, doc_type)
-        # вписати реєстраційні дані у content_json, щоб вони зʼявились у PDF
-        payload["reg_index"] = doc.reg_index
-        payload["date_text"] = doc.reg_date
-        doc.content_json = bridge.content_to_json(payload)
-        # перегенерувати документ з присвоєним номером і датою (якщо вже рендерився)
-        if doc.rendered is not None:
-            _regenerate(session, doc, payload)
+        content = bridge.content_from_json(doc.content_json)
+        doc_type = str(content.get("doc_type", "Документ"))
+        manual_index = str(content.get("reg_index", "")).strip()
+        manual_date = str(content.get("date_text", "")).strip()
+        changed = False
+
+        if auto_register:
+            # авто-індекс лише якщо вручну не заданий
+            if not manual_index:
+                registry.assign_registration(session, doc, doc_type)
+                content["reg_index"] = doc.reg_index
+                # авто-дата лише якщо вручну не задана
+                content["date_text"] = manual_date or doc.reg_date
+                changed = True
+            else:
+                # індекс заданий вручну — фіксуємо його у реєстрі як є
+                doc.doc_type = doc_type
+                doc.reg_index = manual_index
+                doc.reg_date = manual_date or registry.format_ua_date(
+                    dt.datetime.now(dt.timezone.utc).date()
+                )
+                doc.registered_at = dt.datetime.now(dt.timezone.utc)
+                content["date_text"] = doc.reg_date
+                changed = True
+
+        if changed:
+            doc.content_json = bridge.content_to_json(content)
+            # перегенерувати документ з індексом і датою (якщо вже рендерився)
+            if doc.rendered is not None:
+                _regenerate(session, doc, content)
+            _audit(session, doc, "registered",
+                   detail=f"reg_index={doc.reg_index} date={doc.reg_date}")
 
         doc.status = DocStatus.PENDING_SIGNATURES
         doc.signers[0].status = SignerStatus.INVITED
-        _audit(session, doc, "registered",
-               detail=f"reg_index={doc.reg_index} date={doc.reg_date}")
         _audit(session, doc, "submitted")
         session.commit()
         return _doc_to_dict(doc)
