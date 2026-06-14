@@ -67,12 +67,12 @@ function onKeySourceChange(): void {
   const tokenWrap = el("tokenWrap");
   const fileWrap = el("fileWrap");
   if (mode === "token") {
-    fileWrap.style.display = "none";
-    tokenWrap.style.display = "";
+    fileWrap.classList.add("hidden");
+    tokenWrap.classList.remove("hidden");
     initWidget();
   } else {
-    tokenWrap.style.display = "none";
-    fileWrap.style.display = "";
+    tokenWrap.classList.add("hidden");
+    fileWrap.classList.remove("hidden");
   }
 }
 
