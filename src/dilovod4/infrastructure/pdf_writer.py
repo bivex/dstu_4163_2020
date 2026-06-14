@@ -157,9 +157,10 @@ class _Layout:
     # --- реквізити ---
     def render(self) -> None:
         # §5.10/§5.31: QR-код 21×21 мм у верхньому правому куті — дані про
-        # КЕП/печатку + позначка часу. Малюємо першим, абсолютним позиціюванням.
-        if self.doc.is_electronic and self.content.e_signature is not None:
-            self._draw_signature_qr(self.content.e_signature)
+        # КЕП/печатку + позначка часу. Кілька підписантів -> кілька QR стовпчиком.
+        if self.doc.is_electronic:
+            for i, mark in enumerate(self.content.signatures):
+                self._draw_signature_qr(mark, slot=i)
 
         # 04 найменування юридичної особи — центрований, напівжирний, з перенесенням
         self._wrapped(self.content.org_name, align=_ALIGN_CENTER, font=_FONT_BOLD)
@@ -203,9 +204,12 @@ class _Layout:
         # підпис (§4.4 реквізит 22):
         #   е-документ із відміткою КЕП → рамка-відмітка по ключу (Art.18/24);
         #   інакше → рукописний реквізит «посада + розшифрування».
-        self._gap(1.5)
-        if self.doc.is_electronic and self.content.e_signature is not None:
-            self._draw_e_signature_mark(self.content.e_signature)
+        self._gap(0.6)
+        if self.doc.is_electronic and self.content.signatures:
+            for i, mark in enumerate(self.content.signatures):
+                if i:
+                    self._gap(0.3)  # компактний зазор між відмітками підписантів
+                self._draw_e_signature_mark(mark)
         else:
             self._line(
                 f"{self.content.signature_position}"
@@ -235,9 +239,9 @@ class _Layout:
         else:
             raw_lines.append(("Статус сертифіката: НЕДІЙСНИЙ (ст.24)", _FONT_BOLD))
 
-        small = max(self.body_pt - 2, 8)  # §7.2: довідкові дані 8–12 pt
-        pad = 3 * mm
-        line_h = small * 1.25
+        small = 8  # §7.2: довідкові дані 8–12 pt — беремо мінімум для компактності
+        pad = 2 * mm
+        line_h = small * 1.15
         box_w = min(self.text_width, 95 * mm)  # §7.6: ширина реквізиту ≤73–95 мм
         avail_pt = box_w - 2 * pad  # доступна ширина у пунктах
 
@@ -248,7 +252,9 @@ class _Layout:
                 wrapped.append((piece, font))
 
         box_h = line_h * len(wrapped) + 2 * pad
-        self._ensure_space(box_h + line_h)
+        # запас лише піврядка: рамка самодостатня, зайвий рядок виштовхував
+        # другу відмітку на наступну сторінку дарма.
+        self._ensure_space(box_h + line_h * 0.4)
         top = self.y
         bottom = top - box_h
         self.c.setLineWidth(0.6)
@@ -293,15 +299,15 @@ class _Layout:
             out.append(line)
         return out or [""]
 
-    def _draw_signature_qr(self, mark) -> None:
+    def _draw_signature_qr(self, mark, slot: int = 0) -> None:
         """QR-код 21×21 мм у верхньому правому куті (§5.10/§5.31).
 
         Кодує дані КЕП/печатки + кваліфіковану позначку часу (крос-лінк
         заголовка dstu-файлу). Навантаження будує домен (build_signature_qr_payload),
         растеризацію робить segno. Розмір — рівно 21 мм за нормою.
 
-        Щільність: компактний ASCII-payload + стандартна тиха зона (border=4) дають
-        читабельний модуль (~0.5 мм) на телефоні. Тиха зона ОБОВʼЯЗКОВА для сканування.
+        slot — порядковий номер підписанта: кілька QR розкладаються стовпчиком
+        зверху вниз уздовж правого поля (директор, головний бухгалтер тощо).
         """
         import segno  # локальний імпорт: залежність потрібна лише за наявності QR
 
@@ -309,16 +315,15 @@ class _Layout:
         qr = segno.make(payload, error="m")
 
         buf = io.BytesIO()
-        # border=0: 21 мм — це САМ символ QR (§5.10). Тиху зону додаємо окремо
-        # білою підкладкою назовні, щоб не зменшувати модуль усередині 21 мм.
         qr.save(buf, kind="png", scale=10, border=0)
         buf.seek(0)
 
         side = _QR_SIDE_MM * mm
         quiet = 3 * mm  # тиха зона назовні символу (критично для сканування)
-        # верхній правий кут: усередині правого поля, на рівні верхнього поля
+        # правий край; кілька QR — стовпчиком згори вниз (крок = символ + тиха зона)
+        step = side + 2 * quiet
         x = self.page_w - self.right_margin - side
-        y = self.page_h - self.top - side
+        y = self.page_h - self.top - side - slot * step
         # біла підкладка з тихою зоною навколо символу
         self.c.setFillColorRGB(1, 1, 1)
         self.c.rect(x - quiet, y - quiet, side + 2 * quiet, side + 2 * quiet, stroke=0, fill=1)

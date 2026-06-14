@@ -27,9 +27,21 @@ class DocumentContent:
     # §4.4 реквізит 22 для е-документів: відмітка про КЕП/печатку (Art.18/24).
     # Якщо задано — підпис відтворюється як відмітка по ключу, а не рукописний.
     e_signature: ElectronicSignatureMark | None = None
+    # Кілька підписантів (директор + головний бухгалтер тощо): кожен має власну
+    # КЕП-відмітку з QR. Якщо порожньо — береться один e_signature (сумісність).
+    e_signatures: tuple[ElectronicSignatureMark, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         if not self.org_name.strip():
             raise InvariantViolation("найменування юридичної особи не може бути порожнім")
         if not self.body:
             raise InvariantViolation("текст документа не може бути порожнім")
+
+    @property
+    def signatures(self) -> tuple[ElectronicSignatureMark, ...]:
+        """Усі КЕП-відмітки: явний перелік e_signatures або один e_signature."""
+        if self.e_signatures:
+            return self.e_signatures
+        if self.e_signature is not None:
+            return (self.e_signature,)
+        return ()
