@@ -12,9 +12,10 @@ WORKDIR /app
 COPY portal/requirements.txt /app/portal/requirements.txt
 RUN pip install --no-cache-dir -r /app/portal/requirements.txt
 
-# доменне ядро + портал
+# доменне ядро + портал + бібліотека EUSign (для клієнтського підпису)
 COPY src /app/src
 COPY portal /app/portal
+COPY external/EUSignES6 /app/external/EUSignES6
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/src \

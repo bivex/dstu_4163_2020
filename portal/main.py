@@ -19,10 +19,12 @@ import datetime as dt
 import os
 import tempfile
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 
 from . import domain_bridge as bridge
 from .db import (
@@ -316,3 +318,23 @@ def _doc_to_dict(doc: Document, brief: bool = False) -> dict:
             for e in doc.events
         ]
     return data
+
+
+# --- статика: фронт + бібліотека EUSign ---
+# Фронт лежить у portal/web; бібліотека EUSign — у submodule external/EUSignES6
+# (подається під /eusign/ — той самий origin, тож приватний ключ не покидає
+# браузер). Монтуємо в кінці, щоб не перекрити API-маршрути.
+_HERE = Path(__file__).resolve().parent
+_WEB_DIR = _HERE / "web"
+_EUSIGN_DIR = _HERE.parent / "external" / "EUSignES6"
+
+
+@app.get("/")
+def _root() -> RedirectResponse:
+    return RedirectResponse(url="/web/")
+
+
+if _EUSIGN_DIR.is_dir():
+    app.mount("/eusign", StaticFiles(directory=str(_EUSIGN_DIR)), name="eusign")
+if _WEB_DIR.is_dir():
+    app.mount("/web", StaticFiles(directory=str(_WEB_DIR), html=True), name="web")

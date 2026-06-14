@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="uk" data-bs-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Портал підписання документів · ДСТУ 4163 + НПА</title>
+  <style>
+    :root { --bg:#f6f7f9; --card:#fff; --line:#e3e6ea; --ink:#1a1d21; --muted:#6b7280;
+            --ok:#0a7d36; --bad:#c0001a; --accent:#2257d4; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+           background:var(--bg); color:var(--ink); font-size:14px; line-height:1.45; }
+    header { background:var(--ink); color:#fff; padding:14px 22px; }
+    header h1 { margin:0; font-size:16px; font-weight:600; }
+    header small { color:#aeb6c2; }
+    .wrap { max-width:1100px; margin:0 auto; padding:22px; display:grid;
+            grid-template-columns:1fr 1fr; gap:18px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:10px;
+            padding:18px; }
+    .card h2 { margin:0 0 12px; font-size:14px; text-transform:uppercase;
+               letter-spacing:.04em; color:var(--muted); }
+    label { display:block; font-size:12px; color:var(--muted); margin:10px 0 3px; }
+    input, textarea, select { width:100%; padding:8px 10px; border:1px solid var(--line);
+            border-radius:7px; font:inherit; background:#fff; }
+    textarea { min-height:120px; resize:vertical; }
+    button { font:inherit; padding:9px 14px; border:0; border-radius:7px; cursor:pointer;
+             background:var(--accent); color:#fff; font-weight:500; }
+    button.ghost { background:#eef1f6; color:var(--ink); }
+    button:disabled { opacity:.45; cursor:not-allowed; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .signer { border:1px solid var(--line); border-radius:8px; padding:10px 12px;
+              margin:8px 0; display:flex; justify-content:space-between; align-items:center; }
+    .badge { font-size:11px; padding:2px 8px; border-radius:20px; font-weight:600; }
+    .b-waiting { background:#eceff3; color:#6b7280; }
+    .b-invited { background:#fff3cd; color:#8a6400; }
+    .b-signed  { background:#d6f0df; color:var(--ok); }
+    .b-rejected{ background:#fadbe0; color:var(--bad); }
+    .status-line { font-size:12px; color:var(--muted); margin-top:4px; }
+    #report { font-size:12px; max-height:220px; overflow:auto; }
+    #report .f-ok  { color:var(--ok); }
+    #report .f-bad { color:var(--bad); }
+    .full { grid-column:1 / -1; }
+    .muted { color:var(--muted); }
+    .kep { background:#fafbfc; border:1px dashed var(--line); border-radius:8px; padding:12px; }
+    code { background:#eef1f6; padding:1px 5px; border-radius:4px; font-size:12px; }
+    .toast { position:fixed; bottom:18px; right:18px; background:var(--ink); color:#fff;
+             padding:10px 16px; border-radius:8px; opacity:0; transition:opacity .25s;
+             max-width:380px; }
+    .toast.show { opacity:1; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Портал підписання та редагування документів
+      <small>· ДСТУ 4163:2020 + 7 НПА · КЕП на клієнті (EUSign)</small></h1>
+  </header>
+
+  <div class="wrap">
+    <!-- РЕДАКТОР -->
+    <section class="card">
+      <h2>1. Редактор документа</h2>
+      <label>Ідентифікатор (doc_id)</label>
+      <input id="docId" value="NAKAZ-PORTAL-001">
+      <label>Найменування юридичної особи</label>
+      <input id="orgName" value="ДЕРЖАВНЕ ПІДПРИЄМСТВО «УКРНДНЦ»">
+      <div class="row">
+        <div style="flex:1"><label>Вид документа</label><input id="docType" value="Наказ"></div>
+        <div style="flex:1"><label>Формат</label>
+          <select id="fmt"><option value="pdf">PDF</option><option value="docx">DOCX</option></select></div>
+      </div>
+      <label>Заголовок</label>
+      <input id="title" value="Про затвердження річної фінансової звітності">
+      <div class="row">
+        <div style="flex:1"><label>Дата</label><input id="dateText" value="14 червня 2026 року"></div>
+        <div style="flex:1"><label>Реєстр. індекс</label><input id="regIndex" value="050-фін"></div>
+      </div>
+      <label>Текст (кожен абзац — з нового рядка)</label>
+      <textarea id="body">Відповідно до Закону України «Про бухгалтерський облік та фінансову звітність» НАКАЗУЮ:
+1. Затвердити річну фінансову звітність підприємства.
+2. Оприлюднити звітність у строк, визначений законодавством.
+3. Контроль за виконанням наказу залишаю за собою.</textarea>
+      <label>Підписанти (черга: ПІБ | посада, по рядку)</label>
+      <textarea id="signers" style="min-height:60px">ПЕТРЕНКО Олександр | Директор
+ТКАЧЕНКО Наталія | Головний бухгалтер</textarea>
+      <div class="row" style="margin-top:14px">
+        <button onclick="createDoc()">Створити чернетку</button>
+        <button class="ghost" onclick="generateDoc()">Згенерувати + валідація</button>
+        <button class="ghost" onclick="downloadDoc()">Завантажити</button>
+      </div>
+    </section>
+
+    <!-- ВАЛІДАЦІЯ -->
+    <section class="card">
+      <h2>2. Відповідність ДСТУ 4163 + НПА</h2>
+      <div id="reportSummary" class="status-line">Згенеруйте документ для перевірки.</div>
+      <div id="report"></div>
+    </section>
+
+    <!-- ЧЕРГА ПІДПИСАННЯ -->
+    <section class="card">
+      <h2>3. Черга підписання</h2>
+      <div class="row" style="margin-bottom:8px">
+        <button onclick="submitDoc()">Подати у чергу</button>
+        <button class="ghost" onclick="refresh()">Оновити</button>
+        <span id="docStatus" class="status-line"></span>
+      </div>
+      <div id="signerList"><span class="muted">Створіть документ.</span></div>
+    </section>
+
+    <!-- КЕП -->
+    <section class="card">
+      <h2>4. Підпис КЕП (на клієнті)</h2>
+      <div class="kep">
+        <div class="status-line" id="euStatus">Завантаження бібліотеки EUSign…</div>
+        <label>Кваліфікований надавач (КНЕДП)</label>
+        <select id="caSelect"></select>
+        <label>Файл особистого ключа (.dat / .pfx / .jks)</label>
+        <input type="file" id="keyFile">
+        <label>Пароль захисту ключа</label>
+        <input type="password" id="keyPass" placeholder="••••••">
+        <div class="row" style="margin-top:12px">
+          <button id="signBtn" onclick="signCurrent()" disabled>Підписати поточним у черзі</button>
+        </div>
+        <div class="status-line">Приватний ключ не покидає браузер (Закон 2155-VIII). На сервер
+          передається лише готова КЕП-підпис (CMS/p7s).</div>
+      </div>
+    </section>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

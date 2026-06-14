@@ -4,7 +4,6 @@
 samples
 tests
 docs
-external
-*.md
 .venv
 venv
+# не виключаємо external — звідти береться бібліотека EUSign (COPY у Dockerfile)
