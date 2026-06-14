@@ -2,7 +2,8 @@
   • № 851-IV «Про електронні документи та електронний документообіг»;
   • № 2657-XII «Про інформацію»;
   • № 2297-VI «Про захист персональних даних»;
-  • № 2939-VI «Про доступ до публічної інформації».
+  • № 2939-VI «Про доступ до публічної інформації»;
+  • № 80/94-ВР «Про захист інформації в інформаційно-комунікаційних системах».
 """
 
 from .electronic_documents import (
@@ -70,6 +71,17 @@ from .public_information import (
     restriction_lawful as public_restriction_lawful,
     topic_may_be_restricted as public_topic_may_be_restricted,
 )
+from .info_protection import (
+    AccessSource,
+    InfoCategory,
+    ProcessingSetup,
+    ProtectionSetup,
+    SystemOwnerType,
+    access_defined_by,
+    cyber_defence_required,
+    processing_compliant as system_processing_compliant,
+    protection_compliant,
+)
 
 __all__ = [
     # Закон 851-IV
@@ -131,4 +143,14 @@ __all__ = [
     "PublicRestrictedKind",
     "public_restriction_lawful",
     "public_topic_may_be_restricted",
+    # Закон 80/94-ВР
+    "AccessSource",
+    "InfoCategory",
+    "ProcessingSetup",
+    "ProtectionSetup",
+    "SystemOwnerType",
+    "access_defined_by",
+    "cyber_defence_required",
+    "system_processing_compliant",
+    "protection_compliant",
 ]
