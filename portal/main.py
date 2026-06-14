@@ -311,8 +311,34 @@ def download_document(doc_id: str) -> Response:
 def validate_document(doc_id: str) -> dict:
     with SessionLocal() as session:
         doc = _load(session, doc_id)
-        payload = bridge.content_from_json(doc.content_json)
+        payload = _payload_with_signatures(doc)
         return bridge.validate(payload)
+
+
+def _payload_with_signatures(doc: Document) -> dict:
+    """Payload документа з реальними КЕП-відмітками із doc.signers (підписані).
+
+    Реальні підписи зберігаються у doc.signers (не в content_json), тож для
+    валідації ст.7 851-IV (ELECTRONIC_ORIGINAL) їх треба інжектити як
+    e_signatures — інакше підписаний документ хибно вважався б не-оригіналом.
+    """
+    payload = bridge.content_from_json(doc.content_json)
+    payload["e_signatures"] = [
+        {
+            "signer": s.full_name,
+            "signer_position": s.position,
+            "certificate_serial": s.certificate_serial or "—",
+            "issuer": s.issuer or "—",
+            "valid_from": s.valid_from or "",
+            "valid_to": s.valid_to or "",
+            "timestamp": s.signed_at.isoformat(timespec="seconds") if s.signed_at else "",
+            "status": "Active",
+            "is_qualified": True,
+        }
+        for s in doc.signers
+        if s.status == SignerStatus.SIGNED
+    ]
+    return payload
 
 
 @app.get("/documents/{doc_id}/manifest")
@@ -460,22 +486,7 @@ def _render_marked(session, doc: Document) -> None:
 
     Це окреме людино-читане представлення (як у Вчасно/Дія): підписується
     оригінал, а візуалізація лише відображає стан підписання."""
-    payload = bridge.content_from_json(doc.content_json)
-    payload["e_signatures"] = [
-        {
-            "signer": s.full_name,
-            "signer_position": s.position,
-            "certificate_serial": s.certificate_serial or "—",
-            "issuer": s.issuer or "—",
-            "valid_from": s.valid_from or "",
-            "valid_to": s.valid_to or "",
-            "timestamp": s.signed_at.isoformat(timespec="seconds") if s.signed_at else "",
-            "status": "Active",
-            "is_qualified": True,
-        }
-        for s in doc.signers
-        if s.status == SignerStatus.SIGNED
-    ]
+    payload = _payload_with_signatures(doc)
     with tempfile.NamedTemporaryFile(suffix=f".{doc.fmt}", delete=False) as tmp:
         dest = tmp.name
     try:
