@@ -92,6 +92,11 @@ class Document(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    # оцифрування паперового документа: заливка скану (PDF/фото) як оригіналу.
+    # Для is_scanned=True документ НЕ генерується з полів форми — оригіналом є
+    # сам скан (rendered), який підписується КЕП через звичайний пайплайн.
+    is_scanned: Mapped[bool] = mapped_column(default=False)
+
     # архівування: організаційна позначка (незалежна від workflow-статусу).
     # Архівований документ ховається зі звичайного списку, але не видаляється —
     # лишається доступним у розділі «Архів» та для відновлення.
@@ -218,6 +223,8 @@ def init_db() -> None:
                 conn.execute(text("ALTER TABLE documents ADD COLUMN registered_at DATETIME"))
             if "archived_at" not in cols:
                 conn.execute(text("ALTER TABLE documents ADD COLUMN archived_at DATETIME"))
+            if "is_scanned" not in cols:
+                conn.execute(text("ALTER TABLE documents ADD COLUMN is_scanned BOOLEAN DEFAULT 0"))
     if "signers" in insp.get_table_names():
         scols = {c["name"] for c in insp.get_columns("signers")}
         with engine.begin() as conn:

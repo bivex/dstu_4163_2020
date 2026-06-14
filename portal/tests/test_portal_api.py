@@ -723,3 +723,111 @@ def test_registry_ua_date_format():
     assert registry.format_ua_date(_dt.date(2026, 6, 14)) == "14 червня 2026 р."
     assert registry.format_ua_date(_dt.date(2026, 1, 1)) == "1 січня 2026 р."
     assert registry.format_ua_date(_dt.date(2026, 12, 31)) == "31 грудня 2026 р."
+
+
+# --- оцифрування: заливка сканів ---
+def _png_bytes() -> bytes:
+    """Мінімальне PNG-зображення (1×1 білий піксель) для тесту заливки скану."""
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (200, 280), "white").save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _minimal_pdf() -> bytes:
+    """Мінімальний валідний PDF (сигнатура %PDF) для тесту заливки скану-PDF."""
+    return (
+        b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+        b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
+        b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]>>endobj\n"
+        b"trailer<</Root 1 0 R>>\n%%EOF"
+    )
+
+
+def test_scan_image_becomes_pdf_original(client):
+    """Скан-фото конвертується в PDF і стає електронним оригіналом (rendered)."""
+    files = {"file": ("scan.png", _png_bytes(), "image/png")}
+    data = {"doc_id": "SCAN-1", "title": "Скан наказу",
+            "signers": "ПЕТРЕНКО Олександр | Директор"}
+    r = client.post("/documents/scan", files=files, data=data)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["is_scanned"] is True
+    assert d["fmt"] == "pdf"
+    assert d["has_rendered"] is True
+    assert d["status"] == "draft"
+    assert d["signers"][0]["full_name"] == "ПЕТРЕНКО Олександр"
+    # завантажений оригінал — справді PDF
+    pdf = client.get("/documents/SCAN-1/download")
+    assert pdf.content[:5] == b"%PDF-"
+
+
+def test_scan_pdf_passthrough(client):
+    """Скан у форматі PDF приймається як є (електронний оригінал)."""
+    files = {"file": ("scan.pdf", _minimal_pdf(), "application/pdf")}
+    data = {"doc_id": "SCAN-PDF", "title": "PDF скан", "signers": "ІВАНОВ І. | Бухгалтер"}
+    r = client.post("/documents/scan", files=files, data=data)
+    assert r.status_code == 200
+    assert r.json()["is_scanned"] is True
+
+
+def test_scan_rejects_unsupported_type(client):
+    """Непідтримуваний тип файлу → 415."""
+    files = {"file": ("doc.exe", b"MZ\x00\x00binary", "application/octet-stream")}
+    data = {"doc_id": "SCAN-BAD", "title": "Погане"}
+    r = client.post("/documents/scan", files=files, data=data)
+    assert r.status_code == 415
+
+
+def test_scan_rejects_fake_pdf(client):
+    """Файл з .pdf але без сигнатури %PDF → 422."""
+    files = {"file": ("fake.pdf", b"not a real pdf", "application/pdf")}
+    data = {"doc_id": "SCAN-FAKE", "title": "Фейк"}
+    r = client.post("/documents/scan", files=files, data=data)
+    assert r.status_code == 422
+
+
+def test_scan_full_signing_lifecycle(client):
+    """Повний цикл оцифрування: скан → реєстрація → підпис КЕП → ASiC-E."""
+    files = {"file": ("scan.png", _png_bytes(), "image/png")}
+    data = {"doc_id": "SCAN-SIGN", "title": "Скан до підпису",
+            "signers": "ПЕТРЕНКО Олександр | Директор"}
+    client.post("/documents/scan", files=files, data=data)
+    # подати у чергу (з авто-реєстрацією)
+    d = client.post("/documents/SCAN-SIGN/submit", json={"auto_register": True}).json()
+    assert d["status"] == "pending_signatures"
+    assert d["reg_index"]  # отримав реєстраційний індекс
+    # підписати скан
+    d2 = client.post("/documents/SCAN-SIGN/sign", json={
+        "signer_order_index": 0, "signature_b64": _fake_cms()}).json()
+    assert d2["status"] == "signed"
+    assert d2["has_asice"] is True
+    # ASiC-E містить скан-PDF + підпис
+    import io
+    import zipfile
+
+    r = client.get("/documents/SCAN-SIGN/download/asice")
+    z = zipfile.ZipFile(io.BytesIO(r.content))
+    names = z.namelist()
+    assert "SCAN-SIGN.pdf" in names
+    assert any(n.endswith(".p7s") for n in names)
+
+
+def test_scan_unit_normalize():
+    """Unit: scan_ingest.normalize_to_pdf конвертує зображення й пропускає PDF."""
+    from portal import scan_ingest
+
+    # PDF — passthrough
+    pdf = _minimal_pdf()
+    assert scan_ingest.normalize_to_pdf(pdf, "application/pdf", "x.pdf") == pdf
+    # зображення → PDF
+    out = scan_ingest.normalize_to_pdf(_png_bytes(), "image/png", "x.png")
+    assert out[:5] == b"%PDF-"
+    # порожній файл → помилка
+    import pytest as _pytest
+
+    with _pytest.raises(scan_ingest.ScanError):
+        scan_ingest.normalize_to_pdf(b"", "image/png", "x.png")

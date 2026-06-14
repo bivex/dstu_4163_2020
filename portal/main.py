@@ -22,7 +22,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import jwt
-from fastapi import Body, Depends, FastAPI, HTTPException, Request
+from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -208,6 +208,104 @@ def create_document(payload: dict = Body(...)) -> dict:
         session.add(doc)
         session.flush()
         _audit(session, doc, "created", detail=f"signers={len(doc.signers)}")
+        session.commit()
+        return _doc_to_dict(doc)
+
+
+@app.post("/documents/scan")
+async def ingest_scan(
+    file: UploadFile = File(...),
+    doc_id: str = Form(...),
+    title: str = Form(""),
+    signers: str = Form(""),
+    retention_years: int = Form(5),
+) -> dict:
+    """Оцифрування паперового документа: залити скан як електронний оригінал.
+
+    Скан (PDF або фото JPEG/PNG/TIFF) стає rendered-оригіналом — документ НЕ
+    генерується з полів форми. Далі підписується КЕП через звичайний пайплайн
+    (submit → manifest → sign → ASiC-E), тож електронна копія набуває юридичної
+    сили (Закон 851-IV, ст.7 ↔ ст.12).
+
+    signers — рядки «ПІБ | посада», розділені переносом рядка.
+    """
+    from . import scan_ingest
+
+    data = await file.read()
+    if not scan_ingest.is_supported(file.content_type or "", file.filename or ""):
+        raise HTTPException(
+            415,
+            "непідтримуваний тип скану — приймаються PDF або зображення "
+            "(JPEG/PNG/TIFF/BMP/WEBP)",
+        )
+    try:
+        pdf_bytes = scan_ingest.normalize_to_pdf(
+            data, file.content_type or "", file.filename or ""
+        )
+    except scan_ingest.ScanError as exc:
+        raise HTTPException(422, str(exc))
+
+    # розібрати підписантів із «ПІБ | посада» по рядках
+    parsed_signers = []
+    for i, line in enumerate(s.strip() for s in signers.splitlines()):
+        if not line:
+            continue
+        parts = [p.strip() for p in line.split("|", 1)]
+        parsed_signers.append({
+            "full_name": parts[0],
+            "position": parts[1] if len(parts) > 1 else "",
+            "order_index": i,
+        })
+
+    with SessionLocal() as session:
+        existing = session.query(Document).filter_by(doc_id=doc_id).first()
+        if existing and existing.status != DocStatus.DRAFT:
+            raise HTTPException(
+                409,
+                f"документ {doc_id} у статусі «{existing.status.value}» — "
+                "заміна скану заборонена",
+            )
+        doc = existing or Document(doc_id=doc_id)
+        doc.title = title or f"Скан {doc_id}"
+        doc.fmt = "pdf"  # скан завжди нормалізуємо у PDF
+        doc.status = DocStatus.DRAFT
+        doc.is_scanned = True
+        doc.rendered = pdf_bytes  # скан = електронний оригінал
+        doc.rendered_marked = None
+        doc.content_json = bridge.content_to_json({
+            "doc_id": doc_id, "title": doc.title, "fmt": "pdf",
+            "is_scanned": True, "doc_type": "Скан-копія",
+        })
+        if doc.retention_until is None:
+            doc.retention_until = dt.datetime.now(dt.timezone.utc) + dt.timedelta(
+                days=365 * retention_years
+            )
+        # перевірка PDF/A архівної придатності (інформаційно)
+        try:
+            from dilovod4.infrastructure.pdfa_inspector import inspect_pdfa
+            import json as _json
+
+            chk = inspect_pdfa(pdf_bytes, require_xmp=False)
+            doc.conformance_json = _json.dumps(
+                {"conforms": chk.conforms, "findings": list(chk.findings),
+                 "scanned": True}, ensure_ascii=False
+            )
+        except Exception:  # noqa: BLE001 — інформаційно
+            pass
+        # оновити підписантів
+        for s in list(doc.signers):
+            session.delete(s)
+        session.flush()
+        for s in parsed_signers:
+            doc.signers.append(Signer(
+                order_index=s["order_index"], full_name=s["full_name"],
+                position=s["position"], status=SignerStatus.WAITING,
+            ))
+        if doc.id is None:
+            session.add(doc)
+        session.flush()
+        _audit(session, doc, "scanned",
+               detail=f"file={file.filename} size={len(data)} signers={len(parsed_signers)}")
         session.commit()
         return _doc_to_dict(doc)
 
@@ -478,8 +576,9 @@ def submit_for_signing(doc_id: str, payload: dict = Body(default={})) -> dict:
 
         if changed:
             doc.content_json = bridge.content_to_json(content)
-            # перегенерувати документ з індексом і датою (якщо вже рендерився)
-            if doc.rendered is not None:
+            # перегенерувати документ з індексом і датою (якщо вже рендерився).
+            # Скан НЕ перегенеровуємо — оригіналом є саме завантажений файл.
+            if doc.rendered is not None and not doc.is_scanned:
                 _regenerate(session, doc, content)
             _audit(session, doc, "registered",
                    detail=f"reg_index={doc.reg_index} date={doc.reg_date}")
@@ -593,6 +692,10 @@ def _render_marked(session, doc: Document) -> None:
 
     Це окреме людино-читане представлення (як у Вчасно/Дія): підписується
     оригінал, а візуалізація лише відображає стан підписання."""
+    # Скан-копія не має полів для відмітки — оригіналом є саме завантажений
+    # файл. КЕП покриває його digest (ASiC-E), візуалізацію не перебудовуємо.
+    if doc.is_scanned:
+        return
     payload = _payload_with_signatures(doc)
     with tempfile.NamedTemporaryFile(suffix=f".{doc.fmt}", delete=False) as tmp:
         dest = tmp.name
@@ -730,6 +833,7 @@ def _doc_to_dict(doc: Document, brief: bool = False) -> dict:
         "registered_at": doc.registered_at.isoformat() if doc.registered_at else None,
         "archived": doc.archived_at is not None,
         "archived_at": doc.archived_at.isoformat() if doc.archived_at else None,
+        "is_scanned": bool(doc.is_scanned),
     }
     if not brief:
         import json as _json
