@@ -30,7 +30,9 @@ from .token_sign import (
     TokenHostNotFound,
     TokenSignResult,
     sign_file_with_token,
+    asic_sign_with_token,
 )
+from .asic import AsicSignature, build_asic_e, build_asic_s, read_asic
 
 __all__ = [
     "AppConfig",
@@ -69,4 +71,9 @@ __all__ = [
     "TokenHostNotFound",
     "TokenSignResult",
     "sign_file_with_token",
+    "asic_sign_with_token",
+    "AsicSignature",
+    "build_asic_e",
+    "build_asic_s",
+    "read_asic",
 ]

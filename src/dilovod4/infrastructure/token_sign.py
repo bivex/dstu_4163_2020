@@ -63,6 +63,13 @@ SIGN_TYPE_CADES_T = 4
 # Алгоритм підпису DSTU 4145 з ГОСТ 34.311.
 SIGN_ALGO_DSTU4145 = 1
 
+# ASiC (Associated Signature Container) — кілька detached-підписів поруч у ZIP.
+ASIC_TYPE_S = 1            # один файл даних
+ASIC_TYPE_E = 2            # кілька файлів даних
+ASIC_SIGN_TYPE_CADES = 1
+ASIC_SIGN_LEVEL_BES = 1
+ASIC_SIGN_LEVEL_T = 4
+
 
 class TokenError(RuntimeError):
     """Помилка взаємодії з токеном через euscpnmh (з кодом EUSign, якщо є)."""
@@ -207,6 +214,7 @@ def sign_file_with_token(
     tsp_url: str | None = None,
     ocsp_url: str | None = None,
     with_timestamp: bool = False,
+    detached: bool = False,
     type_index: int = 1,
     dev_index: int = 0,
     store_dir: str | None = None,
@@ -278,8 +286,9 @@ def sign_file_with_token(
         pk_ctx = cli.call_ok("CtxReadPrivateKey", [ctx, key_media])
         sign_type = SIGN_TYPE_CADES_T if with_timestamp else SIGN_TYPE_CADES_BES
         cli.call("SetRuntimeParameter", ["SignType", sign_type])
+        # external=detached: True -> detached CAdES (для ASiC), False -> enveloped
         sig = cli.call_ok("CtxSign", [pk_ctx, SIGN_ALGO_DSTU4145, _byte_array(data_b64),
-                                      False, True])
+                                      detached, True])
         cli.call("CtxFreePrivateKey", [pk_ctx])
 
         sig_b64 = sig.get("classFields", {}).get("data") if isinstance(sig, dict) else sig
@@ -296,3 +305,89 @@ def sign_file_with_token(
         sign_type=sign_type,
         has_timestamp=has_ts,
     )
+
+
+def asic_sign_with_token(
+    file_path: str,
+    pin: str,
+    cmp_url: str,
+    *,
+    out_path: str | None = None,
+    tsp_url: str | None = None,
+    ocsp_url: str | None = None,
+    with_timestamp: bool = False,
+    type_index: int = 1,
+    dev_index: int = 0,
+    store_dir: str | None = None,
+    host_path: str | None = None,
+    lib_dir: str | None = None,
+) -> TokenSignResult:
+    """Підписати файл токеном у НАТИВНИЙ ASiC-E (через CtxASiCSign euscp).
+
+    На відміну від ручного складання ZIP, euscp формує ASiC-контейнер строго за
+    ETSI EN 319 162 (правильний ASiCManifest з digest-ами) — саме його приймає
+    czo.gov.ua. Другого підписанта потім додають через CtxASiCAppendSign до
+    цього ж контейнера (один стек -> однаковий формат, без конфлікту).
+    """
+    out = out_path or file_path + ".asice"
+    fname = os.path.basename(file_path)
+    with open(file_path, "rb") as fh:
+        data_b64 = base64.b64encode(fh.read()).decode("ascii")
+    store = os.path.abspath(store_dir or os.path.join(os.getcwd(), ".euscp_store"))
+    os.makedirs(store, exist_ok=True)
+    key_media = _wrap("EndUserKeyMedia", {
+        "typeIndex": type_index, "devIndex": dev_index, "password": pin,
+    })
+
+    with EuscpnmhClient(host_path, lib_dir) as cli:
+        cli.call_ok("Initialize")
+        cli.call("SetUIMode", [0])
+        cli.call_ok("SetModeSettings", [_wrap("EndUserModeSettings", {"offlineMode": False})])
+        cli.call_ok("SetCMPSettings", [_wrap("EndUserCMPSettings", {
+            "useCMP": True, "address": cmp_url, "port": "80", "commonName": ""})])
+        if with_timestamp:
+            if not tsp_url or not ocsp_url:
+                raise TokenError("SetTSPSettings", -1, "CAdES-T потребує tsp_url і ocsp_url")
+            cli.call_ok("SetTSPSettings", [_wrap("EndUserTSPSettings", {
+                "getStamps": True, "address": tsp_url, "port": "80"})])
+            cli.call_ok("SetOCSPAccessInfoModeSettings",
+                        [_wrap("EndUserOCSPAccessInfoModeSettings", {"enabled": True})])
+            cli.call_ok("SetOCSPSettings", [_wrap("EndUserOCSPSettings", {
+                "useOCSP": True, "beforeStore": False, "address": ocsp_url, "port": "80"})])
+        cli.call_ok("SetFileStoreSettings", [_wrap("EndUserFileStoreSettings", {
+            "path": store, "checkCRLs": False, "autoRefresh": True, "ownCRLsOnly": False,
+            "fullAndDeltaCRLs": False, "autoDownloadCRLs": False,
+            "saveLoadedCerts": True, "expireTime": 3600})])
+
+        ki = cli.call_ok("GetKeyInfo", [key_media])
+        pki_b64 = ki.get("classFields", {}).get("privateKeyInfo") if isinstance(ki, dict) else None
+        if not pki_b64:
+            raise TokenError("GetKeyInfo", -1, "немає privateKeyInfo")
+        certs = cli.call_ok("GetCertificatesByKeyInfo", [_byte_array(pki_b64), [cmp_url], ["80"]])
+        bundle_b64 = certs.get("classFields", {}).get("data") if isinstance(certs, dict) else (
+            certs if isinstance(certs, str) else None)
+        if bundle_b64:
+            for der in _split_signing_chain(base64.b64decode(bundle_b64)):
+                cli.call("SaveCertificate", [_byte_array(base64.b64encode(der).decode("ascii"))])
+
+        ctx = cli.call_ok("CtxCreate")
+        pk_ctx = cli.call_ok("CtxReadPrivateKey", [ctx, key_media])
+        level = ASIC_SIGN_LEVEL_T if with_timestamp else ASIC_SIGN_LEVEL_BES
+        # CtxASiCSign(ctx, asicType, asicSignType, signLevel, external,
+        #             names[], datas[byteArray])
+        sig = cli.call_ok("CtxASiCSign", [
+            pk_ctx, ASIC_TYPE_E, ASIC_SIGN_TYPE_CADES, level, False,
+            [fname], [_byte_array(data_b64)],
+        ])
+        cli.call("CtxFreePrivateKey", [pk_ctx])
+        sig_b64 = sig.get("classFields", {}).get("data") if isinstance(sig, dict) else sig
+        if not sig_b64:
+            raise TokenError("CtxASiCSign", -1, "порожній результат")
+        container = base64.b64decode(sig_b64)
+
+    with open(out, "wb") as fh:
+        fh.write(container)
+    has_ts = bytes.fromhex("2a864886f70d010910020e") in container
+    return TokenSignResult(container=container,
+                           sign_type=SIGN_TYPE_CADES_T if with_timestamp else SIGN_TYPE_CADES_BES,
+                           has_timestamp=has_ts)
