@@ -18,6 +18,7 @@ dev = ["pytest>=8.0", "python-docx>=1.1", "reportlab>=4.0", "segno>=1.6", "pypdf
 
 [project.scripts]
 dilovod4 = "dilovod4.presentation.cli:main"
+dilovod4-asic = "dilovod4.presentation.asic_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

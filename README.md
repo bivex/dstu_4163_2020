@@ -430,6 +430,30 @@ data-файла (не лише URI) — без digest czo.gov.ua дає поми
 Альтернатива — нативний `token_sign.asic_sign_with_token()` (euscp CtxASiCSign
 формує контейнер сам).
 
+### CLI для ASiC: `dilovod4-asic`
+
+Зручний CLI з підкомандами (точка входу `dilovod4-asic` або
+`python3 -m dilovod4.presentation.asic_cli`):
+
+```bash
+# 1) дізнатися, що підписувати (манІфест для 1-го підпису)
+dilovod4-asic manifest doc.pdf -n 1 -o manifest001.xml
+# 2) підписати manifest001.xml detached токеном/UAPKI -> sig1.p7s (зовнішньо)
+# 3) зібрати контейнер з готових підписів
+dilovod4-asic pack doc.pdf -s sig1.p7s -s sig2.p7s -o doc.asice
+# переглянути вміст
+dilovod4-asic inspect doc.asice
+
+# або підпис токеном одразу в ASiC-E (PIN через TOKEN_PIN, -t = CAdES-T):
+TOKEN_PIN=*** dilovod4-asic sign doc.pdf -t \
+    --cmp ca.tax.gov.ua/services/cmp/ \
+    --tsp ca.tax.gov.ua/services/tsp/ --ocsp ca.tax.gov.ua/services/ocsp/
+```
+
+Підкоманди: `manifest` (вивести ASiCManifestNNN.xml для зовнішнього підпису),
+`pack` (зібрати з готових detached-підписів над манІфестами), `sign` (підпис
+токеном напряму в ASiC-E), `inspect` (розібрати наявний контейнер).
+
 ## Конфігурація (через оточення)
 
 | Env | Призначення | Типово |
