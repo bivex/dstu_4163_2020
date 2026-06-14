@@ -227,14 +227,23 @@ function renderSigners(d: DocumentDTO): void {
   if (!d.signers.length) {
     box.innerHTML = '<span class="muted">Немає підписантів.</span>'; return;
   }
-  box.innerHTML = d.signers.map((s: Signer) => `
-    <div class="signer">
-      <div><b>#${s.order_index} ${s.full_name}</b>
-        <div class="status-line">${s.position || ""}${
+  const stColor: Record<string, string> = {
+    waiting: "grey", invited: "yellow", signed: "green", rejected: "red" };
+  const stLabel: Record<string, string> = {
+    waiting: "очікує", invited: "у черзі", signed: "підписано", rejected: "відмова" };
+  box.innerHTML = '<div class="ui relaxed divided list">' + d.signers.map((s: Signer) => `
+    <div class="item">
+      <div class="right floated content">
+        <span class="ui ${stColor[s.status] || "grey"} mini label">${stLabel[s.status] || s.status}</span>
+      </div>
+      <i class="user circle icon"></i>
+      <div class="content">
+        <div class="header">#${s.order_index + 1} ${s.full_name}</div>
+        <div class="description muted">${s.position || ""}${
           s.certificate_serial && s.certificate_serial !== "—"
-            ? " · серт. " + s.certificate_serial : ""}</div></div>
-      <span class="badge b-${s.status}">${s.status}</span>
-    </div>`).join("");
+            ? " · серт. " + s.certificate_serial : ""}</div>
+      </div>
+    </div>`).join("") + "</div>";
 }
 
 function renderReport(rep: ConformanceReport | null): void {
@@ -242,12 +251,14 @@ function renderReport(rep: ConformanceReport | null): void {
   const box = el("report");
   if (!rep) { sum.textContent = "Згенеруйте документ для перевірки."; box.innerHTML = ""; return; }
   sum.innerHTML = rep.conforms
-    ? `<span class="f-ok">✔ ВІДПОВІДАЄ</span> · правил: ${rep.results.length}, знахідок: ${rep.findings_count}`
-    : `<span class="f-bad">✘ НЕ ВІДПОВІДАЄ</span> · знахідок: ${rep.findings_count}`;
+    ? `<div class="ui green label"><i class="check icon"></i>ВІДПОВІДАЄ</div> правил: ${rep.results.length}, знахідок: ${rep.findings_count}`
+    : `<div class="ui red label"><i class="times icon"></i>НЕ ВІДПОВІДАЄ</div> знахідок: ${rep.findings_count}`;
   box.innerHTML = rep.results.map((r) => {
     const ok = r.conforms;
     const f = r.findings.map((x) => `<div class="f-bad">— ${x.clause}: ${x.message}</div>`).join("");
-    return `<div class="${ok ? "f-ok" : "f-bad"}">${ok ? "✔" : "✘"} ${r.rule_id} <span class="muted">(${r.clause})</span></div>${f}`;
+    return `<div class="item"><i class="${ok ? "check green" : "times red"} icon"></i>` +
+      `<div class="content"><span class="${ok ? "f-ok" : "f-bad"}">${r.rule_id}</span> ` +
+      `<span class="muted">(${r.clause})</span>${f}</div></div>`;
   }).join("");
 }
 
@@ -422,11 +433,11 @@ function renderCats(): void {
   box.innerHTML = "";
   for (const c of CATEGORIES) {
     const n = allDocs.filter(c.match).length;
-    const div = document.createElement("div");
-    div.className = "item" + (c.key === activeCat ? " active" : "");
-    div.innerHTML = `<span>${c.title}</span><span class="cnt">${n}</span>`;
-    div.onclick = () => { activeCat = c.key; renderCats(); renderList(); };
-    box.appendChild(div);
+    const a = document.createElement("a");
+    a.className = "item" + (c.key === activeCat ? " active" : "");
+    a.innerHTML = `${c.title}<div class="ui label">${n}</div>`;
+    a.onclick = () => { activeCat = c.key; renderCats(); renderList(); };
+    box.appendChild(a);
   }
   // розділи-заглушки: лічильник 0 (даних немає)
   document.querySelectorAll<HTMLElement>("[data-c]").forEach((e) => { e.textContent = "0"; });
@@ -457,6 +468,11 @@ function statusLabel(s: string): string {
     signed: "підписано", published: "оприлюднено" } as Record<string, string>)[s] || s;
 }
 
+function statusColor(s: string): string {
+  return ({ draft: "grey", pending_signatures: "yellow",
+    signed: "green", published: "blue" } as Record<string, string>)[s] || "grey";
+}
+
 function renderList(): void {
   const titleEl = el("listTitle");
   const cat = CATEGORIES.find((c) => c.key === activeCat);
@@ -472,12 +488,15 @@ function renderList(): void {
   box.innerHTML = docs.map((d) => {
     const signed = d.signers.filter((s) => s.status === "signed").length;
     const total = d.signers.length;
-    return `<div class="doc${d.doc_id === selectedDoc ? " sel" : ""}" data-id="${d.doc_id}">
-      <div class="t">${d.title || d.doc_id}</div>
-      <div class="m">
-        <span>${d.doc_id}</span>
-        <span class="badge b-${d.status}">${statusLabel(d.status)}</span>
-        ${total ? `<span>підписів: ${signed}/${total}</span>` : ""}
+    return `<div class="item doc${d.doc_id === selectedDoc ? " sel" : ""}" data-id="${d.doc_id}">
+      <i class="file alternate outline icon"></i>
+      <div class="content">
+        <div class="header">${d.title || d.doc_id}</div>
+        <div class="description">
+          <span class="muted">${d.doc_id}</span>
+          <span class="ui ${statusColor(d.status)} mini label">${statusLabel(d.status)}</span>
+          ${total ? `<span class="muted">підписів: ${signed}/${total}</span>` : ""}
+        </div>
       </div></div>`;
   }).join("");
   box.querySelectorAll<HTMLElement>(".doc").forEach((e) => {

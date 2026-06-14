@@ -4,125 +4,157 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Діловод · СЕД (ДСТУ 4163 + НПА)</title>
+  <link rel="stylesheet" href="./vendor/semantic.min.css">
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
   <div class="app">
-    <div class="brand"><span class="dot"></span>
-      <span class="bname">Діловод</span><span class="btag">СЕД · ДСТУ 4163</span></div>
+    <!-- БРЕНД -->
+    <div class="brand">
+      <i class="shield alternate icon"></i>
+      <span class="bname">Діловод</span>
+      <span class="btag">СЕД · ДСТУ 4163</span>
+    </div>
+
+    <!-- ТОПБАР -->
     <div class="top">
-      <div class="search"><input id="search" placeholder="Пошук за назвою або ідентифікатором…"></div>
-      <button class="ghost" onclick="reloadDocs()">Оновити</button>
+      <div class="ui icon input search-input">
+        <input id="search" type="text" placeholder="Пошук за назвою або ідентифікатором…">
+        <i class="search icon"></i>
+      </div>
+      <button class="ui basic button" onclick="reloadDocs()">
+        <i class="sync icon"></i>Оновити</button>
     </div>
 
     <!-- САЙДБАР -->
     <nav class="side">
-      <button class="addbtn" onclick="newDocument()">+ Додати документ</button>
-      <div id="cats"></div>
-      <div class="grp">Розділи</div>
-      <div class="item" data-cat="favorites"><span>Обрані</span><span class="cnt" data-c="favorites">0</span></div>
-      <div class="item" data-cat="archive"><span>Архів</span><span class="cnt" data-c="archive">0</span></div>
-      <div class="item" data-cat="trash"><span>Кошик</span><span class="cnt" data-c="trash">0</span></div>
+      <button class="ui fluid primary button addbtn" onclick="newDocument()">
+        <i class="plus icon"></i>Додати документ</button>
+      <div class="ui inverted vertical menu fluid" id="cats"></div>
+      <div class="ui inverted vertical menu fluid">
+        <div class="header item">Розділи</div>
+        <a class="item" data-cat="favorites">Обрані
+          <div class="ui label" data-c="favorites">0</div></a>
+        <a class="item" data-cat="archive">Архів
+          <div class="ui label" data-c="archive">0</div></a>
+        <a class="item" data-cat="trash">Кошик
+          <div class="ui label" data-c="trash">0</div></a>
+      </div>
     </nav>
 
     <!-- ОСНОВНА ОБЛАСТЬ -->
     <div class="main">
       <!-- СПИСОК -->
       <div class="list">
-        <div class="lhead"><span id="listTitle">Всі документи</span>
-          <span class="sub" id="listCount"></span></div>
-        <div id="docList"><div class="empty">Завантаження…</div></div>
+        <div class="lhead">
+          <span id="listTitle">Всі документи</span>
+          <span class="ui circular label" id="listCount"></span>
+        </div>
+        <div id="docList" class="ui relaxed divided list doc-list">
+          <div class="empty">Завантаження…</div>
+        </div>
       </div>
 
       <!-- ДЕТАЛЬ -->
       <div class="detail" id="detail">
-        <div class="empty" id="detailEmpty">Оберіть документ зі списку або створіть новий
-          через «+ Додати документ».</div>
+        <div class="ui placeholder segment empty" id="detailEmpty">
+          <div class="ui icon header">
+            <i class="file alternate outline icon"></i>
+            Оберіть документ зі списку або створіть новий через «Додати документ».
+          </div>
+        </div>
 
         <div id="detailBody" class="hidden">
-          <!-- 1. РЕДАКТОР -->
-          <section class="sec">
-            <h2>1. Картка документа</h2>
-            <div class="field"><label>Ідентифікатор (doc_id)</label>
-              <input id="docId" value="NAKAZ-PORTAL-001"></div>
-            <div class="field"><label>Найменування юридичної особи</label>
-              <input id="orgName" value="ДЕРЖАВНЕ ПІДПРИЄМСТВО «УКРНДНЦ»"></div>
-            <div class="row">
-              <div class="col field"><label>Вид документа</label><input id="docType" value="Наказ"></div>
-              <div class="col field"><label>Формат</label>
-                <select id="fmt"><option value="pdf">PDF</option><option value="docx">DOCX</option></select></div>
-            </div>
-            <div class="field"><label>Заголовок</label>
-              <input id="title" value="Про затвердження річної фінансової звітності"></div>
-            <div class="row">
-              <div class="col field"><label>Дата</label><input id="dateText" value="14 червня 2026 року"></div>
-              <div class="col field"><label>Реєстр. індекс</label><input id="regIndex" value="050-фін"></div>
-            </div>
-            <div class="field"><label>Текст (кожен абзац — з нового рядка)</label>
-              <textarea id="body">Відповідно до Закону України «Про бухгалтерський облік та фінансову звітність» НАКАЗУЮ:
+          <!-- 1. КАРТКА -->
+          <div class="ui segment sec">
+            <h2 class="ui horizontal divider header"><i class="edit icon"></i>1. Картка документа</h2>
+            <div class="ui form">
+              <div class="field"><label>Ідентифікатор (doc_id)</label>
+                <input id="docId" value="NAKAZ-PORTAL-001"></div>
+              <div class="field"><label>Найменування юридичної особи</label>
+                <input id="orgName" value="ДЕРЖАВНЕ ПІДПРИЄМСТВО «УКРНДНЦ»"></div>
+              <div class="two fields">
+                <div class="field"><label>Вид документа</label><input id="docType" value="Наказ"></div>
+                <div class="field"><label>Формат</label>
+                  <select class="ui dropdown" id="fmt"><option value="pdf">PDF</option><option value="docx">DOCX</option></select></div>
+              </div>
+              <div class="field"><label>Заголовок</label>
+                <input id="title" value="Про затвердження річної фінансової звітності"></div>
+              <div class="two fields">
+                <div class="field"><label>Дата</label><input id="dateText" value="14 червня 2026 року"></div>
+                <div class="field"><label>Реєстр. індекс</label><input id="regIndex" value="050-фін"></div>
+              </div>
+              <div class="field"><label>Текст (кожен абзац — з нового рядка)</label>
+                <textarea id="body" rows="4">Відповідно до Закону України «Про бухгалтерський облік та фінансову звітність» НАКАЗУЮ:
 1. Затвердити річну фінансову звітність підприємства.
 2. Оприлюднити звітність у строк, визначений законодавством.
 3. Контроль за виконанням наказу залишаю за собою.</textarea></div>
-            <div class="field"><label>Підписанти (черга: ПІБ | посада, по рядку)</label>
-              <textarea id="signers" style="min-height:56px">ПЕТРЕНКО Олександр | Директор
+              <div class="field"><label>Підписанти (черга: ПІБ | посада, по рядку)</label>
+                <textarea id="signers" rows="2">ПЕТРЕНКО Олександр | Директор
 ТКАЧЕНКО Наталія | Головний бухгалтер</textarea></div>
-            <div class="row btns">
-              <button onclick="createDoc()">Зберегти картку</button>
-              <button class="ghost" onclick="generateDoc()">Згенерувати + валідація</button>
-              <button class="ghost" onclick="downloadDoc()">Завантажити</button>
-              <button class="ghost" onclick="deleteDoc()">Видалити</button>
+              <div class="ui buttons-row">
+                <button class="ui primary button" onclick="createDoc()">
+                  <i class="save icon"></i>Зберегти картку</button>
+                <button class="ui button" onclick="generateDoc()">
+                  <i class="cogs icon"></i>Згенерувати + валідація</button>
+                <button class="ui button" onclick="downloadDoc()">
+                  <i class="download icon"></i>Завантажити</button>
+                <button class="ui basic red button" onclick="deleteDoc()">
+                  <i class="trash icon"></i>Видалити</button>
+              </div>
             </div>
-          </section>
+          </div>
 
           <!-- 2. ВАЛІДАЦІЯ -->
-          <section class="sec">
-            <h2>2. Відповідність ДСТУ 4163 + НПА</h2>
+          <div class="ui segment sec">
+            <h2 class="ui horizontal divider header"><i class="clipboard check icon"></i>2. Відповідність ДСТУ 4163 + НПА</h2>
             <div id="reportSummary" class="status-line">Згенеруйте документ для перевірки.</div>
-            <div id="report"></div>
-          </section>
+            <div id="report" class="ui relaxed list"></div>
+          </div>
 
           <!-- 3. ЧЕРГА -->
-          <section class="sec">
-            <h2>3. Черга підписання / погодження</h2>
-            <div class="row btns" style="margin-top:0;margin-bottom:10px">
-              <button id="submitBtn" onclick="submitDoc()">Подати у чергу</button>
-              <button class="ghost" id="asiceBtn" onclick="downloadAsice()" disabled>Завантажити ASiC-E</button>
-              <span id="docStatus" class="status-line" style="margin-top:0;align-self:center"></span>
+          <div class="ui segment sec">
+            <h2 class="ui horizontal divider header"><i class="tasks icon"></i>3. Черга підписання / погодження</h2>
+            <div class="ui buttons-row">
+              <button class="ui primary button" id="submitBtn" onclick="submitDoc()">
+                <i class="paper plane icon"></i>Подати у чергу</button>
+              <button class="ui basic button" id="asiceBtn" onclick="downloadAsice()" disabled>
+                <i class="archive icon"></i>Завантажити ASiC-E</button>
+              <span id="docStatus" class="status-line"></span>
             </div>
             <div id="signerList"><span class="muted">Збережіть картку.</span></div>
-          </section>
+          </div>
 
           <!-- 4. КЕП -->
-          <section class="sec">
-            <h2>4. Підпис КЕП (на клієнті)</h2>
-            <div class="kep">
-              <div class="status-line" id="euStatus" style="margin-top:0;margin-bottom:10px">Завантаження бібліотеки EUSign…</div>
+          <div class="ui segment sec">
+            <h2 class="ui horizontal divider header"><i class="key icon"></i>4. Підпис КЕП (на клієнті)</h2>
+            <div class="ui form kep">
+              <div class="status-line" id="euStatus">Завантаження бібліотеки EUSign…</div>
               <div class="field"><label>Спосіб зчитування ключа</label>
-              <select id="keySource">
-                <option value="file">Файловий ключ (.dat / .pfx / .jks)</option>
-                <option value="token">Апаратний токен (е.Ключ, Алмаз, ID-картка…)</option>
-              </select></div>
+                <select class="ui dropdown" id="keySource">
+                  <option value="file">Файловий ключ (.dat / .pfx / .jks)</option>
+                  <option value="token">Апаратний токен (е.Ключ, Алмаз, ID-картка…)</option>
+                </select></div>
               <div id="tokenWrap" class="hidden">
-                <div class="status-line" id="tokenHint">Підпис апаратним токеном через офіційний
-                  віджет ІІТ.</div>
-                <div id="sign-widget-parent" style="width:100%;height:360px;border:1px solid var(--line);
-                  border-radius:8px;margin-top:8px;overflow:hidden"></div>
+                <div class="ui info message" id="tokenHint">Підпис апаратним токеном через офіційний віджет ІІТ.</div>
+                <div id="sign-widget-parent" class="widget-frame"></div>
               </div>
               <div id="fileWrap">
                 <div class="field"><label>Кваліфікований надавач (КНЕДП)</label>
-                  <select id="caSelect"></select></div>
+                  <select class="ui dropdown" id="caSelect"></select></div>
                 <div class="field"><label>Файл особистого ключа (.dat / .pfx / .jks)</label>
-                  <input type="file" id="keyFile" style="height:auto;padding:7px 10px"></div>
+                  <input type="file" id="keyFile"></div>
               </div>
               <div class="field"><label>Пароль захисту ключа</label>
                 <input type="password" id="keyPass" placeholder="••••••"></div>
-              <div class="row btns" style="margin-top:4px">
-                <button id="signBtn" onclick="signCurrent()" disabled>Підписати поточним у черзі</button>
+              <div class="ui buttons-row">
+                <button class="ui positive button" id="signBtn" onclick="signCurrent()" disabled>
+                  <i class="pencil alternate icon"></i>Підписати поточним у черзі</button>
               </div>
-              <div class="status-line">Приватний ключ не покидає браузер (Закон 2155-VIII).
+              <div class="ui tiny message">Приватний ключ не покидає браузер (Закон 2155-VIII).
                 Для апаратних токенів потрібне встановлене «ІІТ Користувач ЦСК».</div>
             </div>
-          </section>
+          </div>
         </div>
       </div>
     </div>
