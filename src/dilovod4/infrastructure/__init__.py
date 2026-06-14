@@ -32,7 +32,7 @@ from .token_sign import (
     sign_file_with_token,
     asic_sign_with_token,
 )
-from .asic import AsicSignature, build_asic_e, build_asic_s, read_asic
+from .asic import AsicSignature, build_asic_e, build_asic_s, manifest_for, read_asic
 
 __all__ = [
     "AppConfig",
@@ -75,5 +75,6 @@ __all__ = [
     "AsicSignature",
     "build_asic_e",
     "build_asic_s",
+    "manifest_for",
     "read_asic",
 ]

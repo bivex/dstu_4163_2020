@@ -66,9 +66,25 @@ def _build_manifest(sig_uri: str, data_files: list[tuple[str, bytes]]) -> bytes:
 
 @dataclass(frozen=True)
 class AsicSignature:
-    """Одна detached-CAdES-підпис для пакування."""
-    cms: bytes          # вміст detached .p7s
-    label: str = ""     # опис (необовʼязково)
+    """Одна detached-CAdES-підпис НАД МАНІФЕСТОМ для пакування.
+
+    ВАЖЛИВО (ETSI EN 319 162-1 §A.4): у ASiC-E CAdES підпис покриває
+    ASiCManifestNNN.xml (а той містить digest data-файлів), НЕ самі файли.
+    cms тут — detached-CAdES над маніфестом, який повертає manifest_for().
+    """
+    cms: bytes          # detached .p7s над відповідним ASiCManifestNNN.xml
+    label: str = ""
+
+
+def manifest_for(sig_index: int, data_files: list[tuple[str, bytes]]) -> bytes:
+    """Побудувати ASiCManifestNNN.xml, який підписувач має підписати detached.
+
+    sig_index — 1-based номер підпису (signatureNNN.p7s).
+    Повертає точні байти манІфеста; підпишіть саме їх (CAdES detached), а готовий
+    .p7s передайте у build_asic_e як AsicSignature(cms).
+    """
+    idx = f"{sig_index:03d}"
+    return _build_manifest(f"META-INF/signature{idx}.p7s", data_files)
 
 
 def build_asic_e(
@@ -79,8 +95,9 @@ def build_asic_e(
     """Зібрати ASiC-E (CAdES) контейнер.
 
     data_files — [(імʼя, байти), ...] вихідних файлів.
-    signatures  — detached-CAdES-підписи (кожна над тими ж data_files).
-    Кожна підпис -> signatureNNN.p7s + власний ASiCManifestNNN.xml із digest-ами.
+    signatures  — detached-CAdES-підписи НАД МАНІФЕСТАМИ (i-та підпис над
+                  manifest_for(i+1, data_files)); порядок визначає NNN.
+    Кожна підпис -> signatureNNN.p7s + власний ASiCManifestNNN.xml.
     """
     if not data_files:
         raise ValueError("потрібен щонайменше один файл даних")
@@ -95,13 +112,12 @@ def build_asic_e(
         # файли даних у корені
         for name, data in data_files:
             z.writestr(name, data)
-        # кожна підпис + власний маніфест
+        # кожна підпис над своїм манІфестом
         for i, sig in enumerate(signatures, 1):
             idx = f"{i:03d}"
-            sig_path = f"META-INF/signature{idx}.p7s"
-            z.writestr(sig_path, sig.cms)
+            z.writestr(f"META-INF/signature{idx}.p7s", sig.cms)
             z.writestr(f"META-INF/ASiCManifest{idx}.xml",
-                       _build_manifest(sig_path, data_files))
+                       _build_manifest(f"META-INF/signature{idx}.p7s", data_files))
     return out_path
 
 
