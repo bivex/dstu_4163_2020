@@ -482,8 +482,15 @@ def _render_marked(session, doc: Document) -> None:
         path = bridge.render_marked(payload, doc.fmt, dest)
         with open(path, "rb") as fh:
             doc.rendered_marked = fh.read()
+        # ПЕРЕРАХУНОК відповідності з реальними КЕП-відмітками: після підпису
+        # ст.7 851-IV (ELECTRONIC_ORIGINAL) проходить — документ став оригіналом.
+        import json as _json
+
+        report = bridge.validate(payload)
+        doc.conformance_json = _json.dumps(report, ensure_ascii=False)
         _audit(session, doc, "marked_rendered",
-               detail=f"signatures={len(payload['e_signatures'])}")
+               detail=f"signatures={len(payload['e_signatures'])} "
+                      f"conforms={report.get('conforms')}")
     finally:
         for p in (dest, dest + f".{doc.fmt}"):
             if os.path.exists(p):
