@@ -159,7 +159,22 @@ def generate(payload: dict[str, Any], fmt: str, dest_path: str) -> dict[str, Any
     # валідація — над представленням із запланованими КЕП-відмітками
     validation_content = build_content(payload, with_marks=True)
     report = ValidateDocument(rule_set=_RULE_SET).execute(doc, validation_content)
-    return {"path": path, "report": _report_to_dict(report)}
+
+    # PDF/A-3 (ISO 19005-3) — окрема інформаційна перевірка архівної придатності
+    # згенерованого PDF. НЕ змішується з conforms ДСТУ (інакше невбудований
+    # стандартний шрифт reportlab завалив би валідацію документа).
+    pdfa_info: dict[str, Any] | None = None
+    if fmt == "pdf":
+        try:
+            from dilovod4.infrastructure.pdfa_inspector import inspect_pdfa
+
+            with open(path, "rb") as fh:
+                chk = inspect_pdfa(fh.read(), require_xmp=False)
+            pdfa_info = {"conforms": chk.conforms, "findings": list(chk.findings)}
+        except Exception:  # noqa: BLE001 — інформаційно, не валимо генерацію
+            pdfa_info = None
+
+    return {"path": path, "report": _report_to_dict(report), "pdfa": pdfa_info}
 
 
 def render_marked(payload: dict[str, Any], fmt: str, dest_path: str) -> str:

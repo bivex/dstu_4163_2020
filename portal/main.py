@@ -176,7 +176,7 @@ def generate_document(doc_id: str) -> dict:
         _audit(session, doc, "generated",
                detail=f"conforms={out['report'] and out['report']['conforms']}")
         session.commit()
-        return {"doc_id": doc_id, "report": out["report"]}
+        return {"doc_id": doc_id, "report": out["report"], "pdfa": out.get("pdfa")}
 
 
 @app.get("/documents/{doc_id}/download")

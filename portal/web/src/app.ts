@@ -185,12 +185,32 @@ async function createDoc(): Promise<void> {
   }
 }
 
+interface PdfaInfo { conforms: boolean; findings: string[] }
+
 async function generateDoc(): Promise<void> {
   try {
-    const r = await api<{ report: ConformanceReport }>(
+    const r = await api<{ report: ConformanceReport; pdfa?: PdfaInfo | null }>(
       `/documents/${docId()}/generate`, "POST");
-    renderReport(r.report); toast("Згенеровано та перевірено"); refresh();
+    renderReport(r.report);
+    renderPdfa(r.pdfa ?? null);
+    toast("Згенеровано та перевірено"); refresh();
   } catch (e) { toast("Помилка: " + errMsg(e)); }
+}
+
+function renderPdfa(info: PdfaInfo | null): void {
+  const box = document.getElementById("pdfaInfo");
+  if (!box) return;
+  if (!info) { box.innerHTML = ""; return; }
+  const head = info.conforms
+    ? '<div class="ui green label"><i class="check icon"></i>PDF/A-3 придатний</div>'
+    : '<div class="ui yellow label"><i class="exclamation triangle icon"></i>PDF/A-3: є зауваження</div>';
+  const items = info.findings.length
+    ? '<div class="ui relaxed list">' + info.findings.map((f) =>
+        `<div class="item"><i class="dot circle outline icon"></i><div class="content">${f}</div></div>`).join("") + "</div>"
+    : '<div class="muted" style="margin-top:6px">Зауважень немає.</div>';
+  box.innerHTML = `<div style="margin-top:10px">${head}${items}` +
+    '<div class="muted" style="margin-top:4px;font-size:12px">' +
+    'ISO 19005-3:2012 — архівна придатність згенерованого PDF (інформаційно).</div></div>';
 }
 
 function downloadDoc(): void {
