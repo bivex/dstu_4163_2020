@@ -39,9 +39,14 @@ _ALIGN_FLAG = "flag"  # прапоровий = від лівого поля
 class PdfDocumentWriter:
     """Записує доменний документ у файл .pdf за правилами ДСТУ 4163:2020."""
 
-    def __init__(self, fonts: FontPaths | None = None) -> None:
+    def __init__(
+        self, fonts: FontPaths | None = None, *, pagination_barcode: bool = False
+    ) -> None:
         self._fonts = fonts or resolve_times_new_roman()
         self._fonts_registered = False
+        # Службовий штрихкод машинної пагінації (Code128) — за замовчуванням
+        # вимкнено; вмикається явно для документообігу з потоковим скануванням.
+        self._pagination_barcode = pagination_barcode
 
     def _ensure_fonts(self) -> None:
         if self._fonts_registered:
@@ -59,8 +64,26 @@ class PdfDocumentWriter:
             destination = f"{destination}.pdf"
 
         page_size = _PAGE_SIZES[document.geometry.paper_format.value]
+
+        total_pages: int | None = None
+        if self._pagination_barcode:
+            # Прохід 1 (у пам'ять): порахувати загальну кількість сторінок, щоб
+            # штрихкод ніс «<стор.>/<усього>» для звірки комплектності пачки.
+            counter = canvas.Canvas(io.BytesIO(), pagesize=page_size)
+            probe = _Layout(counter, document, content, page_size)
+            probe.render()
+            total_pages = probe.page_no
+
+        # Фінальна верстка у файл.
         c = canvas.Canvas(destination, pagesize=page_size)
-        layout = _Layout(c, document, content, page_size)
+        layout = _Layout(
+            c,
+            document,
+            content,
+            page_size,
+            total_pages=total_pages,
+            pagination_barcode=self._pagination_barcode,
+        )
         layout.render()
         c.save()
         return destination
@@ -69,11 +92,24 @@ class PdfDocumentWriter:
 class _Layout:
     """Інкапсулює потік верстки сторінок з урахуванням полів та нумерації."""
 
-    def __init__(self, c, document: Document, content: DocumentContent, page_size) -> None:
+    def __init__(
+        self,
+        c,
+        document: Document,
+        content: DocumentContent,
+        page_size,
+        total_pages: int | None = None,
+        *,
+        pagination_barcode: bool = False,
+    ) -> None:
         self.c = c
         self.doc = document
         self.content = content
         self.page_w, self.page_h = page_size
+        # Загальна кількість сторінок (з 1-го проходу); None — ще не відомо.
+        self.total_pages = total_pages
+        # Чи малювати службовий штрихкод пагінації.
+        self.pagination_barcode = pagination_barcode
 
         m = document.geometry.margins
         self.left = m.left * mm
@@ -93,6 +129,7 @@ class _Layout:
     # --- службове ---
     def _new_page(self) -> None:
         self._draw_page_number()
+        self._draw_page_barcode()
         self.c.showPage()
         self.page_no += 1
         self.y = self.page_h - self.top
@@ -111,6 +148,49 @@ class _Layout:
         x = self.page_w / 2
         y = self.page_h - self.top / 2
         self.c.drawCentredString(x, y, text)
+
+    def _draw_page_barcode(self) -> None:
+        """Штрихкод машинної пагінації — Code128 у правому верхньому полі.
+
+        Несе маршрутний маркер аркуша (службова машинна позначка, окремо від
+        видимого номера за §7.10), тож друкується на КОЖНІЙ сторінці:
+            <doc_id>|<стор.>/<усього>|<reg_index>|<E|P>
+        напр.  ENAKAZ-2026-032|3/3|032-од|E
+        Поля: ідентифікатор документа; позиція аркуша та комплектність пачки;
+        реєстраційний індекс (прив'язка до діловодства); тип — E (електронний)
+        чи P (паперовий). Дані КЕП у штрихкод НЕ кладемо: для цього є QR (§5.10)
+        з верифікованими полями сертифіката; штрихкод лише ідентифікує аркуш.
+        """
+        if not self.pagination_barcode:
+            return
+        from reportlab.graphics.barcode import code128
+
+        total = self.total_pages or self.page_no
+        kind = "E" if self.doc.is_electronic else "P"
+        value = (
+            f"{self.doc.doc_id}|{self.page_no}/{total}"
+            f"|{self.content.reg_index}|{kind}"
+        )
+        bar_h = 6 * mm
+        # Штрихкод тримаємо у ПРАВІЙ зоні верхнього поля, щоб не накладатися на
+        # видимий номер сторінки (§7.10, по центру). Доступна ширина — від
+        # центру з запасом до правого поля; модуль ужимаємо, доки влазить.
+        right_edge = self.page_w - self.right_margin
+        avail_w = right_edge - (self.page_w / 2 + 10 * mm)
+        bar_w = 0.30 * mm
+        barcode = code128.Code128(value, barHeight=bar_h, barWidth=bar_w)
+        while barcode.width > avail_w and bar_w > 0.16 * mm:
+            bar_w -= 0.02 * mm
+            barcode = code128.Code128(value, barHeight=bar_h, barWidth=bar_w)
+        x = right_edge - barcode.width
+        y = self.page_h - self.top / 2 - bar_h / 2
+        barcode.drawOn(self.c, x, y)
+        # людиночитна підпис під штрихкодом: дата, номер аркуша, тип (без
+        # doc_id/реєстр. індексу — вони лишаються у машинному payload)
+        kind_label = "ел." if self.doc.is_electronic else "пап."
+        caption = f"{self.content.date_text}  {self.page_no}/{total}  {kind_label}"
+        self.c.setFont(_FONT_REGULAR, 6)
+        self.c.drawRightString(right_edge, y - 2.5 * mm, caption)
 
     def _line(self, text: str, *, font=_FONT_REGULAR, size=None, align=_ALIGN_FLAG,
               indent_mm: float = 0.0) -> None:
@@ -214,8 +294,9 @@ class _Layout:
                 f"{' ' * 12}{self.content.signature_name}"
             )
 
-        # завершальна сторінка: номер (якщо 2+)
+        # завершальна сторінка: номер (якщо 2+) + штрихкод пагінації
         self._draw_page_number()
+        self._draw_page_barcode()
 
     def _draw_e_signature_mark(self, mark) -> None:
         """Відмітка про електронний підпис, побудована за даними сертифіката.

@@ -246,6 +246,61 @@ def build_e_order() -> tuple[Document, DocumentContent]:
     return doc, content
 
 
+def build_e_order_multipage() -> tuple[Document, DocumentContent]:
+    """Електронний наказ на 3 сторінки: КЕП-відмітка + штрихкоди пагінації.
+
+    Демонструє наскрізну машинну пагінацію (штрихкод <doc_id>-<стор.> на
+    кожній сторінці) у багатосторінковому е-документі та відмітку КЕП
+    наприкінці (§4.4(22) ↔ Art.18/24).
+    """
+    doc = Document(
+        doc_id="ENAKAZ-2026-032",
+        is_letter=False,
+        is_electronic=True,
+        requisites=RequisiteSet(True, True, True, True, True, True, False, True, False),
+        geometry=_conformant_geometry(),
+        formatting=FormattingSpec(RequisiteAlignment.CENTERED, False),
+        typography=_conformant_typography(),
+        line_spacing=LineSpacing(1.5),
+        left_indents=_conformant_indents(),
+        page_numbering=PageNumbering(2, False, True, False),
+        storage_term=StorageTerm.PERMANENT,
+        addressee_count=0,
+        appendix_count=0,
+        blank=BlankSpec(BlankType.SPECIFIC_VIEW, 9, 2500),
+        date=DateSpec(DateStyle.VERBAL_NUMERIC, False),
+        symbols=_conformant_symbols(),
+    )
+    body = tuple(
+        f"{i}. Пункт наказу з достатнім обсягом тексту для заповнення сторінки "
+        "відповідно до вимог діловодства та електронного документообігу. " * 3
+        for i in range(1, 10)
+    )
+    content = DocumentContent(
+        org_name="ДЕРЖАВНЕ ПІДПРИЄМСТВО «УКРНДНЦ»",
+        doc_type="Наказ",
+        date_text="14 червня 2026 року",
+        reg_index="032-од",
+        title="Про затвердження положення про електронний документообіг",
+        body=body,
+        signature_position="Директор",
+        signature_name="О. ПЕТРЕНКО",
+        e_signature=ElectronicSignatureMark(
+            signer="ПЕТРЕНКО Олександр Іванович",
+            certificate_serial="58E2D9C1F0A4B7E3",
+            issuer="КН ЕДП «Дія»",
+            valid_from="01.01.2026",
+            valid_to="01.01.2028",
+            timestamp="14.06.2026 12:30:11 EET",
+            is_qualified=True,
+            status=CertificateStatus.ACTIVE,
+            validity_period_expired=False,
+            issuer_certificate_valid=True,
+        ),
+    )
+    return doc, content
+
+
 def _make_writer(fmt: str):
     if fmt == "docx":
         from dilovod4.infrastructure.docx_writer import DocxDocumentWriter
@@ -272,6 +327,7 @@ def main(argv: list[str] | None = None) -> int:
         "lyst": build_letter,
         "protokol": build_protocol,
         "enakaz": build_e_order,
+        "enakaz_3p": build_e_order_multipage,
     }
 
     exit_code = 0
