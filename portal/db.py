@@ -143,6 +143,33 @@ class AuditEvent(Base):
     document: Mapped[Document] = relationship(back_populates="events")
 
 
+import hashlib
+import secrets
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(String(256), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(256), default="")
+    password_hash: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    @staticmethod
+    def hash_password(password: str) -> str:
+        salt = secrets.token_hex(16)
+        h = hashlib.sha256(f"{salt}:{password}".encode()).hexdigest()
+        return f"{salt}:{h}"
+
+    def verify_password(self, password: str) -> bool:
+        try:
+            salt, h = self.password_hash.split(":", 1)
+            return hashlib.sha256(f"{salt}:{password}".encode()).hexdigest() == h
+        except ValueError:
+            return False
+
+
 def init_db() -> None:
     """Створити таблиці (ідемпотентно) + легка міграція нових колонок."""
     # переконатися, що каталог для SQLite існує
@@ -167,3 +194,21 @@ def init_db() -> None:
                 conn.execute(text("ALTER TABLE signers ADD COLUMN valid_from VARCHAR(64)"))
             if "valid_to" not in scols:
                 conn.execute(text("ALTER TABLE signers ADD COLUMN valid_to VARCHAR(64)"))
+    # сіємо дефолтного адміна якщо таблиця users порожня
+    _seed_default_admin()
+
+
+def _seed_default_admin() -> None:
+    """Створити дефолтного адміна admin@dilovod.local / admin якщо немає жодного user."""
+    default_email = os.environ.get("PORTAL_ADMIN_EMAIL", "admin@dilovod.local")
+    default_pass = os.environ.get("PORTAL_ADMIN_PASSWORD", "admin")
+    with SessionLocal() as session:
+        if session.query(User).first():
+            return
+        user = User(
+            email=default_email,
+            name="Адміністратор",
+            password_hash=User.hash_password(default_pass),
+        )
+        session.add(user)
+        session.commit()

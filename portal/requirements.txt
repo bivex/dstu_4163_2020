@@ -16,6 +16,9 @@ reportlab>=4.0
 segno>=1.6
 pypdf>=4.0
 
+# auth
+PyJWT>=2.8
+
 # тести (TestClient потребує httpx)
 pytest>=8.0
 httpx>=0.27

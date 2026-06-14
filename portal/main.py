@@ -21,9 +21,11 @@ import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Body, FastAPI, HTTPException
+import jwt
+from fastapi import Body, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse, Response
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 
 from . import domain_bridge as bridge
@@ -34,8 +36,37 @@ from .db import (
     SessionLocal,
     Signer,
     SignerStatus,
+    User,
     init_db,
 )
+
+_JWT_SECRET = os.environ.get("PORTAL_JWT_SECRET", "dilovod-dev-secret-change-in-prod")
+_JWT_ALGO = "HS256"
+_JWT_TTL_HOURS = 24
+_bearer = HTTPBearer(auto_error=False)
+
+
+def _make_token(user: User) -> str:
+    payload = {
+        "sub": str(user.id),
+        "email": user.email,
+        "name": user.name,
+        "exp": dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=_JWT_TTL_HOURS),
+    }
+    return jwt.encode(payload, _JWT_SECRET, algorithm=_JWT_ALGO)
+
+
+def _current_user(
+    creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
+) -> dict:
+    if not creds:
+        raise HTTPException(401, "Потрібна авторизація")
+    try:
+        return jwt.decode(creds.credentials, _JWT_SECRET, algorithms=[_JWT_ALGO])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(401, "Токен прострочений")
+    except jwt.PyJWTError:
+        raise HTTPException(401, "Недійсний токен")
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
@@ -65,6 +96,27 @@ def _audit(session, doc: Document, kind: str, actor: str = "", detail: str = "")
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "time": dt.datetime.now(dt.timezone.utc).isoformat()}
+
+
+# ---------------------------------------------------------------------------
+# AUTH
+# ---------------------------------------------------------------------------
+
+@app.post("/auth/login")
+def auth_login(payload: dict = Body(...)) -> dict:
+    email = str(payload.get("email", "")).strip().lower()
+    password = str(payload.get("password", ""))
+    with SessionLocal() as session:
+        user = session.query(User).filter_by(email=email).first()
+        if not user or not user.verify_password(password):
+            raise HTTPException(401, "Невірний email або пароль")
+        token = _make_token(user)
+        return {"token": token, "user": {"email": user.email, "name": user.name}}
+
+
+@app.get("/auth/me")
+def auth_me(current: dict = Depends(_current_user)) -> dict:
+    return {"email": current["email"], "name": current["name"]}
 
 
 @app.post("/documents")
