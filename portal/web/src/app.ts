@@ -94,7 +94,16 @@ function initWidget(): void {
       // підписуємо програмно через SignData().
       EndUser.FormType.ReadPKey,
     );
-    euWidget.AddEventListener(EndUser.EventType.ConfirmKSPOperation, () => {});
+    // AddEventListener шле postMessage в iframe — реєструємо ЛИШЕ після
+    // завантаження iframe, інакше contentWindow ще порожній і браузер кидає
+    // origin-mismatch warning (нешкідливий, але прибираємо).
+    const ifr = document.querySelector<HTMLIFrameElement>("#sign-widget-parent iframe");
+    const addListener = () => {
+      try {
+        euWidget?.AddEventListener(EndUser.EventType.ConfirmKSPOperation, () => {});
+      } catch { /* ignore */ }
+    };
+    if (ifr) ifr.addEventListener("load", addListener, { once: true });
     widgetInited = true;
     hint.innerHTML = "Віджет ІІТ завантажено. Оберіть носій усередині віджета, " +
       "зчитайте ключ, далі натисніть «Підписати поточним у черзі».";

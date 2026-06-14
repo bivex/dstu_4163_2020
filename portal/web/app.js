@@ -71,7 +71,14 @@ function initWidget() {
   }
   try {
     euWidget = new EndUser("sign-widget-parent", "sign-widget", WIDGET_URI, EndUser.FormType.ReadPKey);
-    euWidget.AddEventListener(EndUser.EventType.ConfirmKSPOperation, () => {});
+    const ifr = document.querySelector("#sign-widget-parent iframe");
+    const addListener = () => {
+      try {
+        euWidget?.AddEventListener(EndUser.EventType.ConfirmKSPOperation, () => {});
+      } catch {}
+    };
+    if (ifr)
+      ifr.addEventListener("load", addListener, { once: true });
     widgetInited = true;
     hint.innerHTML = "Віджет ІІТ завантажено. Оберіть носій усередині віджета, " + "зчитайте ключ, далі натисніть «Підписати поточним у черзі».";
   } catch (e) {
