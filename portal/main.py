@@ -308,12 +308,19 @@ def sign_document(doc_id: str, payload: dict = Body(...)) -> dict:
             )
 
         nxt.signature = sig_bytes
-        nxt.certificate_serial = str(payload.get("certificate_serial", ""))
-        nxt.issuer = str(payload.get("issuer", ""))
+        # Дані сертифіката беремо із САМОГО підпису (надійніше за клієнта).
+        # Якщо розбір не вдався — падаємо на те, що передав клієнт.
+        cert = bridge.cert_info_from_cms(sig_bytes)
+        nxt.certificate_serial = (
+            cert.get("certificate_serial") or str(payload.get("certificate_serial", "")) or ""
+        )
+        nxt.issuer = cert.get("issuer") or str(payload.get("issuer", "")) or ""
+        nxt.valid_from = cert.get("valid_from") or ""
+        nxt.valid_to = cert.get("valid_to") or ""
         nxt.status = SignerStatus.SIGNED
         nxt.signed_at = dt.datetime.now(dt.timezone.utc)
-        _audit(session, doc, "signed", actor=nxt.full_name,
-               detail=f"serial={nxt.certificate_serial}")
+        _audit(session, doc, "signed", actor=cert.get("signer") or nxt.full_name,
+               detail=f"serial={nxt.certificate_serial} issuer={nxt.issuer}")
 
         # активувати наступного у черзі або завершити
         following = doc.next_signer
@@ -345,6 +352,8 @@ def _render_marked(session, doc: Document) -> None:
             "signer_position": s.position,
             "certificate_serial": s.certificate_serial or "—",
             "issuer": s.issuer or "—",
+            "valid_from": s.valid_from or "",
+            "valid_to": s.valid_to or "",
             "timestamp": s.signed_at.isoformat(timespec="seconds") if s.signed_at else "",
             "status": "Active",
             "is_qualified": True,

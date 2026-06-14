@@ -236,3 +236,66 @@ def manifest_for_signer(doc_id: str, fmt: str, rendered: bytes, order_index: int
 
     data_files = [(f"{doc_id}.{fmt}", rendered)]
     return manifest_for(order_index + 1, data_files)
+
+
+def _rdn(dn: str, key: str) -> str:
+    """Витягти значення RDN (напр. CN, serialNumber) з рядка openssl subject/issuer."""
+    import re
+
+    m = re.search(rf"(?:^|,)\s*{key}=([^,]+)", dn)
+    return m.group(1).strip() if m else ""
+
+
+def cert_info_from_cms(sig_bytes: bytes) -> dict[str, str]:
+    """Витягти дані сертифіката підписанта з CMS/p7s (DSTU4145) через openssl.
+
+    Дані беруться із САМОГО підпису (не довіряємо клієнту): ПІБ підписувача
+    (subject CN), видавець (issuer CN), серійний номер сертифіката, строк дії.
+    Повертає {} якщо розбір не вдався (підпис лишиться без розшифрованих даних).
+    """
+    import re
+    import subprocess
+    import tempfile
+
+    info: dict[str, str] = {}
+    with tempfile.NamedTemporaryFile(suffix=".p7s", delete=False) as tmp:
+        tmp.write(sig_bytes)
+        path = tmp.name
+    try:
+        # subject / issuer
+        certs = subprocess.run(
+            ["openssl", "pkcs7", "-inform", "DER", "-in", path, "-print_certs", "-noout"],
+            capture_output=True, text=True, timeout=10,
+        ).stdout
+        subj = next((ln for ln in certs.splitlines() if ln.startswith("subject=")), "")
+        iss = next((ln for ln in certs.splitlines() if ln.startswith("issuer=")), "")
+        if subj:
+            info["signer"] = _rdn(subj, "CN")
+        if iss:
+            info["issuer"] = _rdn(iss, "CN")
+        # серійник + строк дії — з x509-текстового дампу сертифіката
+        x509 = subprocess.run(
+            ["openssl", "pkcs7", "-inform", "DER", "-in", path, "-print_certs"],
+            capture_output=True, text=True, timeout=10,
+        ).stdout
+        det = subprocess.run(
+            ["openssl", "x509", "-noout", "-serial", "-dates"],
+            input=x509, capture_output=True, text=True, timeout=10,
+        ).stdout
+        ser = re.search(r"serial=([0-9A-Fa-f]+)", det)
+        nb = re.search(r"notBefore=(.+)", det)
+        na = re.search(r"notAfter=(.+)", det)
+        if ser:
+            info["certificate_serial"] = ser.group(1)
+        if nb:
+            info["valid_from"] = nb.group(1).strip()
+        if na:
+            info["valid_to"] = na.group(1).strip()
+    except Exception:  # noqa: BLE001 — розбір best-effort
+        pass
+    finally:
+        import os as _os
+
+        if _os.path.exists(path):
+            _os.remove(path)
+    return info

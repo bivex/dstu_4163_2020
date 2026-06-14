@@ -118,9 +118,11 @@ class Signer(Base):
     status: Mapped[SignerStatus] = mapped_column(
         Enum(SignerStatus), default=SignerStatus.WAITING
     )
-    # дані КЕП-відмітки, отримані від клієнта після підпису
+    # дані КЕП-відмітки, видобуті із CMS-підпису після підпису
     certificate_serial: Mapped[str | None] = mapped_column(String(128), nullable=True)
     issuer: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    valid_from: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    valid_to: Mapped[str | None] = mapped_column(String(64), nullable=True)
     signed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # підпис CMS/p7s цього підписувача (для збирання ASiC-E)
     signature: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
@@ -158,3 +160,10 @@ def init_db() -> None:
         if "rendered_marked" not in cols:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE documents ADD COLUMN rendered_marked BLOB"))
+    if "signers" in insp.get_table_names():
+        scols = {c["name"] for c in insp.get_columns("signers")}
+        with engine.begin() as conn:
+            if "valid_from" not in scols:
+                conn.execute(text("ALTER TABLE signers ADD COLUMN valid_from VARCHAR(64)"))
+            if "valid_to" not in scols:
+                conn.execute(text("ALTER TABLE signers ADD COLUMN valid_to VARCHAR(64)"))
