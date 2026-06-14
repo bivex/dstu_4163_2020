@@ -102,14 +102,16 @@ def _subject_name(payload: dict[str, Any]) -> str:
     """Реквізит «найменування» (§5.4 ДСТУ 4163) залежно від типу суб'єкта.
 
     legal (юрособа) — назва як є («ДЕРЖАВНЕ ПІДПРИЄМСТВО …»).
-    fop (ФОП) — ПІБ підприємця з префіксом «ФІЗИЧНА ОСОБА — ПІДПРИЄМЕЦЬ»,
-    якщо користувач не вписав префікс самостійно.
+    fop (ФОП) — ПІБ підприємця з префіксом «ФІЗИЧНА ОСОБА — ПІДПРИЄМЕЦЬ».
+    person (фізична особа) — ПІБ як є (без префікса).
     """
     name = str(payload.get("org_name", "")).strip()
-    if str(payload.get("subject_type", "legal")) == "fop":
+    st = str(payload.get("subject_type", "legal"))
+    if st == "fop":
         low = name.lower()
         if "фізична особа" not in low and "фоп" not in low:
             name = f"ФІЗИЧНА ОСОБА — ПІДПРИЄМЕЦЬ {name}"
+    # person і legal — назва/ПІБ як є
     return name
 
 

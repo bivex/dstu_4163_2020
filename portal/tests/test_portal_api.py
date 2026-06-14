@@ -397,6 +397,23 @@ def test_fop_subject_prefixes_name_in_pdf(client):
     assert "ПЕТРЕНКО Олександр Іванович" in t
 
 
+def test_person_subject_plain_name_in_pdf(client):
+    """Документ типу «фізична особа»: найменування — ПІБ без префікса
+    (на відміну від ФОП, де додається «ФІЗИЧНА ОСОБА — ПІДПРИЄМЕЦЬ»)."""
+    import io
+    from pypdf import PdfReader
+
+    payload = _doc_payload(doc_id="PERS-1")
+    payload["org_name"] = "ШЕВЧЕНКО Тарас Григорович"
+    payload["subject_type"] = "person"
+    client.post("/documents", json=payload)
+    client.post("/documents/PERS-1/generate")
+    r = client.get("/documents/PERS-1/download")
+    t = "".join((p.extract_text() or "") for p in PdfReader(io.BytesIO(r.content)).pages)
+    assert "ШЕВЧЕНКО Тарас Григорович" in t
+    assert "ПІДПРИЄМЕЦЬ" not in t  # без префікса ФОП
+
+
 def test_asice_404_before_signed(client):
     client.post("/documents", json=_doc_payload())
     client.post("/documents/T-001/generate")

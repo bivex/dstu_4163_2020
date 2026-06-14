@@ -570,8 +570,10 @@ const subjEl = document.getElementById("subjectType") as HTMLSelectElement | nul
 if (subjEl) {
   const orgLabel = () => {
     const lbl = document.getElementById("orgName")?.closest(".field")?.querySelector("label");
-    if (lbl) lbl.textContent = subjEl.value === "fop"
-      ? "ПІБ підприємця (ФОП)" : "Найменування юридичної особи";
+    if (!lbl) return;
+    lbl.textContent = subjEl.value === "fop" ? "ПІБ підприємця (ФОП)"
+      : subjEl.value === "person" ? "ПІБ фізичної особи"
+      : "Найменування юридичної особи";
   };
   subjEl.onchange = orgLabel;
 }
