@@ -302,6 +302,16 @@ def generate_document(doc_id: str) -> dict:
             raise HTTPException(400, "текст документа (body) не може бути порожнім")
         if not payload.get("org_name", "").strip():
             raise HTTPException(400, "найменування організації (org_name) не може бути порожнім")
+        # ЧЕРНЕТКА-ПРОЄКТ: до офіційної реєстрації (submit) індекс ще не присвоєно.
+        # Щоб згенерований проєкт не був порожнім, підставляємо поточну дату як
+        # дату проєкту, якщо вона не задана. Реєстраційний індекс лишається
+        # порожнім — він присвоюється тільки при поданні у чергу.
+        if not str(payload.get("date_text", "")).strip():
+            from . import registry
+
+            payload["date_text"] = registry.format_ua_date(
+                dt.datetime.now(dt.timezone.utc).date()
+            )
         with tempfile.NamedTemporaryFile(suffix=f".{doc.fmt}", delete=False) as tmp:
             dest = tmp.name
         try:
