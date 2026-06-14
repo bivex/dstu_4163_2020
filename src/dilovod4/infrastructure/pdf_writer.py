@@ -156,11 +156,9 @@ class _Layout:
 
     # --- реквізити ---
     def render(self) -> None:
-        # §5.10/§5.31: QR-код 21×21 мм у верхньому правому куті — дані про
-        # КЕП/печатку + позначка часу. Кілька підписантів -> кілька QR стовпчиком.
-        if self.doc.is_electronic:
-            for i, mark in enumerate(self.content.signatures):
-                self._draw_signature_qr(mark, slot=i)
+        # QR-коди КЕП малюються поряд із кожною відміткою підписувача (внизу),
+        # а не стовпчиком у правому полі — так вони масштабуються на багатьох
+        # підписантів і природно переносяться між сторінками.
 
         # 04 найменування юридичної особи — центрований, напівжирний, з перенесенням
         self._wrapped(self.content.org_name, align=_ALIGN_CENTER, font=_FONT_BOLD)
@@ -265,6 +263,10 @@ class _Layout:
             self.c.setFont(font, small)
             self.c.drawString(self.left + pad, ty, text)
             ty -= line_h
+
+        # QR-код підписувача — праворуч від рамки, вирівняний по її верху.
+        # Подорожує разом із відміткою, тож масштабується на багатьох підписантів.
+        self._draw_mark_qr(mark, top)
         self.y = bottom - line_h
 
     def _wrap_to_width(self, text: str, font: str, size: float, avail_pt: float) -> list[str]:
@@ -299,34 +301,30 @@ class _Layout:
             out.append(line)
         return out or [""]
 
-    def _draw_signature_qr(self, mark, slot: int = 0) -> None:
-        """QR-код 21×21 мм у верхньому правому куті (§5.10/§5.31).
+    def _draw_mark_qr(self, mark, box_top: float) -> None:
+        """QR-код 21×21 мм праворуч від КЕП-відмітки, вирівняний по верху рамки.
 
-        Кодує дані КЕП/печатки + кваліфіковану позначку часу (крос-лінк
-        заголовка dstu-файлу). Навантаження будує домен (build_signature_qr_payload),
-        растеризацію робить segno. Розмір — рівно 21 мм за нормою.
-
-        slot — порядковий номер підписанта: кілька QR розкладаються стовпчиком
-        зверху вниз уздовж правого поля (директор, головний бухгалтер тощо).
+        Кодує дані КЕП/печатки + кваліфіковану позначку часу (§5.10/§5.31).
+        Розташований поряд із відміткою свого підписувача, тож при багатьох
+        підписантах QR-коди не накопичуються в полі, а йдуть з відмітками.
         """
         import segno  # локальний імпорт: залежність потрібна лише за наявності QR
 
         payload = build_signature_qr_payload(mark)
         qr = segno.make(payload, error="m")
-
         buf = io.BytesIO()
         qr.save(buf, kind="png", scale=10, border=0)
         buf.seek(0)
 
         side = _QR_SIDE_MM * mm
-        quiet = 3 * mm  # тиха зона назовні символу (критично для сканування)
-        # правий край; кілька QR — стовпчиком згори вниз (крок = символ + тиха зона)
-        step = side + 2 * quiet
-        x = self.page_w - self.right_margin - side
-        y = self.page_h - self.top - side - slot * step
-        # біла підкладка з тихою зоною навколо символу
+        gap = 4 * mm  # відступ від рамки відмітки (ширина рамки ≤95 мм)
+        box_w = min(self.text_width, 95 * mm)
+        x = self.left + box_w + gap
+        # не виходити за праве поле; якщо тісно — притиснути до правого краю
+        x = min(x, self.page_w - self.right_margin - side)
+        y = box_top - side
         self.c.setFillColorRGB(1, 1, 1)
-        self.c.rect(x - quiet, y - quiet, side + 2 * quiet, side + 2 * quiet, stroke=0, fill=1)
+        self.c.rect(x - mm, y - mm, side + 2 * mm, side + 2 * mm, stroke=0, fill=1)
         self.c.setFillColorRGB(0, 0, 0)
         self.c.drawImage(
             ImageReader(buf), x, y, width=side, height=side, preserveAspectRatio=True, mask="auto"
