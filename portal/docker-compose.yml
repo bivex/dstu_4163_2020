@@ -20,6 +20,10 @@ services:
     environment:
       PORTAL_DATABASE_URL: "sqlite:////data/portal.db"
       PORTAL_CORS: "*"
+      # актуальний перелік КНЕДП проксується з офіційного джерела IIT;
+      # за збою мережі — фолбек на локальний бандл EUSignES6/signdata/CAs.json
+      PORTAL_CAS_URL: "https://iit.com.ua/download/productfiles/CAs.json"
+      PORTAL_CAS_TTL: "3600"
     restart: unless-stopped
 
   # --- Продакшн-БД (опційно): PostgreSQL замість SQLite ---

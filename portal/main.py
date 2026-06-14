@@ -342,6 +342,41 @@ def _favicon() -> Response:
     return Response(status_code=204)
 
 
+# --- актуальний перелік КНЕДП з офіційного джерела IIT ---
+# EUSign запитує /signdata/CAs.json. Замість застарілого бандла проксуємо
+# свіжий перелік з iit.com.ua (через сервер — обходимо CORS), кешуємо у памʼяті
+# на годину, із фолбеком на локальний signdata/CAs.json за збою мережі.
+_CAS_URL = os.environ.get("PORTAL_CAS_URL", "https://iit.com.ua/download/productfiles/CAs.json")
+_CAS_TTL = int(os.environ.get("PORTAL_CAS_TTL", "3600"))  # секунд
+_cas_cache: dict = {"body": None, "ts": 0.0}
+
+
+@app.get("/signdata/CAs.json")
+def cas_json() -> Response:
+    import time
+    import urllib.request
+
+    now = time.time()
+    if _cas_cache["body"] is not None and now - _cas_cache["ts"] < _CAS_TTL:
+        return Response(content=_cas_cache["body"], media_type="application/json")
+    try:
+        req = urllib.request.Request(_CAS_URL, headers={"User-Agent": "dilovod4-portal"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            body = resp.read()
+        # перевірка, що це валідний JSON-перелік
+        import json as _json
+
+        if not isinstance(_json.loads(body), list):
+            raise ValueError("CAs.json не є переліком")
+        _cas_cache.update(body=body, ts=now)
+        return Response(content=body, media_type="application/json")
+    except Exception:  # noqa: BLE001 — фолбек на локальний бандл
+        local = _EUSIGN_DIR / "signdata" / "CAs.json"
+        if local.is_file():
+            return Response(content=local.read_bytes(), media_type="application/json")
+        raise HTTPException(502, "не вдалося отримати перелік КНЕДП")
+
+
 if _EUSIGN_DIR.is_dir():
     app.mount("/eusign", StaticFiles(directory=str(_EUSIGN_DIR)), name="eusign")
     # EUSign-бібліотека звертається до своїх даних за АБСОЛЮТНИМ шляхом
