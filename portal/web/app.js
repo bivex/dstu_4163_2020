@@ -71,7 +71,10 @@ function initWidget() {
       "sign-widget-parent",   // батьківський елемент
       "sign-widget",          // id iframe
       WIDGET_URI,             // офіційний віджет ІІТ
-      EndUser.FormType.SignFile
+      // ReadPKey — форма ЛИШЕ зчитування ос. ключа з носія; самі дані (манІфест)
+      // підписуємо програмно через SignData(). SignFile тут не годиться — це
+      // самодостатня форма з власним вибором файлу.
+      EndUser.FormType.ReadPKey
     );
     euWidget.AddEventListener(EndUser.EventType.ConfirmKSPOperation, () => {});
     widgetInited = true;
