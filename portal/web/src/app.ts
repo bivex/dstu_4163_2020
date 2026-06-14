@@ -211,6 +211,8 @@ async function refresh(): Promise<void> {
     renderSigners(d); renderReport(d.conformance ?? null);
     el("docStatus").textContent = "статус: " + d.status;
     (el<HTMLButtonElement>("asiceBtn")).disabled = !d.has_asice;
+    // подати у чергу можна лише чернетку (інакше скине вже зібрані підписи)
+    (el<HTMLButtonElement>("submitBtn")).disabled = d.status !== "draft";
   } catch (e) {
     el("signerList").innerHTML = `<span class="muted">${errMsg(e)}</span>`;
   }

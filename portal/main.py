@@ -248,6 +248,15 @@ def submit_for_signing(doc_id: str) -> dict:
         doc = _load(session, doc_id)
         if not doc.signers:
             raise HTTPException(400, "немає підписантів у черзі")
+        # Подавати у чергу можна лише чернетку. Якщо документ уже у черзі,
+        # підписаний або оприлюднений — повторний submit заборонено (інакше
+        # він скине статуси підписантів і затре вже зібрані КЕП-підписи).
+        if doc.status != DocStatus.DRAFT:
+            raise HTTPException(
+                409,
+                f"документ у статусі «{doc.status.value}» — повторне подання у чергу "
+                "неможливе (підписи вже зібрано або процес триває)",
+            )
         doc.status = DocStatus.PENDING_SIGNATURES
         doc.signers[0].status = SignerStatus.INVITED
         _audit(session, doc, "submitted")

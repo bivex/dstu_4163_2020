@@ -204,6 +204,22 @@ def test_sign_before_submit_rejected(client):
     assert r.status_code == 409  # ще DRAFT, не PENDING_SIGNATURES
 
 
+def test_resubmit_non_draft_rejected(client):
+    """Документ, що вже у черзі/підписаний, не можна подати у чергу повторно —
+    інакше скидаються статуси підписантів і затираються зібрані КЕП."""
+    client.post("/documents", json=_doc_payload())
+    client.post("/documents/T-001/generate")
+    client.post("/documents/T-001/submit")  # draft -> pending_signatures
+    r = client.post("/documents/T-001/submit")  # повторно -> 409
+    assert r.status_code == 409
+    # після повного підпису -> також 409
+    client.post("/documents/T-001/sign", json={
+        "signer_order_index": 0, "signature_b64": _fake_cms()})
+    client.post("/documents/T-001/sign", json={
+        "signer_order_index": 1, "signature_b64": _fake_cms()})
+    assert client.post("/documents/T-001/submit").status_code == 409
+
+
 def test_garbage_signature_rejected(client):
     """Сервер відсікає не-CMS значення (тестові заглушки), щоб у контейнер не
     потрапило сміття, яке дає «помилку 33» при перевірці."""

@@ -198,6 +198,7 @@ async function refresh() {
     renderReport(d.conformance ?? null);
     el("docStatus").textContent = "статус: " + d.status;
     el("asiceBtn").disabled = !d.has_asice;
+    el("submitBtn").disabled = d.status !== "draft";
   } catch (e) {
     el("signerList").innerHTML = `<span class="muted">${errMsg(e)}</span>`;
   }
