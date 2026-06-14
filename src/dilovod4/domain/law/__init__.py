@@ -1,7 +1,8 @@
 """Обчислювані норми законів України (перенесені з .catala_en специфікацій):
   • № 851-IV «Про електронні документи та електронний документообіг»;
   • № 2657-XII «Про інформацію»;
-  • № 2297-VI «Про захист персональних даних».
+  • № 2297-VI «Про захист персональних даних»;
+  • № 2939-VI «Про доступ до публічної інформації».
 """
 
 from .electronic_documents import (
@@ -50,6 +51,25 @@ from .personal_data import (
     processing_lawful,
     special_category_processing_permitted,
 )
+from .public_information import (
+    NonRestrictableTopic,
+    RefusalGround,
+    RequestUrgency,
+    Requestor,
+    ThreePartTest,
+    public_info_regime,
+    publication_timely,
+    refusal_lawful,
+    reimbursement_required,
+    response_deadline_hours,
+    response_deadline_working_days,
+)
+from .public_information import (
+    AccessRegime as PublicAccessRegime,
+    RestrictedKind as PublicRestrictedKind,
+    restriction_lawful as public_restriction_lawful,
+    topic_may_be_restricted as public_topic_may_be_restricted,
+)
 
 __all__ = [
     # Закон 851-IV
@@ -95,4 +115,20 @@ __all__ = [
     "processing_compliant",
     "processing_lawful",
     "special_category_processing_permitted",
+    # Закон 2939-VI
+    "NonRestrictableTopic",
+    "RefusalGround",
+    "RequestUrgency",
+    "Requestor",
+    "ThreePartTest",
+    "public_info_regime",
+    "publication_timely",
+    "refusal_lawful",
+    "reimbursement_required",
+    "response_deadline_hours",
+    "response_deadline_working_days",
+    "PublicAccessRegime",
+    "PublicRestrictedKind",
+    "public_restriction_lawful",
+    "public_topic_may_be_restricted",
 ]
