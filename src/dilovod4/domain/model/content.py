@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ..errors import InvariantViolation
+from .access_restriction import AccessRestriction
 from .approval import Agreement, ApprovalGrant, Visa
 from .signature import ElectronicSignatureMark
 
@@ -44,6 +45,9 @@ class DocumentContent:
     # пара «посада, розшифрування». Якщо порожньо — береться базова пара
     # signature_position/signature_name (сумісність).
     paper_signatures: tuple[tuple[str, str], ...] = field(default_factory=tuple)
+    # Реквізит 15 — гриф обмеження доступу (ст.21 З-ну 2657-XII). None для
+    # відкритих документів; задається лише для інформації з обмеженим доступом.
+    access_restriction: AccessRestriction | None = None
 
     def __post_init__(self) -> None:
         if not self.org_name.strip():

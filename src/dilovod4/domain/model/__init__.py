@@ -1,5 +1,6 @@
 """Доменна модель ДСТУ 4163:2020."""
 
+from .access_restriction import AccessRestriction
 from .approval import Agreement, ApprovalGrant, Visa
 from .content import DocumentContent
 from .document import Document
@@ -35,6 +36,7 @@ from .value_objects import (
 __all__ = [
     "Document",
     "DocumentContent",
+    "AccessRestriction",
     "Agreement",
     "ApprovalGrant",
     "Visa",

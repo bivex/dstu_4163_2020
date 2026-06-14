@@ -251,6 +251,14 @@ class _Layout:
         # 04 найменування юридичної особи — центрований, напівжирний, з перенесенням
         self._wrapped(self.content.org_name, align=_ALIGN_CENTER, font=_FONT_BOLD)
 
+        # реквізит 15 — гриф обмеження доступу (ст.21 З-ну 2657-XII), праворуч угорі
+        if self.content.access_restriction is not None:
+            self._line(
+                self.content.access_restriction.heading,
+                indent_mm=self.doc.left_indents.restriction_mm,
+                font=_FONT_BOLD,
+            )
+
         # 09 назва виду — не на листах (§4.4), збільшений кегль (§7.2)
         if not self.doc.is_letter and self.content.doc_type.strip():
             self._gap(0.5)

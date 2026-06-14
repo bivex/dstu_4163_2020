@@ -1,6 +1,7 @@
 """Правила відповідності ДСТУ 4163:2020 — по одному на параграф (Catala scope)."""
 
 from .base import ConformanceRule, ContentAwareRule, Finding, RuleResult, Severity
+from .access_restriction import AccessRestrictionRule
 from .blank_date_symbols import (
     BlankRequisitesRule,
     DateRule,
@@ -34,6 +35,7 @@ ALL_RULE_CLASSES: tuple[type[ConformanceRule] | type[ContentAwareRule], ...] = (
     DateRule,
     SymbolDimensionsRule,
     ElectronicOriginalRule,
+    AccessRestrictionRule,
 )
 
 __all__ = [
@@ -57,6 +59,7 @@ __all__ = [
     "DateRule",
     "SymbolDimensionsRule",
     "ElectronicOriginalRule",
+    "AccessRestrictionRule",
     "permitted_codes",
     "prescribed_print_side",
 ]

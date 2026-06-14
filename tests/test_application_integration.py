@@ -16,16 +16,16 @@ SAMPLES = Path(__file__).resolve().parents[1] / "samples"
 
 
 def test_default_rule_set_has_all_rules():
-    # 13 правил ДСТУ 4163:2020 + 1 правило ст.7 Закону 851-IV (е-оригінал)
+    # 13 правил ДСТУ 4163:2020 + ст.7 Закону 851-IV + ст.21 Закону 2657-XII
     provider = DefaultRuleSetProvider()
-    assert len(provider.rules()) == 14
+    assert len(provider.rules()) == 15
 
 
 def test_disabled_rule_excluded():
     provider = DefaultRuleSetProvider(disabled_rules={"LINE_SPACING"})
     ids = {r.rule_id for r in provider.rules()}
     assert "LINE_SPACING" not in ids
-    assert len(ids) == 13
+    assert len(ids) == 14
 
 
 def test_validate_conformant_document():

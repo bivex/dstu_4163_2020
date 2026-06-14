@@ -8,9 +8,10 @@ ConformanceChecker — доменна служба: чиста, застосов
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 from .model import Document, DocumentContent
-from .rules import ConformanceRule, Finding, RuleResult
+from .rules import ConformanceRule, ContentAwareRule, Finding, RuleResult
 
 
 @dataclass(frozen=True)
@@ -40,7 +41,7 @@ class ConformanceChecker:
     def check(
         self,
         document: Document,
-        rules: tuple[ConformanceRule, ...],
+        rules: tuple[ConformanceRule | ContentAwareRule, ...],
         content: DocumentContent | None = None,
     ) -> ConformanceReport:
         # Більшість правил перевіряють лише оформлення (Document). Правила, що
@@ -53,7 +54,7 @@ class ConformanceChecker:
             if getattr(rule, "requires_content", False):
                 if content is None:
                     continue
-                results.append(rule.evaluate(document, content))
+                results.append(cast(ContentAwareRule, rule).evaluate(document, content))
             else:
-                results.append(rule.evaluate(document))
+                results.append(cast(ConformanceRule, rule).evaluate(document))
         return ConformanceReport(doc_id=document.doc_id, results=tuple(results))

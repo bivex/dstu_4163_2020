@@ -129,6 +129,12 @@ class DocxDocumentWriter:
         run = org.add_run(content.org_name)
         run.bold = True
 
+        # реквізит 15 — гриф обмеження доступу (ст.21 З-ну 2657-XII), праворуч угорі
+        if content.access_restriction is not None:
+            ar = doc.add_paragraph()
+            ar.paragraph_format.left_indent = Mm(document.left_indents.restriction_mm)
+            ar.add_run(content.access_restriction.heading).bold = True
+
         # 09 назву виду не зазначають на листах (§4.4)
         if not document.is_letter and content.doc_type.strip():
             dt = doc.add_paragraph()
