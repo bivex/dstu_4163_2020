@@ -6,7 +6,7 @@
 	url = https://github.com/bivex/UAPKI
 [submodule "external/EUSignES6"]
 	path = external/EUSignES6
-	url = https://github.com/balrogden/EUSignES6
+	url = https://github.com/bivex/EUSignES6
 [submodule "external/SA-SignInfo"]
 	path = external/SA-SignInfo
 	url = https://github.com/kelatev/SA-SignInfo
