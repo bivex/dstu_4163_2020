@@ -18,6 +18,7 @@ import base64
 import datetime as dt
 import os
 import tempfile
+from contextlib import asynccontextmanager
 
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,7 +35,17 @@ from .db import (
     init_db,
 )
 
-app = FastAPI(title="Портал підписання документів (ДСТУ 4163 + НПА)", version="0.1.0")
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(
+    title="Портал підписання документів (ДСТУ 4163 + НПА)",
+    version="0.1.0",
+    lifespan=_lifespan,
+)
 
 # фронт (Next.js / EUSign) ходить з іншого origin — дозволяємо у dev
 app.add_middleware(
@@ -43,11 +54,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-def _startup() -> None:
-    init_db()
 
 
 def _audit(session, doc: Document, kind: str, actor: str = "", detail: str = "") -> None:
