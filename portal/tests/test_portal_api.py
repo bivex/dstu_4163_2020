@@ -74,6 +74,14 @@ def _b64(s: str) -> str:
     return base64.b64encode(s.encode()).decode()
 
 
+def _fake_cms() -> str:
+    """Псевдо-CMS, що проходить серверну перевірку формату (DER SEQUENCE 0x30,
+    ≥256 байт). Не криптографічно дійсний, але структурно прийнятний для тестів
+    потоку черги/збирання ASiC-E."""
+    body = b"\x30\x82\x02\x00" + b"\x00" * 600  # SEQUENCE + достатній розмір
+    return base64.b64encode(body).decode()
+
+
 # --- базові ---
 def test_health(client):
     r = client.get("/health")
@@ -151,7 +159,7 @@ def test_full_signing_lifecycle(client):
 
     # підпис #0 → наступний INVITED
     d = client.post("/documents/T-001/sign", json={
-        "signer_order_index": 0, "signature_b64": _b64("kep-director"),
+        "signer_order_index": 0, "signature_b64": _fake_cms(),
         "certificate_serial": "58E2D9", "issuer": "КН ЕДП Дія",
     }).json()
     assert d["signers"][0]["status"] == "signed"
@@ -160,7 +168,7 @@ def test_full_signing_lifecycle(client):
 
     # підпис #1 → SIGNED
     d = client.post("/documents/T-001/sign", json={
-        "signer_order_index": 1, "signature_b64": _b64("kep-buh"),
+        "signer_order_index": 1, "signature_b64": _fake_cms(),
         "certificate_serial": "A1B2C3", "issuer": "КН ЕДП Дія",
     }).json()
     assert all(s["status"] == "signed" for s in d["signers"])
@@ -191,9 +199,20 @@ def test_sign_requires_signature(client):
 def test_sign_before_submit_rejected(client):
     client.post("/documents", json=_doc_payload())
     r = client.post("/documents/T-001/sign", json={
-        "signer_order_index": 0, "signature_b64": _b64("x"),
+        "signer_order_index": 0, "signature_b64": _fake_cms(),
     })
     assert r.status_code == 409  # ще DRAFT, не PENDING_SIGNATURES
+
+
+def test_garbage_signature_rejected(client):
+    """Сервер відсікає не-CMS значення (тестові заглушки), щоб у контейнер не
+    потрапило сміття, яке дає «помилку 33» при перевірці."""
+    client.post("/documents", json=_doc_payload())
+    client.post("/documents/T-001/submit")
+    r = client.post("/documents/T-001/sign", json={
+        "signer_order_index": 0, "signature_b64": _b64("kep-signature-buh"),
+    })
+    assert r.status_code == 422
 
 
 def test_publish_before_signed_rejected(client):
@@ -230,9 +249,9 @@ def test_audit_trail(client):
     client.post("/documents/T-001/generate")
     client.post("/documents/T-001/submit")
     client.post("/documents/T-001/sign", json={
-        "signer_order_index": 0, "signature_b64": _b64("a")})
+        "signer_order_index": 0, "signature_b64": _fake_cms()})
     client.post("/documents/T-001/sign", json={
-        "signer_order_index": 1, "signature_b64": _b64("b")})
+        "signer_order_index": 1, "signature_b64": _fake_cms()})
     client.post("/documents/T-001/publish")
     d = client.get("/documents/T-001").json()
     kinds = [e["kind"] for e in d["events"]]
@@ -246,7 +265,7 @@ def test_single_signer_lifecycle(client):
     client.post("/documents", json=_doc_payload(doc_id="S-1", signers=1))
     client.post("/documents/S-1/submit")
     d = client.post("/documents/S-1/sign", json={
-        "signer_order_index": 0, "signature_b64": _b64("solo")}).json()
+        "signer_order_index": 0, "signature_b64": _fake_cms()}).json()
     assert d["status"] == "signed"
 
 
@@ -256,9 +275,9 @@ def test_asice_assembled_and_downloadable(client):
     client.post("/documents/T-001/generate")
     client.post("/documents/T-001/submit")
     client.post("/documents/T-001/sign", json={
-        "signer_order_index": 0, "signature_b64": _b64("kep-cms-director")})
+        "signer_order_index": 0, "signature_b64": _fake_cms()})
     d = client.post("/documents/T-001/sign", json={
-        "signer_order_index": 1, "signature_b64": _b64("kep-cms-buh")}).json()
+        "signer_order_index": 1, "signature_b64": _fake_cms()}).json()
     assert d["status"] == "signed"
     assert d["has_asice"] is True
 
@@ -277,9 +296,9 @@ def test_asice_contains_document_and_signatures(client):
     client.post("/documents/T-001/generate")
     client.post("/documents/T-001/submit")
     client.post("/documents/T-001/sign", json={
-        "signer_order_index": 0, "signature_b64": _b64("sig0")})
+        "signer_order_index": 0, "signature_b64": _fake_cms()})
     client.post("/documents/T-001/sign", json={
-        "signer_order_index": 1, "signature_b64": _b64("sig1")})
+        "signer_order_index": 1, "signature_b64": _fake_cms()})
     r = client.get("/documents/T-001/download/asice")
     z = zipfile.ZipFile(io.BytesIO(r.content))
     names = z.namelist()
@@ -324,7 +343,7 @@ def test_manifest_advances_with_queue(client):
     m0 = client.get("/documents/T-001/manifest").content
     assert b"signature001.p7s" in m0
     client.post("/documents/T-001/sign", json={
-        "signer_order_index": 0, "signature_b64": _b64("s0")})
+        "signer_order_index": 0, "signature_b64": _fake_cms()})
     # тепер активний другий підписант → манІфест для signature002
     m1 = client.get("/documents/T-001/manifest").content
     assert b"signature002.p7s" in m1

@@ -267,7 +267,20 @@ def sign_document(doc_id: str, payload: dict = Body(...)) -> dict:
         if not sig_b64:
             raise HTTPException(400, "signature_b64 обовʼязковий (КЕП з клієнта)")
 
-        nxt.signature = base64.b64decode(sig_b64)
+        try:
+            sig_bytes = base64.b64decode(sig_b64)
+        except Exception:  # noqa: BLE001
+            raise HTTPException(400, "signature_b64 не є коректним base64")
+        # КЕП-підпис — це CMS/p7s у DER: має починатися з SEQUENCE (0x30) і бути
+        # достатнього розміру. Відсікаємо тестові заглушки/сміття, щоб вони не
+        # потрапили у контейнер і не давали «помилку 33» при перевірці.
+        if len(sig_bytes) < 256 or sig_bytes[0] != 0x30:
+            raise HTTPException(
+                422, "недійсний підпис: очікується CMS/p7s (DER) від EUSign, "
+                "а не тестове значення"
+            )
+
+        nxt.signature = sig_bytes
         nxt.certificate_serial = str(payload.get("certificate_serial", ""))
         nxt.issuer = str(payload.get("issuer", ""))
         nxt.status = SignerStatus.SIGNED
