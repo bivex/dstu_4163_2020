@@ -164,8 +164,15 @@ function readEditor(): Record<string, unknown> {
 
 // --- дії (експонуються на window для inline onclick) ---
 async function createDoc(): Promise<void> {
-  try { await api("/documents", "POST", readEditor()); toast("Чернетку створено"); refresh(); }
-  catch (e) { toast("Помилка: " + errMsg(e)); }
+  try {
+    await api("/documents", "POST", readEditor());
+    selectedDoc = docId(); toast("Картку збережено"); reloadDocs(); refresh();
+  } catch (e) {
+    // якщо вже існує — оновлюємо через PUT
+    try { await api(`/documents/${docId()}`, "PUT", readEditor());
+      toast("Картку оновлено"); reloadDocs(); refresh(); }
+    catch (e2) { toast("Помилка: " + errMsg(e2)); }
+  }
 }
 
 async function generateDoc(): Promise<void> {
@@ -184,16 +191,17 @@ async function deleteDoc(): Promise<void> {
   if (!confirm(`Видалити документ ${docId()} разом із підписами та аудитом?`)) return;
   try {
     await api(`/documents/${docId()}`, "DELETE");
-    toast("Документ видалено — можна створити заново");
-    el("signerList").innerHTML = '<span class="muted">Створіть документ.</span>';
-    el("docStatus").textContent = "";
-    renderReport(null);
-    (el<HTMLButtonElement>("asiceBtn")).disabled = true;
+    toast("Документ видалено");
+    selectedDoc = null;
+    el("detailBody").classList.add("hidden");
+    el("detailEmpty").classList.remove("hidden");
+    reloadDocs();
   } catch (e) { toast("Помилка: " + errMsg(e)); }
 }
 
 async function submitDoc(): Promise<void> {
-  try { await api(`/documents/${docId()}/submit`, "POST"); toast("Подано у чергу"); refresh(); }
+  try { await api(`/documents/${docId()}/submit`, "POST"); toast("Подано у чергу");
+    refresh(); reloadDocs(); }
   catch (e) { toast("Помилка: " + errMsg(e)); }
 }
 
@@ -301,7 +309,140 @@ async function signCurrent(): Promise<void> {
     });
     toast(`Підписано: ${next.full_name}`);
     refresh();
+    reloadDocs();
   } catch (e) { toast("Помилка підпису: " + errMsg(e)); }
+}
+
+// =====================================================================
+// СЕД-оболонка: сайдбар-категорії, список документів, вибір документа
+// =====================================================================
+
+interface DocListItem {
+  doc_id: string; title: string; status: string;
+  created_at: string | null; signers: Signer[]; has_asice?: boolean;
+}
+
+// Категорії сайдбару. Лічильники й фільтри рахуються з РЕАЛЬНИХ статусів
+// бекенда (draft/pending_signatures/signed/published) — нічого вигаданого.
+interface Category { key: string; title: string; match: (d: DocListItem) => boolean }
+const CATEGORIES: Category[] = [
+  { key: "all", title: "Всі документи", match: () => true },
+  { key: "signing", title: "Підписання", match: (d) => d.status === "pending_signatures" },
+  { key: "drafts", title: "Чернетки", match: (d) => d.status === "draft" },
+  { key: "processed", title: "Опрацьовані", match: (d) => d.status === "signed" || d.status === "published" },
+];
+// Розділи-заглушки (бекенд ще не має тегів/папок/кошика) — показуємо порожніми.
+const SECTION_KEYS = new Set(["favorites", "archive", "trash"]);
+
+let allDocs: DocListItem[] = [];
+let activeCat = "all";
+let selectedDoc: string | null = null;
+let searchTerm = "";
+
+async function reloadDocs(): Promise<void> {
+  try {
+    const r = await api<{ documents: DocListItem[] }>("/documents");
+    allDocs = r.documents || [];
+  } catch (e) {
+    allDocs = []; toast("Не вдалося завантажити список: " + errMsg(e));
+  }
+  renderCats();
+  renderList();
+}
+
+function renderCats(): void {
+  const box = el("cats");
+  box.innerHTML = "";
+  for (const c of CATEGORIES) {
+    const n = allDocs.filter(c.match).length;
+    const div = document.createElement("div");
+    div.className = "item" + (c.key === activeCat ? " active" : "");
+    div.innerHTML = `<span>${c.title}</span><span class="cnt">${n}</span>`;
+    div.onclick = () => { activeCat = c.key; renderCats(); renderList(); };
+    box.appendChild(div);
+  }
+  // розділи-заглушки: лічильник 0 (даних немає)
+  document.querySelectorAll<HTMLElement>("[data-c]").forEach((e) => { e.textContent = "0"; });
+  document.querySelectorAll<HTMLElement>(".side .item[data-cat]").forEach((e) => {
+    e.onclick = () => {
+      const k = e.getAttribute("data-cat")!;
+      if (SECTION_KEYS.has(k)) { activeCat = k; renderCats(); renderList(); }
+    };
+    e.classList.toggle("active", e.getAttribute("data-cat") === activeCat);
+  });
+}
+
+function currentList(): DocListItem[] {
+  let docs = allDocs;
+  const cat = CATEGORIES.find((c) => c.key === activeCat);
+  if (cat) docs = docs.filter(cat.match);
+  else if (SECTION_KEYS.has(activeCat)) docs = []; // заглушки порожні
+  if (searchTerm) {
+    const q = searchTerm.toLowerCase();
+    docs = docs.filter((d) =>
+      d.title.toLowerCase().includes(q) || d.doc_id.toLowerCase().includes(q));
+  }
+  return docs;
+}
+
+function statusLabel(s: string): string {
+  return ({ draft: "чернетка", pending_signatures: "підписання",
+    signed: "підписано", published: "оприлюднено" } as Record<string, string>)[s] || s;
+}
+
+function renderList(): void {
+  const titleEl = el("listTitle");
+  const cat = CATEGORIES.find((c) => c.key === activeCat);
+  titleEl.textContent = cat ? cat.title
+    : ({ favorites: "Обрані", archive: "Архів", trash: "Кошик" } as Record<string, string>)[activeCat] || "Документи";
+  const docs = currentList();
+  el("listCount").textContent = String(docs.length);
+  const box = el("docList");
+  if (!docs.length) {
+    box.innerHTML = '<div class="empty">Немає документів у цій категорії.</div>';
+    return;
+  }
+  box.innerHTML = docs.map((d) => {
+    const signed = d.signers.filter((s) => s.status === "signed").length;
+    const total = d.signers.length;
+    return `<div class="doc${d.doc_id === selectedDoc ? " sel" : ""}" data-id="${d.doc_id}">
+      <div class="t">${d.title || d.doc_id}</div>
+      <div class="m">
+        <span>${d.doc_id}</span>
+        <span class="badge b-${d.status}">${statusLabel(d.status)}</span>
+        ${total ? `<span>підписів: ${signed}/${total}</span>` : ""}
+      </div></div>`;
+  }).join("");
+  box.querySelectorAll<HTMLElement>(".doc").forEach((e) => {
+    e.onclick = () => openDoc(e.getAttribute("data-id")!);
+  });
+}
+
+async function openDoc(id: string): Promise<void> {
+  selectedDoc = id;
+  (el<HTMLInputElement>("docId")).value = id;
+  el("detailEmpty").classList.add("hidden");
+  el("detailBody").classList.remove("hidden");
+  renderList();
+  await refresh();
+  // підтягнути картку у форму з бекенда
+  try {
+    const d = await api<DocListItem & { content?: Record<string, unknown> }>(`/documents/${id}`);
+    if (d.title) (el<HTMLInputElement>("title")).value = d.title;
+  } catch { /* лишаємо поточні значення форми */ }
+}
+
+function newDocument(): void {
+  selectedDoc = null;
+  el("detailEmpty").classList.add("hidden");
+  el("detailBody").classList.remove("hidden");
+  // скинути ключові поля під новий документ
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
+  (el<HTMLInputElement>("docId")).value = "DOC-" + stamp;
+  (el("signerList")).innerHTML = '<span class="muted">Збережіть картку.</span>';
+  el("docStatus").textContent = "";
+  renderReport(null);
+  (el<HTMLButtonElement>("asiceBtn")).disabled = true;
 }
 
 // --- toast ---
@@ -319,8 +460,15 @@ function errMsg(e: unknown): string {
 // --- експонувати дії для inline onclick у index.html ---
 Object.assign(window as unknown as Record<string, unknown>, {
   createDoc, generateDoc, downloadDoc, deleteDoc, submitDoc,
-  refresh, downloadAsice, signCurrent,
+  refresh, downloadAsice, signCurrent, reloadDocs, newDocument,
 });
+
+// прив'язати пошук
+const searchEl = document.getElementById("search") as HTMLInputElement | null;
+if (searchEl) {
+  searchEl.oninput = () => { searchTerm = searchEl.value.trim(); renderList(); };
+}
 
 // init
 initEUSign();
+reloadDocs();

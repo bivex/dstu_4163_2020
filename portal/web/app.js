@@ -139,10 +139,19 @@ function readEditor() {
 async function createDoc() {
   try {
     await api("/documents", "POST", readEditor());
-    toast("Чернетку створено");
+    selectedDoc = docId();
+    toast("Картку збережено");
+    reloadDocs();
     refresh();
   } catch (e) {
-    toast("Помилка: " + errMsg(e));
+    try {
+      await api(`/documents/${docId()}`, "PUT", readEditor());
+      toast("Картку оновлено");
+      reloadDocs();
+      refresh();
+    } catch (e2) {
+      toast("Помилка: " + errMsg(e2));
+    }
   }
 }
 async function generateDoc() {
@@ -163,11 +172,11 @@ async function deleteDoc() {
     return;
   try {
     await api(`/documents/${docId()}`, "DELETE");
-    toast("Документ видалено — можна створити заново");
-    el("signerList").innerHTML = '<span class="muted">Створіть документ.</span>';
-    el("docStatus").textContent = "";
-    renderReport(null);
-    el("asiceBtn").disabled = true;
+    toast("Документ видалено");
+    selectedDoc = null;
+    el("detailBody").classList.add("hidden");
+    el("detailEmpty").classList.remove("hidden");
+    reloadDocs();
   } catch (e) {
     toast("Помилка: " + errMsg(e));
   }
@@ -177,6 +186,7 @@ async function submitDoc() {
     await api(`/documents/${docId()}/submit`, "POST");
     toast("Подано у чергу");
     refresh();
+    reloadDocs();
   } catch (e) {
     toast("Помилка: " + errMsg(e));
   }
@@ -286,9 +296,133 @@ async function signCurrent() {
     });
     toast(`Підписано: ${next.full_name}`);
     refresh();
+    reloadDocs();
   } catch (e) {
     toast("Помилка підпису: " + errMsg(e));
   }
+}
+var CATEGORIES = [
+  { key: "all", title: "Всі документи", match: () => true },
+  { key: "signing", title: "Підписання", match: (d) => d.status === "pending_signatures" },
+  { key: "drafts", title: "Чернетки", match: (d) => d.status === "draft" },
+  { key: "processed", title: "Опрацьовані", match: (d) => d.status === "signed" || d.status === "published" }
+];
+var SECTION_KEYS = new Set(["favorites", "archive", "trash"]);
+var allDocs = [];
+var activeCat = "all";
+var selectedDoc = null;
+var searchTerm = "";
+async function reloadDocs() {
+  try {
+    const r = await api("/documents");
+    allDocs = r.documents || [];
+  } catch (e) {
+    allDocs = [];
+    toast("Не вдалося завантажити список: " + errMsg(e));
+  }
+  renderCats();
+  renderList();
+}
+function renderCats() {
+  const box = el("cats");
+  box.innerHTML = "";
+  for (const c of CATEGORIES) {
+    const n = allDocs.filter(c.match).length;
+    const div = document.createElement("div");
+    div.className = "item" + (c.key === activeCat ? " active" : "");
+    div.innerHTML = `<span>${c.title}</span><span class="cnt">${n}</span>`;
+    div.onclick = () => {
+      activeCat = c.key;
+      renderCats();
+      renderList();
+    };
+    box.appendChild(div);
+  }
+  document.querySelectorAll("[data-c]").forEach((e) => {
+    e.textContent = "0";
+  });
+  document.querySelectorAll(".side .item[data-cat]").forEach((e) => {
+    e.onclick = () => {
+      const k = e.getAttribute("data-cat");
+      if (SECTION_KEYS.has(k)) {
+        activeCat = k;
+        renderCats();
+        renderList();
+      }
+    };
+    e.classList.toggle("active", e.getAttribute("data-cat") === activeCat);
+  });
+}
+function currentList() {
+  let docs = allDocs;
+  const cat = CATEGORIES.find((c) => c.key === activeCat);
+  if (cat)
+    docs = docs.filter(cat.match);
+  else if (SECTION_KEYS.has(activeCat))
+    docs = [];
+  if (searchTerm) {
+    const q = searchTerm.toLowerCase();
+    docs = docs.filter((d) => d.title.toLowerCase().includes(q) || d.doc_id.toLowerCase().includes(q));
+  }
+  return docs;
+}
+function statusLabel(s) {
+  return {
+    draft: "чернетка",
+    pending_signatures: "підписання",
+    signed: "підписано",
+    published: "оприлюднено"
+  }[s] || s;
+}
+function renderList() {
+  const titleEl = el("listTitle");
+  const cat = CATEGORIES.find((c) => c.key === activeCat);
+  titleEl.textContent = cat ? cat.title : { favorites: "Обрані", archive: "Архів", trash: "Кошик" }[activeCat] || "Документи";
+  const docs = currentList();
+  el("listCount").textContent = String(docs.length);
+  const box = el("docList");
+  if (!docs.length) {
+    box.innerHTML = '<div class="empty">Немає документів у цій категорії.</div>';
+    return;
+  }
+  box.innerHTML = docs.map((d) => {
+    const signed = d.signers.filter((s) => s.status === "signed").length;
+    const total = d.signers.length;
+    return `<div class="doc${d.doc_id === selectedDoc ? " sel" : ""}" data-id="${d.doc_id}">
+      <div class="t">${d.title || d.doc_id}</div>
+      <div class="m">
+        <span>${d.doc_id}</span>
+        <span class="badge b-${d.status}">${statusLabel(d.status)}</span>
+        ${total ? `<span>підписів: ${signed}/${total}</span>` : ""}
+      </div></div>`;
+  }).join("");
+  box.querySelectorAll(".doc").forEach((e) => {
+    e.onclick = () => openDoc(e.getAttribute("data-id"));
+  });
+}
+async function openDoc(id) {
+  selectedDoc = id;
+  el("docId").value = id;
+  el("detailEmpty").classList.add("hidden");
+  el("detailBody").classList.remove("hidden");
+  renderList();
+  await refresh();
+  try {
+    const d = await api(`/documents/${id}`);
+    if (d.title)
+      el("title").value = d.title;
+  } catch {}
+}
+function newDocument() {
+  selectedDoc = null;
+  el("detailEmpty").classList.add("hidden");
+  el("detailBody").classList.remove("hidden");
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
+  el("docId").value = "DOC-" + stamp;
+  el("signerList").innerHTML = '<span class="muted">Збережіть картку.</span>';
+  el("docStatus").textContent = "";
+  renderReport(null);
+  el("asiceBtn").disabled = true;
 }
 var toastT;
 function toast(msg) {
@@ -309,6 +443,16 @@ Object.assign(window, {
   submitDoc,
   refresh,
   downloadAsice,
-  signCurrent
+  signCurrent,
+  reloadDocs,
+  newDocument
 });
+var searchEl = document.getElementById("search");
+if (searchEl) {
+  searchEl.oninput = () => {
+    searchTerm = searchEl.value.trim();
+    renderList();
+  };
+}
 initEUSign();
+reloadDocs();
