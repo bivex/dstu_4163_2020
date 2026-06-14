@@ -234,6 +234,44 @@ function renderReport(rep) {
     return `<div class="${ok ? "f-ok" : "f-bad"}">${ok ? "✔" : "✘"} ${r.rule_id} <span class="muted">(${r.clause})</span></div>${f}`;
   }).join("");
 }
+function signOverlayStart(steps, title) {
+  const ov = el("signOverlay");
+  el("signTitle").textContent = title;
+  const seal = el("signSeal");
+  seal.className = "sign-seal spin";
+  const ul = el("signSteps");
+  ul.innerHTML = steps.map((s) => `<li data-k="${s.key}"><span class="ico"></span><span>${s.label}</span></li>`).join("");
+  ov.classList.add("show");
+}
+function signStepActive(key) {
+  const ul = el("signSteps");
+  ul.querySelectorAll("li").forEach((li) => {
+    const k = li.getAttribute("data-k");
+    if (k === key)
+      li.classList.add("active");
+  });
+}
+function signStepDone(key) {
+  const li = el("signSteps").querySelector(`li[data-k="${key}"]`);
+  if (li) {
+    li.classList.remove("active");
+    li.classList.add("done");
+  }
+}
+function signOverlayFinish(ok, failKey) {
+  const seal = el("signSeal");
+  seal.className = "sign-seal " + (ok ? "done" : "fail");
+  if (!ok && failKey) {
+    const li = el("signSteps").querySelector(`li[data-k="${failKey}"]`);
+    if (li) {
+      li.classList.remove("active");
+      li.classList.add("err");
+    }
+  }
+  const delay = ok ? 1100 : 1800;
+  setTimeout(() => el("signOverlay").classList.remove("show"), delay);
+}
+var sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function signCurrent() {
   if (!euReady) {
     toast("EUSign ще не готовий");
@@ -251,54 +289,74 @@ async function signCurrent() {
     toast("Немає активного підписанта (подайте у чергу)");
     return;
   }
+  const mode = val("keySource");
+  const STEPS = [
+    { key: "manifest", label: "Формування даних для підпису (манІфест)" },
+    { key: "key", label: mode === "token" ? "Зчитування ключа з апаратного носія" : "Зчитування особистого ключа" },
+    { key: "sign", label: "Накладання КЕП (ДСТУ 4145)" },
+    { key: "send", label: "Передавання підпису на сервер" },
+    { key: "done", label: "Підпис зафіксовано у черзі" }
+  ];
+  signOverlayStart(STEPS, `Підписання: ${next.full_name}`);
+  let stepKey = "manifest";
   try {
-    const mode = val("keySource");
+    signStepActive("manifest");
     const mr = await fetch(`${API}/documents/${docId()}/manifest`);
-    if (!mr.ok) {
-      toast("Не вдалося отримати манІфест: " + await mr.text());
-      return;
-    }
+    if (!mr.ok)
+      throw new Error("манІфест: " + await mr.text());
     const manifest = await mr.text();
+    signStepDone("manifest");
     let cmsB64;
     if (mode === "token") {
-      if (!euWidget) {
-        toast("Віджет ІІТ не ініціалізовано");
-        return;
-      }
+      if (!euWidget)
+        throw new Error("віджет ІІТ не ініціалізовано");
+      stepKey = "key";
+      signStepActive("key");
       await euWidget.ReadPrivateKey();
+      signStepDone("key");
+      stepKey = "sign";
+      signStepActive("sign");
       cmsB64 = await euWidget.SignData(manifest, true, true, EndUser.SignAlgo.DSTU4145WithGOST34311, null, EndUser.SignType.CAdES_X_Long);
     } else {
-      if (!euSignFactory) {
-        toast("EUSign не готовий");
-        return;
-      }
+      if (!euSignFactory)
+        throw new Error("EUSign не готовий");
+      stepKey = "key";
+      signStepActive("key");
       const password = val("keyPass");
       const caIdx = el("caSelect").selectedIndex;
       euSignFactory.setCASettings(caIdx < 0 ? -1 : caIdx);
       euSignFactory.pkFilePassword = password;
       euSignFactory.pkFileItemIndex = -1;
       euSignFactory.readPrivateKeyButtonClick();
-      if (!euSignFactory.pkReaded) {
-        toast("Не вдалося прочитати ключ (пароль/файл)");
-        return;
-      }
+      if (!euSignFactory.pkReaded)
+        throw new Error("не вдалося прочитати ключ (пароль/файл)");
+      signStepDone("key");
+      stepKey = "sign";
+      signStepActive("sign");
       const manifestBytes = new TextEncoder().encode(manifest);
       cmsB64 = euSignFactory.signData(manifestBytes, false, true, "def");
     }
-    if (!cmsB64) {
-      toast("Підпис не сформовано");
-      return;
-    }
+    if (!cmsB64)
+      throw new Error("підпис не сформовано");
+    signStepDone("sign");
+    stepKey = "send";
+    signStepActive("send");
     await api(`/documents/${docId()}/sign`, "POST", {
       signer_order_index: next.order_index,
       signature_b64: cmsB64,
       signer: next.full_name,
       signer_position: next.position
     });
+    signStepDone("send");
+    signStepActive("done");
+    await sleep(300);
+    signStepDone("done");
+    signOverlayFinish(true);
     toast(`Підписано: ${next.full_name}`);
     refresh();
     reloadDocs();
   } catch (e) {
+    signOverlayFinish(false, stepKey);
     toast("Помилка підпису: " + errMsg(e));
   }
 }

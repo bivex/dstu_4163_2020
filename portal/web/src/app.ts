@@ -251,6 +251,44 @@ function renderReport(rep: ConformanceReport | null): void {
   }).join("");
 }
 
+// =====================================================================
+// Анімація процесу підписання (оверлей з покроковим прогресом)
+// =====================================================================
+interface SignStep { key: string; label: string }
+
+function signOverlayStart(steps: SignStep[], title: string): void {
+  const ov = el("signOverlay");
+  el("signTitle").textContent = title;
+  const seal = el("signSeal");
+  seal.className = "sign-seal spin";
+  const ul = el("signSteps");
+  ul.innerHTML = steps.map((s) =>
+    `<li data-k="${s.key}"><span class="ico"></span><span>${s.label}</span></li>`).join("");
+  ov.classList.add("show");
+}
+function signStepActive(key: string): void {
+  const ul = el("signSteps");
+  ul.querySelectorAll<HTMLElement>("li").forEach((li) => {
+    const k = li.getAttribute("data-k");
+    if (k === key) li.classList.add("active");
+  });
+}
+function signStepDone(key: string): void {
+  const li = el("signSteps").querySelector<HTMLElement>(`li[data-k="${key}"]`);
+  if (li) { li.classList.remove("active"); li.classList.add("done"); }
+}
+function signOverlayFinish(ok: boolean, failKey?: string): void {
+  const seal = el("signSeal");
+  seal.className = "sign-seal " + (ok ? "done" : "fail");
+  if (!ok && failKey) {
+    const li = el("signSteps").querySelector<HTMLElement>(`li[data-k="${failKey}"]`);
+    if (li) { li.classList.remove("active"); li.classList.add("err"); }
+  }
+  const delay = ok ? 1100 : 1800;
+  setTimeout(() => el("signOverlay").classList.remove("show"), delay);
+}
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 // --- КЕП-підпис поточного у черзі ---
 async function signCurrent(): Promise<void> {
   if (!euReady) { toast("EUSign ще не готовий"); return; }
@@ -261,22 +299,35 @@ async function signCurrent(): Promise<void> {
   const next = doc.signers.find((s) => s.status === "invited");
   if (!next) { toast("Немає активного підписанта (подайте у чергу)"); return; }
 
-  try {
-    const mode = val("keySource");
+  const mode = val("keySource");
+  const STEPS: SignStep[] = [
+    { key: "manifest", label: "Формування даних для підпису (манІфест)" },
+    { key: "key", label: mode === "token"
+      ? "Зчитування ключа з апаратного носія" : "Зчитування особистого ключа" },
+    { key: "sign", label: "Накладання КЕП (ДСТУ 4145)" },
+    { key: "send", label: "Передавання підпису на сервер" },
+    { key: "done", label: "Підпис зафіксовано у черзі" },
+  ];
+  signOverlayStart(STEPS, `Підписання: ${next.full_name}`);
 
-    // отримати з сервера точні байти ASiCManifest поточного підписанта і
-    // підписати саме їх DETACHED-CAdES — так підпис покриває digest документа
-    // за ETSI EN 319 162-1 (інакше «помилка 33»).
+  let stepKey = "manifest";
+  try {
+    // 1) манІфест
+    signStepActive("manifest");
     const mr = await fetch(`${API}/documents/${docId()}/manifest`);
-    if (!mr.ok) { toast("Не вдалося отримати манІфест: " + (await mr.text())); return; }
+    if (!mr.ok) throw new Error("манІфест: " + (await mr.text()));
     const manifest = await mr.text();
+    signStepDone("manifest");
 
     let cmsB64: string;
 
     if (mode === "token") {
       // --- апаратний токен через офіційний iframe-віджет ІІТ ---
-      if (!euWidget) { toast("Віджет ІІТ не ініціалізовано"); return; }
+      if (!euWidget) throw new Error("віджет ІІТ не ініціалізовано");
+      stepKey = "key"; signStepActive("key");
       await euWidget.ReadPrivateKey();
+      signStepDone("key");
+      stepKey = "sign"; signStepActive("sign");
       cmsB64 = await euWidget.SignData(
         manifest, true, true,
         EndUser.SignAlgo.DSTU4145WithGOST34311,
@@ -285,14 +336,17 @@ async function signCurrent(): Promise<void> {
       );
     } else {
       // --- файловий ключ через WASM-збірку EUSign ---
-      if (!euSignFactory) { toast("EUSign не готовий"); return; }
+      if (!euSignFactory) throw new Error("EUSign не готовий");
+      stepKey = "key"; signStepActive("key");
       const password = val("keyPass");
       const caIdx = (el<HTMLSelectElement>("caSelect")).selectedIndex;
       euSignFactory.setCASettings(caIdx < 0 ? -1 : caIdx);
       euSignFactory.pkFilePassword = password;
       euSignFactory.pkFileItemIndex = -1;
       euSignFactory.readPrivateKeyButtonClick();
-      if (!euSignFactory.pkReaded) { toast("Не вдалося прочитати ключ (пароль/файл)"); return; }
+      if (!euSignFactory.pkReaded) throw new Error("не вдалося прочитати ключ (пароль/файл)");
+      signStepDone("key");
+      stepKey = "sign"; signStepActive("sign");
       // ВАЖЛИВО: фабрика ініціалізована з SetCharset("UTF-16LE"); рядок дав би
       // підпис над UTF-16LE, а сервер пакує манІфест як UTF-8 → «помилка 35».
       // Передаємо UTF-8 Uint8Array — підпис покриває саме байти контейнера.
@@ -300,19 +354,30 @@ async function signCurrent(): Promise<void> {
       cmsB64 = euSignFactory.signData(manifestBytes, false, true, "def");
     }
 
-    if (!cmsB64) { toast("Підпис не сформовано"); return; }
+    if (!cmsB64) throw new Error("підпис не сформовано");
+    signStepDone("sign");
 
-    // відправити готову detached-КЕП на сервер (приватний ключ лишився у браузері)
+    // 4) відправити готову detached-КЕП на сервер (приватний ключ лишився у браузері)
+    stepKey = "send"; signStepActive("send");
     await api(`/documents/${docId()}/sign`, "POST", {
       signer_order_index: next.order_index,
       signature_b64: cmsB64,
       signer: next.full_name,
       signer_position: next.position,
     });
+    signStepDone("send");
+
+    signStepActive("done");
+    await sleep(300);
+    signStepDone("done");
+    signOverlayFinish(true);
     toast(`Підписано: ${next.full_name}`);
     refresh();
     reloadDocs();
-  } catch (e) { toast("Помилка підпису: " + errMsg(e)); }
+  } catch (e) {
+    signOverlayFinish(false, stepKey);
+    toast("Помилка підпису: " + errMsg(e));
+  }
 }
 
 // =====================================================================
