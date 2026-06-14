@@ -1,5 +1,6 @@
 """Доменна модель ДСТУ 4163:2020."""
 
+from .approval import Agreement, ApprovalGrant, Visa
 from .content import DocumentContent
 from .document import Document
 from .enums import (
@@ -34,6 +35,9 @@ from .value_objects import (
 __all__ = [
     "Document",
     "DocumentContent",
+    "Agreement",
+    "ApprovalGrant",
+    "Visa",
     "ElectronicSignatureMark",
     "build_signature_qr_payload",
     "QR_PAYLOAD_VERSION",

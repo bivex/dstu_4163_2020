@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ..errors import InvariantViolation
+from .approval import Agreement, ApprovalGrant, Visa
 from .signature import ElectronicSignatureMark
 
 
@@ -24,12 +25,25 @@ class DocumentContent:
     signature_position: str  # посада підписанта
     signature_name: str  # розшифрування підпису (І. ПРІЗВИЩЕ)
     addressees: tuple[str, ...] = field(default_factory=tuple)
+    # Робоча позначка документа (напр. «ПРОЕКТ») — праворуч угорі, над реквізитами.
+    # Не є реквізитом ДСТУ; службова відмітка стадії підготовки документа.
+    marking: str = ""
     # §4.4 реквізит 22 для е-документів: відмітка про КЕП/печатку (Art.18/24).
     # Якщо задано — підпис відтворюється як відмітка по ключу, а не рукописний.
     e_signature: ElectronicSignatureMark | None = None
     # Кілька підписантів (директор + головний бухгалтер тощо): кожен має власну
     # КЕП-відмітку з QR. Якщо порожньо — береться один e_signature (сумісність).
     e_signatures: tuple[ElectronicSignatureMark, ...] = field(default_factory=tuple)
+    # §4.4 реквізит 21 — гриф затвердження (ЗАТВЕРДЖУЮ/ЗАТВЕРДЖЕНО), праворуч угорі.
+    approval: ApprovalGrant | None = None
+    # §4.4 реквізит 23 — грифи погодження (ПОГОДЖЕНО), зовнішнє, нижче підпису.
+    agreements: tuple[Agreement, ...] = field(default_factory=tuple)
+    # §4.4 реквізит 24 — візи (внутрішнє погодження), нижче підпису/погоджень.
+    visas: tuple[Visa, ...] = field(default_factory=tuple)
+    # Кілька рукописних підписантів (напр. голова + секретар протоколу). Кожен —
+    # пара «посада, розшифрування». Якщо порожньо — береться базова пара
+    # signature_position/signature_name (сумісність).
+    paper_signatures: tuple[tuple[str, str], ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         if not self.org_name.strip():
@@ -45,3 +59,10 @@ class DocumentContent:
         if self.e_signature is not None:
             return (self.e_signature,)
         return ()
+
+    @property
+    def paper_signers(self) -> tuple[tuple[str, str], ...]:
+        """Усі рукописні підписанти: явний перелік або базова пара (сумісність)."""
+        if self.paper_signatures:
+            return self.paper_signatures
+        return ((self.signature_position, self.signature_name),)

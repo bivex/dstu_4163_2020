@@ -240,6 +240,14 @@ class _Layout:
         # а не стовпчиком у правому полі — так вони масштабуються на багатьох
         # підписантів і природно переносяться між сторінками.
 
+        # робоча позначка (напр. «ПРОЕКТ») — праворуч угорі, над реквізитами
+        if self.content.marking.strip():
+            self._line(
+                self.content.marking.upper(),
+                indent_mm=self.doc.left_indents.approval_mm,
+                font=_FONT_BOLD,
+            )
+
         # 04 найменування юридичної особи — центрований, напівжирний, з перенесенням
         self._wrapped(self.content.org_name, align=_ALIGN_CENTER, font=_FONT_BOLD)
 
@@ -256,6 +264,11 @@ class _Layout:
         # 10 дата + 11 реєстраційний індекс
         self._gap()
         self._line(f"{self.content.date_text}    № {self.content.reg_index}")
+
+        # 21 гриф затвердження — праворуч угорі, відступ 100 мм (§7.7)
+        if self.content.approval is not None:
+            self._gap()
+            self._draw_approval_grant(self.content.approval)
 
         # адресати — відступ 90 мм (§7.7), з перенесенням за шириною
         if self.content.addressees:
@@ -289,14 +302,73 @@ class _Layout:
                     self._gap(0.3)  # компактний зазор між відмітками підписантів
                 self._draw_e_signature_mark(mark)
         else:
-            self._line(
-                f"{self.content.signature_position}"
-                f"{' ' * 12}{self.content.signature_name}"
-            )
+            for i, (position, name) in enumerate(self.content.paper_signers):
+                if i:
+                    self._gap(0.6)  # зазор між підписантами (голова/секретар)
+                # посада ліворуч, розшифрування — у фіксованій колонці (§7.7,
+                # відступ 125 мм), щоб імена різних підписантів вирівнювались
+                self._line(position)
+                decode_x = self.left + self.doc.left_indents.signature_decode_mm * mm
+                self.c.setFont(_FONT_REGULAR, self.body_pt)
+                self.c.drawString(decode_x, self.y, name)
+
+        # 23 грифи погодження (ПОГОДЖЕНО) — зовнішнє, нижче підпису, від лівого поля
+        for agreement in self.content.agreements:
+            self._gap(0.8)
+            self._draw_agreement(agreement)
+
+        # 24 візи — внутрішнє погодження, нижче погоджень
+        for visa in self.content.visas:
+            self._gap(0.6)
+            self._draw_visa(visa)
 
         # завершальна сторінка: номер (якщо 2+) + штрихкод пагінації
         self._draw_page_number()
         self._draw_page_barcode()
+
+    def _draw_approval_grant(self, grant) -> None:
+        """Гриф затвердження (реквізит 21) — праворуч угорі, відступ 100 мм (§7.7).
+
+        ЗАТВЕРДЖУЮ (персональна форма): заголовок, посада, розшифрування, дата.
+        ЗАТВЕРДЖЕНО (через документ): заголовок + посилання на документ.
+        """
+        indent = self.doc.left_indents.approval_mm
+        self._line(grant.heading, indent_mm=indent, font=_FONT_BOLD)
+        if grant.is_by_document:
+            for part in grant.document_reference.split("\n"):
+                self._wrapped(part, indent_mm=indent, first_indent_mm=indent)
+            return
+        if grant.position:
+            self._wrapped(grant.position, indent_mm=indent, first_indent_mm=indent)
+        if grant.name:
+            self._line(grant.name, indent_mm=indent)
+        if grant.date:
+            self._line(grant.date, indent_mm=indent)
+
+    def _draw_agreement(self, agreement) -> None:
+        """Гриф погодження (реквізит 23, ПОГОДЖЕНО) — зовнішнє, від лівого поля."""
+        self._line("ПОГОДЖЕНО", font=_FONT_BOLD)
+        if agreement.is_by_document:
+            for part in agreement.document_reference.split("\n"):
+                self._wrapped(part)
+            return
+        if agreement.position:
+            self._wrapped(agreement.position)
+        if agreement.name or agreement.date:
+            decode = agreement.name
+            if agreement.date:
+                decode = f"{decode}{' ' * 8}{agreement.date}".strip()
+            self._line(decode)
+
+    def _draw_visa(self, visa) -> None:
+        """Віза (реквізит 24) — внутрішнє погодження, від лівого поля."""
+        self._wrapped(visa.position)
+        decode = visa.name
+        if visa.date:
+            decode = f"{decode}{' ' * 8}{visa.date}".strip()
+        self._line(decode)
+        if visa.remark:
+            self._wrapped(f"Зауваження: {visa.remark}", size=self.body_pt)
 
     def _draw_e_signature_mark(self, mark) -> None:
         """Відмітка про електронний підпис, побудована за даними сертифіката.

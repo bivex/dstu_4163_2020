@@ -13,7 +13,7 @@ import io
 
 from docx import Document as DocxDocument
 from docx.enum.table import WD_TABLE_ALIGNMENT
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING, WD_TAB_ALIGNMENT
 from docx.oxml.ns import qn
 from docx.shared import Mm, Pt, RGBColor
 
@@ -36,10 +36,12 @@ class DocxDocumentWriter:
         self._enable_page_numbering(doc, document)
 
         self._add_letterhead(doc, document, content)
+        self._add_approval(doc, document, content)
         self._add_addressees(doc, document, content)
         self._add_title(doc, document, content)
         self._add_body(doc, document, content)
         self._add_signature(doc, document, content)
+        self._add_agreements_and_visas(doc, document, content)
 
         if not destination.endswith(".docx"):
             destination = f"{destination}.docx"
@@ -116,6 +118,12 @@ class DocxDocumentWriter:
 
     # --- реквізити бланка ---
     def _add_letterhead(self, doc, document: Document, content: DocumentContent) -> None:
+        # робоча позначка (напр. «ПРОЕКТ») — праворуч угорі, відступ 100 мм
+        if content.marking.strip():
+            mk = doc.add_paragraph()
+            mk.paragraph_format.left_indent = Mm(document.left_indents.approval_mm)
+            mk.add_run(content.marking.upper()).bold = True
+
         org = doc.add_paragraph()
         org.alignment = WD_ALIGN_PARAGRAPH.CENTER
         run = org.add_run(content.org_name)
@@ -132,6 +140,62 @@ class DocxDocumentWriter:
         # 10 дата + 11 реєстраційний індекс — рядок реквізитів
         meta = doc.add_paragraph()
         meta.add_run(f"{content.date_text}    № {content.reg_index}")
+
+    def _add_approval(self, doc, document: Document, content: DocumentContent) -> None:
+        """21 гриф затвердження — праворуч угорі, відступ 100 мм (§7.7)."""
+        grant = content.approval
+        if grant is None:
+            return
+        indent = Mm(document.left_indents.approval_mm)
+
+        def _para(text: str, *, bold: bool = False):
+            p = doc.add_paragraph()
+            p.paragraph_format.left_indent = indent
+            run = p.add_run(text)
+            run.bold = bold
+            return p
+
+        _para(grant.heading, bold=True)
+        if grant.is_by_document:
+            for part in grant.document_reference.split("\n"):
+                _para(part)
+            return
+        if grant.position:
+            _para(grant.position)
+        if grant.name:
+            _para(grant.name)
+        if grant.date:
+            _para(grant.date)
+
+    def _add_agreements_and_visas(
+        self, doc, document: Document, content: DocumentContent
+    ) -> None:
+        """23 грифи погодження (ПОГОДЖЕНО) та 24 візи — нижче підпису, зліва."""
+        for agreement in content.agreements:
+            doc.add_paragraph()
+            p = doc.add_paragraph()
+            p.add_run("ПОГОДЖЕНО").bold = True
+            if agreement.is_by_document:
+                for part in agreement.document_reference.split("\n"):
+                    doc.add_paragraph().add_run(part)
+                continue
+            if agreement.position:
+                doc.add_paragraph().add_run(agreement.position)
+            if agreement.name or agreement.date:
+                decode = agreement.name
+                if agreement.date:
+                    decode = f"{decode}\t\t{agreement.date}".strip()
+                doc.add_paragraph().add_run(decode)
+
+        for visa in content.visas:
+            doc.add_paragraph()
+            doc.add_paragraph().add_run(visa.position)
+            decode = visa.name
+            if visa.date:
+                decode = f"{decode}\t\t{visa.date}".strip()
+            doc.add_paragraph().add_run(decode)
+            if visa.remark:
+                doc.add_paragraph().add_run(f"Зауваження: {visa.remark}")
 
     def _add_addressees(self, doc, document: Document, content: DocumentContent) -> None:
         if not content.addressees:
@@ -170,10 +234,17 @@ class DocxDocumentWriter:
             return
 
         p = doc.add_paragraph()
-        # посада ліворуч, розшифрування — праворуч (спрощена реалізація через tab)
-        p.add_run(content.signature_position)
-        p.add_run("\t\t")
-        p.add_run(content.signature_name)
+        # посада ліворуч, розшифрування — у фіксованій колонці на позиції
+        # відступу розшифрування (§7.7, 125 мм), щоб імена вирівнювались
+        decode_pos = Mm(document.left_indents.signature_decode_mm)
+        for i, (position, name) in enumerate(content.paper_signers):
+            if i:
+                doc.add_paragraph()  # зазор між підписантами (голова/секретар)
+                p = doc.add_paragraph()
+            p.paragraph_format.tab_stops.add_tab_stop(decode_pos, WD_TAB_ALIGNMENT.LEFT)
+            p.add_run(position)
+            p.add_run("\t")
+            p.add_run(name)
 
     # --- §4.4(22) ↔ Закон 2155-VIII: відмітка про КЕП ---
     def _add_e_signature_mark(self, doc, mark) -> None:
