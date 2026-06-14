@@ -3,7 +3,8 @@
   • № 2657-XII «Про інформацію»;
   • № 2297-VI «Про захист персональних даних»;
   • № 2939-VI «Про доступ до публічної інформації»;
-  • № 80/94-ВР «Про захист інформації в інформаційно-комунікаційних системах».
+  • № 80/94-ВР «Про захист інформації в інформаційно-комунікаційних системах»;
+  • № 996-XIV «Про бухгалтерський облік та фінансову звітність в Україні».
 """
 
 from .electronic_documents import (
@@ -82,6 +83,23 @@ from .info_protection import (
     processing_compliant as system_processing_compliant,
     protection_compliant,
 )
+from .accounting import (
+    EnterpriseSize,
+    GroupSize,
+    IfrsObligation,
+    PrimaryDocRequisites,
+    PublisherKind,
+    SizeMetrics,
+    enterprise_size,
+    group_size,
+    ifrs_mandatory,
+    primary_doc_valid,
+    publication_deadline_day,
+    published_in_time,
+    reporting_period_valid,
+    retention_sufficient,
+    web_retention_sufficient,
+)
 
 __all__ = [
     # Закон 851-IV
@@ -153,4 +171,20 @@ __all__ = [
     "cyber_defence_required",
     "system_processing_compliant",
     "protection_compliant",
+    # Закон 996-XIV
+    "EnterpriseSize",
+    "GroupSize",
+    "IfrsObligation",
+    "PrimaryDocRequisites",
+    "PublisherKind",
+    "SizeMetrics",
+    "enterprise_size",
+    "group_size",
+    "ifrs_mandatory",
+    "primary_doc_valid",
+    "publication_deadline_day",
+    "published_in_time",
+    "reporting_period_valid",
+    "retention_sufficient",
+    "web_retention_sufficient",
 ]
