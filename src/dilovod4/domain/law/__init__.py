@@ -1,6 +1,7 @@
 """Обчислювані норми законів України (перенесені з .catala_en специфікацій):
   • № 851-IV «Про електронні документи та електронний документообіг»;
-  • № 2657-XII «Про інформацію».
+  • № 2657-XII «Про інформацію»;
+  • № 2297-VI «Про захист персональних даних».
 """
 
 from .electronic_documents import (
@@ -28,6 +29,27 @@ from .information import (
     statement_subject_to_refutation,
     topic_may_be_restricted,
 )
+from .personal_data import (
+    AccessRequestor,
+    GeneralRequirements,
+    ProcessingBasis,
+    ProcessingContext,
+    PurposeChange,
+    SpecialCategoryException,
+    TransferGround,
+    access_deferral_allowed,
+    access_free,
+    access_fulfilment_within_limit,
+    access_study_within_limit,
+    collection_notice_deadline_working_days,
+    collection_notice_timely,
+    cross_border_transfer_permitted,
+    further_processing_allowed,
+    law_applies,
+    processing_compliant,
+    processing_lawful,
+    special_category_processing_permitted,
+)
 
 __all__ = [
     # Закон 851-IV
@@ -53,4 +75,24 @@ __all__ = [
     "restriction_lawful",
     "statement_subject_to_refutation",
     "topic_may_be_restricted",
+    # Закон 2297-VI
+    "AccessRequestor",
+    "GeneralRequirements",
+    "ProcessingBasis",
+    "ProcessingContext",
+    "PurposeChange",
+    "SpecialCategoryException",
+    "TransferGround",
+    "access_deferral_allowed",
+    "access_free",
+    "access_fulfilment_within_limit",
+    "access_study_within_limit",
+    "collection_notice_deadline_working_days",
+    "collection_notice_timely",
+    "cross_border_transfer_permitted",
+    "further_processing_allowed",
+    "law_applies",
+    "processing_compliant",
+    "processing_lawful",
+    "special_category_processing_permitted",
 ]
