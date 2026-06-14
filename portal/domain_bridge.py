@@ -21,7 +21,6 @@ _SRC = Path(__file__).resolve().parent.parent / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from dilovod4.application.generate_document import GenerateDocument  # noqa: E402
 from dilovod4.application.validate_document import ValidateDocument  # noqa: E402
 from dilovod4.domain.model import (  # noqa: E402
     BlankSpec,
@@ -99,8 +98,16 @@ def _mark_from_dict(d: dict[str, Any]) -> ElectronicSignatureMark:
     )
 
 
-def build_content(payload: dict[str, Any]) -> DocumentContent:
-    """DocumentContent з payload порталу (мінімальний ввід користувача)."""
+def build_content(payload: dict[str, Any], *, with_marks: bool = False) -> DocumentContent:
+    """DocumentContent з payload порталу (мінімальний ввід користувача).
+
+    with_marks=False (за замовч.) — БЕЗ відміток про КЕП: чистий документ для
+    чернетки та для накладання підпису (саме його digest підписується).
+    with_marks=True — з e_signatures (відмітка+QR), будується ПІСЛЯ реального
+    підпису з даних сертифікатів.
+    """
+    e_sigs = tuple(_mark_from_dict(m) for m in payload.get("e_signatures", ())) \
+        if with_marks else ()
     return DocumentContent(
         org_name=str(payload["org_name"]),
         doc_type=str(payload.get("doc_type", "Наказ")),
@@ -110,35 +117,62 @@ def build_content(payload: dict[str, Any]) -> DocumentContent:
         body=tuple(payload.get("body", ())),
         signature_position=str(payload.get("signature_position", "")),
         signature_name=str(payload.get("signature_name", "")),
-        e_signatures=tuple(_mark_from_dict(m) for m in payload.get("e_signatures", ())),
+        e_signatures=e_sigs,
     )
 
 
 def generate(payload: dict[str, Any], fmt: str, dest_path: str) -> dict[str, Any]:
-    """Згенерувати документ + валідація за ДСТУ/НПА. Повертає шлях і звіт."""
+    """Згенерувати ЧИСТИЙ документ (без відміток про КЕП) + валідація.
+
+    Чернетка не містить відміток про підпис — вони з'являються лише після
+    реального накладання КЕП (render_marked). Валідація ж виконується над
+    представленням із запланованими підписами (ст.7 851-IV вимагає підпис
+    для е-оригіналу), тож звіт показує відповідність майбутнього підписаного
+    документа, а сам згенерований файл лишається чистим.
+    """
     is_electronic = bool(payload.get("is_electronic", True))
     doc = _conformant_document(str(payload["doc_id"]), is_electronic)
-    content = build_content(payload)
+    clean_content = build_content(payload, with_marks=False)
 
+    writer = _writer_for(fmt)
+
+    # рендер чистого документа (без e_signatures)
+    path = writer.write(doc, clean_content, dest_path)
+
+    # валідація — над представленням із запланованими КЕП-відмітками
+    validation_content = build_content(payload, with_marks=True)
+    report = ValidateDocument(rule_set=_RULE_SET).execute(doc, validation_content)
+    return {"path": path, "report": _report_to_dict(report)}
+
+
+def render_marked(payload: dict[str, Any], fmt: str, dest_path: str) -> str:
+    """Згенерувати документ З відмітками про КЕП + QR (після реального підпису).
+
+    payload["e_signatures"] має містити реальні дані сертифікатів підписантів
+    (ПІБ, серійник, видавець, чинність, час). Повертає шлях до файлу.
+    """
+    is_electronic = bool(payload.get("is_electronic", True))
+    doc = _conformant_document(str(payload["doc_id"]), is_electronic)
+    marked_content = build_content(payload, with_marks=True)
+    writer = _writer_for(fmt)
+    return writer.write(doc, marked_content, dest_path)
+
+
+def _writer_for(fmt: str):
     if fmt == "pdf":
         from dilovod4.infrastructure.pdf_writer import PdfDocumentWriter
 
-        writer = PdfDocumentWriter()
-    else:
-        from dilovod4.infrastructure.docx_writer import DocxDocumentWriter
+        return PdfDocumentWriter()
+    from dilovod4.infrastructure.docx_writer import DocxDocumentWriter
 
-        writer = DocxDocumentWriter()
-
-    use_case = GenerateDocument(writer=writer, rule_set=_RULE_SET)
-    result = use_case.execute(doc, content, dest_path, validate=True)
-    return {"path": result.path, "report": _report_to_dict(result.report)}
+    return DocxDocumentWriter()
 
 
 def validate(payload: dict[str, Any]) -> dict[str, Any]:
     """Перевірити документ за ДСТУ 4163 + content-aware правилами (ст.7/21)."""
     is_electronic = bool(payload.get("is_electronic", True))
     doc = _conformant_document(str(payload["doc_id"]), is_electronic)
-    content = build_content(payload)
+    content = build_content(payload, with_marks=True)
     report = ValidateDocument(rule_set=_RULE_SET).execute(doc, content)
     return _report_to_dict(report) or {}
 

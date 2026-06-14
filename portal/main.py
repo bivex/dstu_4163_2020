@@ -183,15 +183,19 @@ def generate_document(doc_id: str) -> dict:
 def download_document(doc_id: str) -> Response:
     with SessionLocal() as session:
         doc = _load(session, doc_id)
-        if not doc.rendered:
+        # після підпису віддаємо версію з відмітками про КЕП + QR;
+        # до підпису — чистий згенерований документ
+        body = doc.rendered_marked or doc.rendered
+        if not body:
             raise HTTPException(404, "документ ще не згенеровано")
         media = "application/pdf" if doc.fmt == "pdf" else (
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
+        suffix = "-signed" if doc.rendered_marked else ""
         return Response(
-            content=doc.rendered,
+            content=body,
             media_type=media,
-            headers={"Content-Disposition": f'attachment; filename="{doc_id}.{doc.fmt}"'},
+            headers={"Content-Disposition": f'attachment; filename="{doc_id}{suffix}.{doc.fmt}"'},
         )
 
 
@@ -318,11 +322,48 @@ def sign_document(doc_id: str, payload: dict = Body(...)) -> dict:
             _audit(session, doc, "all_signed")
             # зібрати ASiC-E з документа та всіх КЕП-підписів
             _assemble_asice(session, doc)
+            # побудувати версію з відмітками про КЕП + QR (з реальних даних
+            # сертифікатів) — лише ТЕПЕР, після фактичного підпису
+            _render_marked(session, doc)
         else:
             following.status = SignerStatus.INVITED
 
         session.commit()
         return _doc_to_dict(doc)
+
+
+def _render_marked(session, doc: Document) -> None:
+    """Згенерувати PDF/DOCX з відмітками про КЕП + QR після підпису всіма.
+
+    Відмітки будуються з РЕАЛЬНИХ даних, отриманих від клієнта при /sign
+    (ПІБ, серійник, видавець, час). Чистий doc.rendered лишається недоторканим
+    (саме над його digest накладено КЕП у ASiC-E)."""
+    payload = bridge.content_from_json(doc.content_json)
+    payload["e_signatures"] = [
+        {
+            "signer": s.full_name,
+            "signer_position": s.position,
+            "certificate_serial": s.certificate_serial or "—",
+            "issuer": s.issuer or "—",
+            "timestamp": s.signed_at.isoformat(timespec="seconds") if s.signed_at else "",
+            "status": "Active",
+            "is_qualified": True,
+        }
+        for s in doc.signers
+        if s.status == SignerStatus.SIGNED
+    ]
+    with tempfile.NamedTemporaryFile(suffix=f".{doc.fmt}", delete=False) as tmp:
+        dest = tmp.name
+    try:
+        path = bridge.render_marked(payload, doc.fmt, dest)
+        with open(path, "rb") as fh:
+            doc.rendered_marked = fh.read()
+        _audit(session, doc, "marked_rendered",
+               detail=f"signatures={len(payload['e_signatures'])}")
+    finally:
+        for p in (dest, dest + f".{doc.fmt}"):
+            if os.path.exists(p):
+                os.remove(p)
 
 
 def _assemble_asice(session, doc: Document) -> None:

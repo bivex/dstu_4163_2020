@@ -324,6 +324,35 @@ def test_asice_contains_document_and_signatures(client):
     assert len(sigs) == 2  # дві КЕП-підписи
 
 
+def test_draft_pdf_has_no_marks_signed_has_marks(client):
+    """Чернетка генерується чистою (без відміток про КЕП), а після підпису
+    всіма download віддає версію з відмітками + QR (реальні дані сертифікатів)."""
+    import io
+    from pypdf import PdfReader
+
+    client.post("/documents", json=_doc_payload())
+    client.post("/documents/T-001/generate")
+    # завантаження ДО підпису — чистий PDF без слова "Підписувач"/КЕП-відмітки
+    r0 = client.get("/documents/T-001/download")
+    assert r0.status_code == 200
+    t0 = "".join((p.extract_text() or "") for p in PdfReader(io.BytesIO(r0.content)).pages)
+    assert "Підписувач" not in t0
+
+    client.post("/documents/T-001/submit")
+    client.post("/documents/T-001/sign", json={
+        "signer_order_index": 0, "signature_b64": _fake_cms(),
+        "certificate_serial": "AABBCCDD11", "issuer": "КНЕДП ДПС"})
+    client.post("/documents/T-001/sign", json={
+        "signer_order_index": 1, "signature_b64": _fake_cms(),
+        "certificate_serial": "EE22FF33", "issuer": "КНЕДП monobank"})
+    # завантаження ПІСЛЯ підпису — відмітка з ПІБ підписанта присутня
+    r1 = client.get("/documents/T-001/download")
+    assert r1.status_code == 200
+    assert 'filename="T-001-signed.pdf"' in r1.headers.get("content-disposition", "")
+    t1 = "".join((p.extract_text() or "") for p in PdfReader(io.BytesIO(r1.content)).pages)
+    assert "Підписувач" in t1
+
+
 def test_asice_404_before_signed(client):
     client.post("/documents", json=_doc_payload())
     client.post("/documents/T-001/generate")

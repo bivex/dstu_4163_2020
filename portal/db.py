@@ -74,6 +74,10 @@ class Document(Base):
     content_json: Mapped[str] = mapped_column(Text)
     # згенерований документ (PDF/DOCX) та контейнер з підписами (ASiC-E)
     rendered: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    # версія документа з відмітками про КЕП + QR, побудована ПІСЛЯ реального
+    # підпису з даних сертифікатів (для завантаження людиною). Чистий rendered
+    # лишається недоторканим — саме над його digest накладено КЕП (ASiC-E).
+    rendered_marked: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     asice: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     # звіт відповідності ДСТУ/НПА (JSON) на момент генерації
     conformance_json: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -138,9 +142,19 @@ class AuditEvent(Base):
 
 
 def init_db() -> None:
-    """Створити таблиці (ідемпотентно)."""
+    """Створити таблиці (ідемпотентно) + легка міграція нових колонок."""
     # переконатися, що каталог для SQLite існує
     if DATABASE_URL.startswith("sqlite:///"):
         path = DATABASE_URL.replace("sqlite:///", "", 1)
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     Base.metadata.create_all(engine)
+    # міграція: додати колонки, яких немає у наявній таблиці на томі
+    # (create_all не змінює вже створені таблиці)
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    if "documents" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("documents")}
+        if "rendered_marked" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE documents ADD COLUMN rendered_marked BLOB"))
