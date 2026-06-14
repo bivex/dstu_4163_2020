@@ -250,6 +250,52 @@ def test_single_signer_lifecycle(client):
     assert d["status"] == "signed"
 
 
+# --- ASiC-E ---
+def test_asice_assembled_and_downloadable(client):
+    client.post("/documents", json=_doc_payload())
+    client.post("/documents/T-001/generate")
+    client.post("/documents/T-001/submit")
+    client.post("/documents/T-001/sign", json={
+        "signer_order_index": 0, "signature_b64": _b64("kep-cms-director")})
+    d = client.post("/documents/T-001/sign", json={
+        "signer_order_index": 1, "signature_b64": _b64("kep-cms-buh")}).json()
+    assert d["status"] == "signed"
+    assert d["has_asice"] is True
+
+    r = client.get("/documents/T-001/download/asice")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/vnd.etsi.asic-e+zip"
+    # ASiC-E — це ZIP: перші байти PK
+    assert r.content[:2] == b"PK"
+
+
+def test_asice_contains_document_and_signatures(client):
+    import io
+    import zipfile
+
+    client.post("/documents", json=_doc_payload())
+    client.post("/documents/T-001/generate")
+    client.post("/documents/T-001/submit")
+    client.post("/documents/T-001/sign", json={
+        "signer_order_index": 0, "signature_b64": _b64("sig0")})
+    client.post("/documents/T-001/sign", json={
+        "signer_order_index": 1, "signature_b64": _b64("sig1")})
+    r = client.get("/documents/T-001/download/asice")
+    z = zipfile.ZipFile(io.BytesIO(r.content))
+    names = z.namelist()
+    assert "mimetype" in names
+    assert "T-001.pdf" in names  # документ усередині
+    sigs = [n for n in names if n.startswith("META-INF/signature") and n.endswith(".p7s")]
+    assert len(sigs) == 2  # дві КЕП-підписи
+
+
+def test_asice_404_before_signed(client):
+    client.post("/documents", json=_doc_payload())
+    client.post("/documents/T-001/generate")
+    r = client.get("/documents/T-001/download/asice")
+    assert r.status_code == 404
+
+
 def test_list_documents(client):
     client.post("/documents", json=_doc_payload(doc_id="L-1"))
     client.post("/documents", json=_doc_payload(doc_id="L-2"))

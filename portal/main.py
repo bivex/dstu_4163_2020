@@ -189,6 +189,22 @@ def validate_document(doc_id: str) -> dict:
         return bridge.validate(payload)
 
 
+@app.get("/documents/{doc_id}/download/asice")
+def download_asice(doc_id: str) -> Response:
+    """Завантажити ASiC-E контейнер (документ + усі КЕП-підписи)."""
+    with SessionLocal() as session:
+        doc = _load(session, doc_id)
+        if not doc.asice:
+            raise HTTPException(
+                404, "ASiC-E ще не зібрано (документ має бути підписаний усіма)"
+            )
+        return Response(
+            content=doc.asice,
+            media_type="application/vnd.etsi.asic-e+zip",
+            headers={"Content-Disposition": f'attachment; filename="{doc_id}.asice"'},
+        )
+
+
 @app.post("/documents/{doc_id}/submit")
 def submit_for_signing(doc_id: str) -> dict:
     """Перевести чернетку у чергу підписання: перший підписант → INVITED."""
@@ -242,11 +258,36 @@ def sign_document(doc_id: str, payload: dict = Body(...)) -> dict:
         if following is None:
             doc.status = DocStatus.SIGNED
             _audit(session, doc, "all_signed")
+            # зібрати ASiC-E з документа та всіх КЕП-підписів
+            _assemble_asice(session, doc)
         else:
             following.status = SignerStatus.INVITED
 
         session.commit()
         return _doc_to_dict(doc)
+
+
+def _assemble_asice(session, doc: Document) -> None:
+    """Зібрати ASiC-E контейнер після підпису всіма; зберегти у doc.asice."""
+    if not doc.rendered:
+        return  # документ ще не згенеровано — нема що пакувати
+    sigs = [
+        (s.full_name, s.signature)
+        for s in doc.signers
+        if s.status == SignerStatus.SIGNED and s.signature
+    ]
+    if not sigs:
+        return
+    with tempfile.NamedTemporaryFile(suffix=".asice", delete=False) as tmp:
+        dest = tmp.name
+    try:
+        bridge.build_asice(doc.doc_id, doc.fmt, doc.rendered, sigs, dest)
+        with open(dest, "rb") as fh:
+            doc.asice = fh.read()
+        _audit(session, doc, "asice_built", detail=f"signatures={len(sigs)}")
+    finally:
+        if os.path.exists(dest):
+            os.remove(dest)
 
 
 @app.post("/documents/{doc_id}/reject")
@@ -305,6 +346,7 @@ def _doc_to_dict(doc: Document, brief: bool = False) -> dict:
             for s in doc.signers
         ],
         "has_rendered": doc.rendered is not None,
+        "has_asice": doc.asice is not None,
     }
     if not brief:
         import json as _json

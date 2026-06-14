@@ -115,8 +115,13 @@ window.refresh = async () => {
     const d = await api(`/documents/${docId()}`);
     renderSigners(d); renderReport(d.conformance);
     document.getElementById("docStatus").textContent = "статус: " + d.status;
+    document.getElementById("asiceBtn").disabled = !d.has_asice;
   } catch (e) { document.getElementById("signerList").innerHTML =
       `<span class="muted">${e.message}</span>`; }
+};
+
+window.downloadAsice = () => {
+  window.open(`${API}/documents/${docId()}/download/asice`, "_blank");
 };
 
 function renderSigners(d) {

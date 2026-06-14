@@ -171,3 +171,23 @@ def content_to_json(payload: dict[str, Any]) -> str:
 
 def content_from_json(s: str) -> dict[str, Any]:
     return json.loads(s)
+
+
+def build_asice(
+    doc_id: str, fmt: str, rendered: bytes, signatures: list[tuple[str, bytes]], dest_path: str
+) -> str:
+    """Зібрати ASiC-E контейнер: документ + КЕП-підписи підписантів.
+
+    signatures — [(label, cms_bytes), ...] у порядку черги.
+
+    ОБМЕЖЕННЯ (скелет): фронт EUSign підписує САМІ ДАНІ (internal CAdES), а
+    суворий ASiC-E за ETSI EN 319 162-1 вимагає detached-CAdES НАД МАНІФЕСТОМ.
+    Тут пакуємо отримані підписи як signatureNNN.p7s — контейнер містить усі
+    КЕП і документ, придатний для архіву/передачі, але для суворої ETSI-
+    валідації клієнт має підписувати manifest_for(i, data_files) (TODO продакшн).
+    """
+    from dilovod4.infrastructure.asic import AsicSignature, build_asic_e
+
+    data_files = [(f"{doc_id}.{fmt}", rendered)]
+    sigs = [AsicSignature(cms=cms, label=label) for label, cms in signatures]
+    return build_asic_e(data_files, sigs, dest_path)
