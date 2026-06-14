@@ -223,14 +223,29 @@ class DocxDocumentWriter:
         self._add_qr_image(qr_cell, mark)
 
     def _add_qr_image(self, cell, mark) -> None:
-        """Вставити QR-код 21×21 мм у комірку (кодує дані КЕП за §5.10)."""
+        """Вставити QR-код 21×21 мм у комірку (кодує дані КЕП за §5.10).
+
+        segno за замовчуванням пише 1-бітний PNG; частина рендерерів .docx
+        (LibreOffice, перегляд macOS) показує такий монохром як порожній
+        прямокутник. Тож приводимо до RGB перед вставкою, якщо доступний PIL.
+        """
         import segno  # локальний імпорт: залежність потрібна лише за наявності QR
 
         payload = build_signature_qr_payload(mark)
         qr = segno.make(payload, error="m")
         buf = io.BytesIO()
-        qr.save(buf, kind="png", scale=10, border=0)
+        qr.save(buf, kind="png", scale=10, border=2)
         buf.seek(0)
+
+        try:
+            from PIL import Image  # reportlab тягне Pillow; для docx — необов'язково
+
+            rgb = Image.open(buf).convert("RGB")
+            buf = io.BytesIO()
+            rgb.save(buf, format="PNG")
+            buf.seek(0)
+        except Exception:  # noqa: BLE001 — без PIL вставляємо як є
+            buf.seek(0)
 
         para = cell.paragraphs[0]
         para.alignment = WD_ALIGN_PARAGRAPH.CENTER
