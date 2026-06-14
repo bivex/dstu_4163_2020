@@ -394,6 +394,14 @@ def generate_document(doc_id: str) -> dict:
     """Згенерувати PDF/DOCX + валідація за ДСТУ/НПА; зберегти у БД."""
     with SessionLocal() as session:
         doc = _load(session, doc_id)
+        # Скан-копія — це вже готовий електронний оригінал (завантажений файл).
+        # Генерація з полів форми його б перезаписала — забороняємо.
+        if doc.is_scanned:
+            raise HTTPException(
+                409,
+                "документ є скан-копією — генерація з полів недоступна "
+                "(оригіналом є завантажений скан, його лишень підписують)",
+            )
         payload = bridge.content_from_json(doc.content_json)
         # валідація обовʼязкових полів перед генерацією
         if not payload.get("body"):

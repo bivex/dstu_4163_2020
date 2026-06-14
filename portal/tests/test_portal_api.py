@@ -774,6 +774,18 @@ def test_scan_pdf_passthrough(client):
     assert r.json()["is_scanned"] is True
 
 
+def test_scan_generate_blocked(client):
+    """Генерація з полів для скану заборонена (409) — не перезаписує оригінал."""
+    files = {"file": ("scan.png", _png_bytes(), "image/png")}
+    data = {"doc_id": "SCAN-NOGEN", "title": "Скан", "signers": "П. | Дир"}
+    client.post("/documents/scan", files=files, data=data)
+    r = client.post("/documents/SCAN-NOGEN/generate")
+    assert r.status_code == 409
+    # оригінал-скан лишився недоторканим
+    pdf = client.get("/documents/SCAN-NOGEN/download")
+    assert pdf.content[:5] == b"%PDF-"
+
+
 def test_scan_rejects_unsupported_type(client):
     """Непідтримуваний тип файлу → 415."""
     files = {"file": ("doc.exe", b"MZ\x00\x00binary", "application/octet-stream")}
