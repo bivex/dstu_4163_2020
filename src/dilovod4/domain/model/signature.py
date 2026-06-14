@@ -29,6 +29,10 @@ class ElectronicSignatureMark:
     status: CertificateStatus = CertificateStatus.ACTIVE  # Art.25
     validity_period_expired: bool = False  # Art.24
     issuer_certificate_valid: bool = True  # Art.24
+    # Посада підписувача — НЕобовʼязковий реквізит сертифіката (Art.23): присутня
+    # лише у сертифікатах із даними про звʼязок особи з юрособою (сертифікат
+    # працівника). Якщо задано — друкується у відмітці; інакше не виводиться.
+    signer_position: str = ""
 
     def __post_init__(self) -> None:
         if not self.signer.strip():

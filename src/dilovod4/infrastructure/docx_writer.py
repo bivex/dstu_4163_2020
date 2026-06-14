@@ -264,6 +264,11 @@ class DocxDocumentWriter:
         lines: list[tuple[str, bool]] = [
             (mark.signature_kind, True),
             (f"Підписувач: {mark.signer}", False),
+        ]
+        # посада — лише якщо присутня у сертифікаті (сертифікат працівника)
+        if mark.signer_position.strip():
+            lines.append((f"Посада: {mark.signer_position}", False))
+        lines += [
             (f"Сертифікат: {mark.certificate_serial}", False),
             (f"Видавець: {mark.issuer}", False),
             (f"Чинний: {mark.valid_from} – {mark.valid_to}", False),

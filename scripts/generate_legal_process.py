@@ -362,6 +362,7 @@ def build_process_document() -> tuple[Document, DocumentContent]:
                 valid_from="01.01.2026", valid_to="01.01.2028",
                 timestamp="28.04.2026 09:15:00 EET",
                 is_qualified=True, status=CertificateStatus.ACTIVE,
+                signer_position="Директор",
             ),
             ElectronicSignatureMark(
                 signer="ТКАЧЕНКО Наталія Сергіївна",
@@ -370,6 +371,7 @@ def build_process_document() -> tuple[Document, DocumentContent]:
                 valid_from="01.01.2026", valid_to="01.01.2028",
                 timestamp="28.04.2026 09:16:30 EET",
                 is_qualified=True, status=CertificateStatus.ACTIVE,
+                signer_position="Головний бухгалтер",
             ),
         ),
         # реквізит 15 — гриф обмеження доступу (ст.21 2657-XII) на частину відомостей

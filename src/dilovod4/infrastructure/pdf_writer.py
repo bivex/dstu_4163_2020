@@ -388,6 +388,11 @@ class _Layout:
         raw_lines = [
             (mark.signature_kind, _FONT_BOLD),
             (f"Підписувач: {mark.signer}", _FONT_REGULAR),
+        ]
+        # посада — лише якщо присутня у сертифікаті (сертифікат працівника)
+        if mark.signer_position.strip():
+            raw_lines.append((f"Посада: {mark.signer_position}", _FONT_REGULAR))
+        raw_lines += [
             (f"Сертифікат: {mark.certificate_serial}", _FONT_REGULAR),
             (f"Видавець: {mark.issuer}", _FONT_REGULAR),
             (f"Чинний: {mark.valid_from} – {mark.valid_to}", _FONT_REGULAR),
