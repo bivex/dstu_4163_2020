@@ -10,3 +10,6 @@
 [submodule "external/SA-SignInfo"]
 	path = external/SA-SignInfo
 	url = https://github.com/kelatev/SA-SignInfo
+[submodule "external/dms-dir"]
+	path = external/dms-dir
+	url = https://github.com/bivex/dms-dir
