@@ -1,0 +1,43 @@
+# Портал підписання документів — оркестрація (self-hosted, ст.8 80/94-ВР)
+#
+# Сервіси:
+#   api  — FastAPI бекенд поверх dilovod4 (генерація/валідація/черга підписів)
+#   (фронт Next.js + EUSign підключається окремо; у dev ходить на api:8000)
+#
+# За замовчуванням БД — SQLite на томі (працює без додаткових драйверів).
+# Для продакшну з конкурентним багатопідписанням розкоментуй сервіс postgres
+# і встанови PORTAL_DATABASE_URL відповідно (+ psycopg у requirements).
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: portal/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - portal_data:/data
+    environment:
+      PORTAL_DATABASE_URL: "sqlite:////data/portal.db"
+      PORTAL_CORS: "*"
+    restart: unless-stopped
+
+  # --- Продакшн-БД (опційно): PostgreSQL замість SQLite ---
+  # postgres:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_DB: portal
+  #     POSTGRES_USER: portal
+  #     POSTGRES_PASSWORD: change_me
+  #   volumes:
+  #     - pg_data:/var/lib/postgresql/data
+  #   restart: unless-stopped
+  #
+  # для api тоді:
+  #   environment:
+  #     PORTAL_DATABASE_URL: "postgresql+psycopg://portal:change_me@postgres:5432/portal"
+  #   depends_on: [postgres]
+
+volumes:
+  portal_data:
+  # pg_data:
