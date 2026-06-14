@@ -257,7 +257,12 @@ window.signCurrent = async () => {
       euSignFactory.pkFileItemIndex = -1;
       euSignFactory.readPrivateKeyButtonClick();
       if (!euSignFactory.pkReaded) { toast("Не вдалося прочитати ключ (пароль/файл)"); return; }
-      cmsB64 = euSignFactory.signData(manifest, false, true, "def");
+      // ВАЖЛИВО: фабрика ініціалізована з SetCharset("UTF-16LE"), тож якщо
+      // передати рядок — підпис ляже над UTF-16LE-байтами, а сервер пакує
+      // манІфест як UTF-8 → «невірний підпис (35)». Передаємо UTF-8 Uint8Array,
+      // щоб підпис покривав саме ті байти, що в контейнері.
+      const manifestBytes = new TextEncoder().encode(manifest); // UTF-8
+      cmsB64 = euSignFactory.signData(manifestBytes, false, true, "def");
     }
 
     if (!cmsB64) { toast("Підпис не сформовано"); return; }
