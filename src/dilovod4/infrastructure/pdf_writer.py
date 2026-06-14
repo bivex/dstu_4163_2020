@@ -69,13 +69,17 @@ class PdfDocumentWriter:
         if self._pagination_barcode:
             # Прохід 1 (у пам'ять): порахувати загальну кількість сторінок, щоб
             # штрихкод ніс «<стор.>/<усього>» для звірки комплектності пачки.
-            counter = canvas.Canvas(io.BytesIO(), pagesize=page_size)
+            counter = canvas.Canvas(io.BytesIO(), pagesize=page_size,
+                                    initialFontName=_FONT_REGULAR)
             probe = _Layout(counter, document, content, page_size)
             probe.render()
             total_pages = probe.page_no
 
         # Фінальна верстка у файл.
-        c = canvas.Canvas(destination, pagesize=page_size)
+        # initialFontName=_FONT_REGULAR: замінює дефолтний Helvetica (невбудований)
+        # на наш TTF, щоб PDF/A-3 §6.2.11.4 не фіксував невбудований шрифт.
+        c = canvas.Canvas(destination, pagesize=page_size,
+                          initialFontName=_FONT_REGULAR)
         layout = _Layout(
             c,
             document,
@@ -178,10 +182,16 @@ class _Layout:
         right_edge = self.page_w - self.right_margin
         avail_w = right_edge - (self.page_w / 2 + 10 * mm)
         bar_w = 0.30 * mm
-        barcode = code128.Code128(value, barHeight=bar_h, barWidth=bar_w)
+        # humanReadable=0: вимикаємо вбудований текст штрихкоду (він використовує
+        # Helvetica, яка не вбудовується → порушення PDF/A-3 §6.2.11.4).
+        # Людиночитний підпис малюється окремо нижче через drawRightString
+        # з зареєстрованим _FONT_REGULAR.
+        barcode = code128.Code128(value, barHeight=bar_h, barWidth=bar_w,
+                                  humanReadable=0)
         while barcode.width > avail_w and bar_w > 0.16 * mm:
             bar_w -= 0.02 * mm
-            barcode = code128.Code128(value, barHeight=bar_h, barWidth=bar_w)
+            barcode = code128.Code128(value, barHeight=bar_h, barWidth=bar_w,
+                                      humanReadable=0)
         x = right_edge - barcode.width
         y = self.page_h - self.top / 2 - bar_h / 2
         barcode.drawOn(self.c, x, y)
