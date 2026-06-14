@@ -9,12 +9,21 @@
 
 from __future__ import annotations
 
+import io
+
 from docx import Document as DocxDocument
+from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.oxml.ns import qn
-from docx.shared import Mm, Pt
+from docx.shared import Mm, Pt, RGBColor
 
 from ..domain.model import Document, DocumentContent
+from ..domain.model.qr_payload import build_signature_qr_payload
+
+# §5.10: QR-код — рівно 21×21 мм.
+_QR_SIDE_MM = 21
+# §7.2: довідкові дані 8–12 pt — беремо мінімум для компактності відмітки.
+_MARK_FONT_PT = 8
 
 
 class DocxDocumentWriter:
@@ -150,8 +159,96 @@ class DocxDocumentWriter:
 
     def _add_signature(self, doc, document: Document, content: DocumentContent) -> None:
         doc.add_paragraph()
+        # підпис (§4.4 реквізит 22):
+        #   е-документ із відміткою КЕП → рамка-відмітка по ключу (Art.18/24)
+        #   з QR-кодом поряд (§5.10);
+        #   інакше → рукописний реквізит «посада + розшифрування».
+        if document.is_electronic and content.signatures:
+            for mark in content.signatures:
+                self._add_e_signature_mark(doc, mark)
+                doc.add_paragraph()
+            return
+
         p = doc.add_paragraph()
         # посада ліворуч, розшифрування — праворуч (спрощена реалізація через tab)
         p.add_run(content.signature_position)
         p.add_run("\t\t")
         p.add_run(content.signature_name)
+
+    # --- §4.4(22) ↔ Закон 2155-VIII: відмітка про КЕП ---
+    def _add_e_signature_mark(self, doc, mark) -> None:
+        """Відмітка про електронний підпис у вигляді рамки з QR поряд.
+
+        Паритет із PdfDocumentWriter: ліворуч — рамка з даними сертифіката
+        (підписувач, серійник, видавець, чинність, позначка часу, статус),
+        праворуч — QR-код 21×21 мм свого підписувача. Реалізовано як таблиця
+        1×2: ліва комірка з рамкою-текстом, права — з картинкою QR.
+        """
+        lines: list[tuple[str, bool]] = [
+            (mark.signature_kind, True),
+            (f"Підписувач: {mark.signer}", False),
+            (f"Сертифікат: {mark.certificate_serial}", False),
+            (f"Видавець: {mark.issuer}", False),
+            (f"Чинний: {mark.valid_from} – {mark.valid_to}", False),
+            (f"Позначка часу: {mark.timestamp}", False),
+        ]
+        if mark.certificate_valid:
+            lines.append(("Статус сертифіката: ЧИННИЙ", True))
+        else:
+            lines.append(("Статус сертифіката: НЕДІЙСНИЙ (ст.24)", True))
+
+        table = doc.add_table(rows=1, cols=2)
+        table.alignment = WD_TABLE_ALIGNMENT.LEFT
+        table.autofit = False
+        mark_cell, qr_cell = table.rows[0].cells
+        # §7.6: ширина реквізиту ≤73–95 мм для рамки-відмітки
+        mark_cell.width = Mm(95)
+        qr_cell.width = Mm(_QR_SIDE_MM + 4)
+
+        # межі лише навколо комірки відмітки (рамка), QR-комірка без меж
+        self._set_cell_border(mark_cell)
+
+        first = True
+        for text, bold in lines:
+            para = mark_cell.paragraphs[0] if first else mark_cell.add_paragraph()
+            first = False
+            para.paragraph_format.line_spacing = 1.0
+            para.paragraph_format.space_after = Pt(0)
+            run = para.add_run(text)
+            run.font.size = Pt(_MARK_FONT_PT)
+            run.bold = bold
+            if not mark.certificate_valid and text.startswith("Статус"):
+                run.font.color.rgb = RGBColor(0xC0, 0x00, 0x00)
+
+        self._add_qr_image(qr_cell, mark)
+
+    def _add_qr_image(self, cell, mark) -> None:
+        """Вставити QR-код 21×21 мм у комірку (кодує дані КЕП за §5.10)."""
+        import segno  # локальний імпорт: залежність потрібна лише за наявності QR
+
+        payload = build_signature_qr_payload(mark)
+        qr = segno.make(payload, error="m")
+        buf = io.BytesIO()
+        qr.save(buf, kind="png", scale=10, border=0)
+        buf.seek(0)
+
+        para = cell.paragraphs[0]
+        para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        para.add_run().add_picture(buf, width=Mm(_QR_SIDE_MM), height=Mm(_QR_SIDE_MM))
+
+    def _set_cell_border(self, cell) -> None:
+        """Намалювати тонку рамку навколо комірки відмітки КЕП."""
+        tc_pr = cell._tc.get_or_add_tcPr()
+        borders = tc_pr.makeelement(qn("w:tcBorders"), {})
+        for edge in ("top", "left", "bottom", "right"):
+            elem = borders.makeelement(
+                qn(f"w:{edge}"),
+                {
+                    qn("w:val"): "single",
+                    qn("w:sz"): "6",  # 6 восьмих пункта ≈ 0.75 pt
+                    qn("w:space"): "0",
+                    qn("w:color"): "000000",
+                },
+            )
+            borders.append(elem)
+        tc_pr.append(borders)
