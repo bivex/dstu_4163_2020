@@ -22,7 +22,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import jwt
-from fastapi import Body, Depends, FastAPI, HTTPException
+from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -83,14 +83,40 @@ app = FastAPI(
 # фронт (Next.js / EUSign) ходить з іншого origin — дозволяємо у dev
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.environ.get("PORTAL_CORS", "*").split(","),
+    allow_origins=os.environ.get("PORTAL_CORS", "http://localhost:3000").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
 
 
 def _audit(session, doc: Document, kind: str, actor: str = "", detail: str = "") -> None:
     session.add(AuditEvent(document_id=doc.id, kind=kind, actor=actor, detail=detail))
+
+
+def _cors_origin(request: Request) -> str:
+    return request.headers.get("origin", "*")
+
+
+@app.exception_handler(Exception)
+async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
+    """Повертає CORS заголовок навіть при 500 — інакше браузер бачить CORS error."""
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc)},
+        headers={"Access-Control-Allow-Origin": _cors_origin(request),
+                 "Access-Control-Allow-Credentials": "true"},
+    )
+
+
+@app.exception_handler(HTTPException)
+async def _http_exc(request: Request, exc: HTTPException) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers={"Access-Control-Allow-Origin": _cors_origin(request),
+                 "Access-Control-Allow-Credentials": "true"},
+    )
 
 
 @app.get("/health")
@@ -132,8 +158,33 @@ def create_document(payload: dict = Body(...)) -> dict:
         raise HTTPException(400, "doc_id обовʼязковий")
 
     with SessionLocal() as session:
-        if session.query(Document).filter_by(doc_id=doc_id).first():
-            raise HTTPException(409, f"документ {doc_id} вже існує")
+        existing = session.query(Document).filter_by(doc_id=doc_id).first()
+        if existing:
+            # upsert: оновлюємо чернетку якщо вона ще не подана у чергу
+            if existing.status != DocStatus.DRAFT:
+                raise HTTPException(
+                    409,
+                    f"документ {doc_id} у статусі «{existing.status.value}» — редагування заборонено",
+                )
+            existing.title = str(payload.get("title", existing.title))
+            existing.fmt = str(payload.get("fmt", existing.fmt))
+            existing.content_json = bridge.content_to_json(payload)
+            # оновлюємо підписантів
+            for s in existing.signers:
+                session.delete(s)
+            session.flush()
+            for s in payload.get("signers", []):
+                existing.signers.append(
+                    Signer(
+                        full_name=str(s.get("full_name", "")),
+                        position=str(s.get("position", "")),
+                        order_index=int(s.get("order_index", 0)),
+                        status=SignerStatus.WAITING,
+                    )
+                )
+            _audit(session, existing, "updated")
+            session.commit()
+            return _doc_to_dict(existing)
 
         retention_years = int(payload.get("retention_years", 5))
         doc = Document(
@@ -212,6 +263,11 @@ def generate_document(doc_id: str) -> dict:
     with SessionLocal() as session:
         doc = _load(session, doc_id)
         payload = bridge.content_from_json(doc.content_json)
+        # валідація обовʼязкових полів перед генерацією
+        if not payload.get("body"):
+            raise HTTPException(400, "текст документа (body) не може бути порожнім")
+        if not payload.get("org_name", "").strip():
+            raise HTTPException(400, "найменування організації (org_name) не може бути порожнім")
         with tempfile.NamedTemporaryFile(suffix=f".{doc.fmt}", delete=False) as tmp:
             dest = tmp.name
         try:
@@ -518,6 +574,7 @@ def _doc_to_dict(doc: Document, brief: bool = False) -> dict:
     if not brief:
         import json as _json
 
+        data["content_json"] = _json.loads(doc.content_json) if doc.content_json else {}
         data["conformance"] = (
             _json.loads(doc.conformance_json) if doc.conformance_json else None
         )
