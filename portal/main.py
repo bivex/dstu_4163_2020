@@ -334,7 +334,21 @@ def _root() -> RedirectResponse:
     return RedirectResponse(url="/web/")
 
 
+@app.get("/favicon.ico")
+def _favicon() -> Response:
+    ico = _EUSIGN_DIR / "favicon.ico"
+    if ico.is_file():
+        return Response(content=ico.read_bytes(), media_type="image/x-icon")
+    return Response(status_code=204)
+
+
 if _EUSIGN_DIR.is_dir():
     app.mount("/eusign", StaticFiles(directory=str(_EUSIGN_DIR)), name="eusign")
+    # EUSign-бібліотека звертається до своїх даних за АБСОЛЮТНИМ шляхом
+    # /signdata/CAs.json та /signdata/CACertificates.p7b (зашито в euscpfactory.js).
+    # Монтуємо signdata ще й під корінь, щоб ці запити не давали 404.
+    _SIGNDATA = _EUSIGN_DIR / "signdata"
+    if _SIGNDATA.is_dir():
+        app.mount("/signdata", StaticFiles(directory=str(_SIGNDATA)), name="signdata")
 if _WEB_DIR.is_dir():
     app.mount("/web", StaticFiles(directory=str(_WEB_DIR), html=True), name="web")
