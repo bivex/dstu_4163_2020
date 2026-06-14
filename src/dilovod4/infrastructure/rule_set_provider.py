@@ -12,7 +12,7 @@ from ..domain.rules import ALL_RULE_CLASSES, ConformanceRule
 
 
 class DefaultRuleSetProvider:
-    """Типовий профіль: усі 13 правил ДСТУ 4163:2020, мінус вимкнені."""
+    """Типовий профіль: усі правила ДСТУ 4163:2020 + ст.7 Закону 851-IV, мінус вимкнені."""
 
     def __init__(self, disabled_rules: Iterable[str] = ()) -> None:
         self._disabled = frozenset(disabled_rules)

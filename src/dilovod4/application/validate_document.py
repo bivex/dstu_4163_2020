@@ -12,7 +12,7 @@ from typing import Callable
 
 from ..domain.conformance import ConformanceChecker, ConformanceReport
 from ..domain.events import DocumentValidated
-from ..domain.model import Document
+from ..domain.model import Document, DocumentContent
 from ..domain.ports import RuleSetProvider
 from .dto import ConformanceReportDTO, FindingDTO, RuleResultDTO
 
@@ -52,12 +52,14 @@ class ValidateDocument:
         self._checker = checker or ConformanceChecker()
         self._publish = event_publisher
 
-    def execute(self, document: Document) -> ConformanceReportDTO:
+    def execute(
+        self, document: Document, content: DocumentContent | None = None
+    ) -> ConformanceReportDTO:
         rules = self._rule_set.rules()
         logger.info(
             "validate_document.start", extra={"doc_id": document.doc_id, "rule_count": len(rules)}
         )
-        report = self._checker.check(document, rules)
+        report = self._checker.check(document, rules, content)
         logger.info(
             "validate_document.done",
             extra={

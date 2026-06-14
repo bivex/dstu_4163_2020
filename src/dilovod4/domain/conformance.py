@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .model import Document
+from .model import Document, DocumentContent
 from .rules import ConformanceRule, Finding, RuleResult
 
 
@@ -38,7 +38,22 @@ class ConformanceChecker:
     """Доменна служба: застосовує правила до документа й збирає звіт."""
 
     def check(
-        self, document: Document, rules: tuple[ConformanceRule, ...]
+        self,
+        document: Document,
+        rules: tuple[ConformanceRule, ...],
+        content: DocumentContent | None = None,
     ) -> ConformanceReport:
-        results = tuple(rule.evaluate(document) for rule in rules)
-        return ConformanceReport(doc_id=document.doc_id, results=results)
+        # Більшість правил перевіряють лише оформлення (Document). Правила, що
+        # позначені requires_content=True (напр. ст.7 Закону 851-IV про
+        # оригінал е-документа), потребують ще й вмісту з КЕП-відмітками —
+        # їм передаємо DocumentContent. Якщо вмісту немає, такі правила
+        # пропускаємо (відсутній предмет перевірки).
+        results: list[RuleResult] = []
+        for rule in rules:
+            if getattr(rule, "requires_content", False):
+                if content is None:
+                    continue
+                results.append(rule.evaluate(document, content))
+            else:
+                results.append(rule.evaluate(document))
+        return ConformanceReport(doc_id=document.doc_id, results=tuple(results))

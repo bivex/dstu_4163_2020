@@ -43,7 +43,7 @@ class GenerateDocument:
     ) -> GenerationResult:
         report_dto: ConformanceReportDTO | None = None
         if validate and self._rule_set is not None:
-            report = self._checker.check(document, self._rule_set.rules())
+            report = self._checker.check(document, self._rule_set.rules(), content)
             report_dto = _to_dto(report)
             logger.info(
                 "generate_document.validated",
