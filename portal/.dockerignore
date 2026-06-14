@@ -6,4 +6,12 @@ tests
 docs
 .venv
 venv
+# фронт: у контейнер іде лише зібраний web/app.js, не TS-джерела/тулінг
+portal/web/src
+portal/web/types
+portal/web/node_modules
+portal/web/package.json
+portal/web/bun.lock
+portal/web/bun.lockb
+portal/web/tsconfig.json
 # не виключаємо external — звідти береться бібліотека EUSign (COPY у Dockerfile)

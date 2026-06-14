@@ -1,0 +1,12 @@
+# build context = корінь репо; виключаємо фронт-тулінг (у образ іде лише
+# зібраний portal/web/app.js, не TS-джерела та node_modules)
+portal/web/src
+portal/web/types
+portal/web/node_modules
+portal/web/tsconfig.json
+portal/web/package.json
+portal/web/bun.lock
+portal/web/bun.lockb
+**/__pycache__
+**/*.pyc
+.git
