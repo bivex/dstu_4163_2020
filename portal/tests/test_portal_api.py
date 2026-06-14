@@ -100,10 +100,20 @@ def test_create_document(client):
     assert d["retention_until"] is not None  # ст.13 851-IV
 
 
-def test_create_duplicate_conflicts(client):
+def test_create_duplicate_upserts_draft(client):
+    """POST на існуючу чернетку — upsert (оновлення), а не 409. Конфлікт 409
+    лише якщо документ уже не draft (поданий/підписаний)."""
     client.post("/documents", json=_doc_payload())
-    r = client.post("/documents", json=_doc_payload())
-    assert r.status_code == 409
+    # повторний POST на draft → upsert (200), оновлює картку
+    p2 = _doc_payload()
+    p2["title"] = "Оновлений заголовок"
+    r = client.post("/documents", json=p2)
+    assert r.status_code == 200
+    assert r.json()["title"] == "Оновлений заголовок"
+    # після submit документ не draft → повторний POST дає 409
+    client.post("/documents/T-001/submit", json={"auto_register": False})
+    r2 = client.post("/documents", json=_doc_payload())
+    assert r2.status_code == 409
 
 
 def test_create_requires_doc_id(client):
@@ -140,10 +150,27 @@ def test_download_before_generate_404(client):
 
 
 def test_validate_endpoint(client):
+    """/validate інжектить реальні КЕП-відмітки з doc.signers (ст.7 851-IV):
+    до підпису е-документ не оригінал (conforms=False через ELECTRONIC_ORIGINAL),
+    після підпису всіма — conforms=True."""
     client.post("/documents", json=_doc_payload())
-    r = client.post("/documents/T-001/validate")
-    assert r.status_code == 200
-    assert r.json()["conforms"] is True
+    # до підпису: не оригінал (відсутній підпис автора)
+    r0 = client.post("/documents/T-001/validate")
+    assert r0.status_code == 200
+    assert r0.json()["conforms"] is False
+    assert any(
+        res["rule_id"] == "ELECTRONIC_ORIGINAL"
+        for res in r0.json()["results"] if not res["conforms"]
+    )
+    # після підпису всіма: оригінал → conforms=True
+    client.post("/documents/T-001/generate")
+    client.post("/documents/T-001/submit", json={"auto_register": False})
+    client.post("/documents/T-001/sign", json={
+        "signer_order_index": 0, "signature_b64": _fake_cms()})
+    client.post("/documents/T-001/sign", json={
+        "signer_order_index": 1, "signature_b64": _fake_cms()})
+    r1 = client.post("/documents/T-001/validate")
+    assert r1.json()["conforms"] is True
 
 
 # --- черга багатопідписання ---
@@ -493,3 +520,151 @@ def test_delete_cascades_signers_and_audit(client):
     client.request("DELETE", "/documents/DEL-2")
     # перестворення з тим самим id успішне → попередні signers/events пішли
     assert client.post("/documents", json=_doc_payload(doc_id="DEL-2")).status_code == 200
+
+
+# --- авто-реєстрація: індекси, дати, журнал ---
+def _auto_payload(doc_id: str, doc_type: str = "Наказ") -> dict:
+    """Payload БЕЗ reg_index/date_text — для перевірки авто-присвоєння."""
+    p = _doc_payload(doc_id=doc_id, signers=1)
+    p["doc_type"] = doc_type
+    p.pop("reg_index", None)
+    p.pop("date_text", None)
+    return p
+
+
+def test_auto_registration_assigns_index_and_date(client):
+    """submit з порожніми полями і auto_register=True присвоює наскрізний
+    індекс із літерним суфіксом типу (наказ → «1-од») і дату реєстрації."""
+    client.post("/documents", json=_auto_payload("AR-1"))
+    d = client.post("/documents/AR-1/submit", json={"auto_register": True}).json()
+    assert d["status"] == "pending_signatures"
+    assert d["reg_index"] == "1-од"
+    assert d["reg_number"] == 1
+    assert d["reg_date"] and "р." in d["reg_date"]
+
+
+def test_auto_registration_sequential_per_type(client):
+    """Наскрізна нумерація в межах типу: накази 1-од, 2-од; лист — окрема 1."""
+    client.post("/documents", json=_auto_payload("AR-N1", "Наказ"))
+    client.post("/documents", json=_auto_payload("AR-N2", "Наказ"))
+    client.post("/documents", json=_auto_payload("AR-L1", "Лист"))
+    n1 = client.post("/documents/AR-N1/submit", json={}).json()
+    n2 = client.post("/documents/AR-N2/submit", json={}).json()
+    l1 = client.post("/documents/AR-L1/submit", json={}).json()
+    assert n1["reg_index"] == "1-од"
+    assert n2["reg_index"] == "2-од"
+    assert l1["reg_index"] == "1"  # лист — окрема послідовність без літери
+
+
+def test_auto_registration_default_when_no_body(client):
+    """auto_register не передано у body → default True, індекс присвоюється."""
+    client.post("/documents", json=_auto_payload("AR-DEF"))
+    d = client.post("/documents/AR-DEF/submit").json()
+    assert d["reg_index"] == "1-од"
+
+
+def test_manual_index_respected(client):
+    """Якщо reg_index заданий вручну — авто його не перетирає (фіксує як є)."""
+    p = _auto_payload("AR-MAN")
+    p["reg_index"] = "АБ-99"
+    p["date_text"] = "01 січня 2026 р."
+    client.post("/documents", json=p)
+    d = client.post("/documents/AR-MAN/submit", json={"auto_register": True}).json()
+    assert d["reg_index"] == "АБ-99"
+    assert d["reg_date"] == "01 січня 2026 р."
+
+
+def test_auto_register_disabled_assigns_nothing(client):
+    """auto_register=False → реєстрація не виконується, індекс лишається None."""
+    client.post("/documents", json=_auto_payload("AR-OFF"))
+    d = client.post("/documents/AR-OFF/submit", json={"auto_register": False}).json()
+    assert d["status"] == "pending_signatures"
+    assert d["reg_index"] is None
+    assert d["reg_date"] is None
+
+
+def test_registration_idempotent_on_status(client):
+    """Повторні запити не змінюють присвоєний номер (submit одноразовий, але
+    реєстраційні поля стабільні після присвоєння)."""
+    client.post("/documents", json=_auto_payload("AR-IDEM"))
+    d1 = client.post("/documents/AR-IDEM/submit", json={}).json()
+    idx = d1["reg_index"]
+    # повторний submit заборонено (вже не draft) → номер не змінюється
+    assert client.post("/documents/AR-IDEM/submit", json={}).status_code == 409
+    d2 = client.get("/documents/AR-IDEM").json()
+    assert d2["reg_index"] == idx
+
+
+def test_generate_fills_draft_date_when_empty(client):
+    """generate до submit (авто-реєстрація): дата проєкту підставляється,
+    щоб документ не був порожнім; офіційний індекс ще не присвоєно."""
+    import io
+
+    from pypdf import PdfReader
+
+    client.post("/documents", json=_auto_payload("AR-GEN"))
+    r = client.post("/documents/AR-GEN/generate")
+    assert r.status_code == 200
+    # індекс ще не присвоєно (реєстрація лише при submit)
+    d = client.get("/documents/AR-GEN").json()
+    assert d["reg_index"] is None
+    # але PDF згенеровано з датою проєкту — не порожній
+    pdf = client.get("/documents/AR-GEN/download")
+    assert pdf.status_code == 200
+    text = "".join((p.extract_text() or "") for p in PdfReader(io.BytesIO(pdf.content)).pages)
+    assert "р." in text  # дата у словесно-цифровому форматі присутня
+
+
+def test_registry_journal(client):
+    """GET /registry повертає зареєстровані документи з індексами, згруповані
+    за типом і відсортовані за номером."""
+    client.post("/documents", json=_auto_payload("RJ-N1", "Наказ"))
+    client.post("/documents", json=_auto_payload("RJ-N2", "Наказ"))
+    client.post("/documents", json=_auto_payload("RJ-L1", "Лист"))
+    client.post("/documents/RJ-N1/submit", json={})
+    client.post("/documents/RJ-N2/submit", json={})
+    client.post("/documents/RJ-L1/submit", json={})
+
+    r = client.get("/registry")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["count"] == 3
+    entries = data["entries"]
+    # накази йдуть за номером
+    nakazy = [e for e in entries if e["doc_type"] == "Наказ"]
+    assert [e["reg_index"] for e in nakazy] == ["1-од", "2-од"]
+    # лист — окремий запис
+    lysty = [e for e in entries if e["doc_type"] == "Лист"]
+    assert len(lysty) == 1 and lysty[0]["reg_index"] == "1"
+
+
+def test_registry_excludes_unregistered(client):
+    """Незареєстровані (auto_register=False або чернетки) не потрапляють у журнал."""
+    client.post("/documents", json=_auto_payload("RJ-OFF"))
+    client.post("/documents/RJ-OFF/submit", json={"auto_register": False})
+    client.post("/documents", json=_auto_payload("RJ-DRAFT"))  # лишається draft
+    r = client.get("/registry").json()
+    ids = {e["doc_id"] for e in r["entries"]}
+    assert "RJ-OFF" not in ids
+    assert "RJ-DRAFT" not in ids
+
+
+# --- registry unit (формат індексу та дати) ---
+def test_registry_index_format_per_type():
+    """Літерні суфікси за типом документа (Типова інструкція ПКМУ № 55/2018)."""
+    from portal import registry
+
+    assert registry._TYPE_SUFFIX["Наказ"] == "-од"
+    assert registry._TYPE_SUFFIX["Розпорядження"] == "-р"
+    assert registry._TYPE_SUFFIX["Лист"] == ""
+
+
+def test_registry_ua_date_format():
+    """Дата у словесно-цифровому форматі ДСТУ: «14 червня 2026 р.»."""
+    import datetime as _dt
+
+    from portal import registry
+
+    assert registry.format_ua_date(_dt.date(2026, 6, 14)) == "14 червня 2026 р."
+    assert registry.format_ua_date(_dt.date(2026, 1, 1)) == "1 січня 2026 р."
+    assert registry.format_ua_date(_dt.date(2026, 12, 31)) == "31 грудня 2026 р."
