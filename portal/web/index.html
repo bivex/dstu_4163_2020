@@ -114,17 +114,30 @@
       <h2>4. Підпис КЕП (на клієнті)</h2>
       <div class="kep">
         <div class="status-line" id="euStatus">Завантаження бібліотеки EUSign…</div>
-        <label>Кваліфікований надавач (КНЕДП)</label>
-        <select id="caSelect"></select>
-        <label>Файл особистого ключа (.dat / .pfx / .jks)</label>
-        <input type="file" id="keyFile">
+        <label>Спосіб зчитування ключа</label>
+        <select id="keySource">
+          <option value="file">Файловий ключ (.dat / .pfx / .jks)</option>
+          <option value="token">Апаратний токен (е.Ключ, Алмаз, ID-картка…)</option>
+        </select>
+        <div id="tokenWrap" style="display:none">
+          <label>Носій (підключений токен)</label>
+          <select id="tokenSelect"></select>
+          <div class="status-line" id="tokenHint"></div>
+        </div>
+        <div id="fileWrap">
+          <label>Кваліфікований надавач (КНЕДП)</label>
+          <select id="caSelect"></select>
+          <label>Файл особистого ключа (.dat / .pfx / .jks)</label>
+          <input type="file" id="keyFile">
+        </div>
         <label>Пароль захисту ключа</label>
         <input type="password" id="keyPass" placeholder="••••••">
         <div class="row" style="margin-top:12px">
           <button id="signBtn" onclick="signCurrent()" disabled>Підписати поточним у черзі</button>
         </div>
         <div class="status-line">Приватний ключ не покидає браузер (Закон 2155-VIII). На сервер
-          передається лише готова КЕП-підпис (CMS/p7s).</div>
+          передається лише готова КЕП-підпис (CMS/p7s). Для апаратних токенів потрібне
+          встановлене «ІІТ Користувач ЦСК».</div>
       </div>
     </section>
   </div>

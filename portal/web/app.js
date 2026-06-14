@@ -7,13 +7,22 @@ const API = "";  // той самий origin, що й статика
 
 // --- EUSign: динамічний імпорт фабрики ---
 let euSignFactory = null;
+let euSignClass = null;      // клас EUSignCP (для feature-detection методів носія)
 let euReady = false;
+let tokenSupported = false;  // чи вміє завантажена бібліотека читати апаратні носії
 
 async function initEUSign() {
   const st = document.getElementById("euStatus");
   try {
     const mod = await import("/eusign/modules/euscpfactory.js");
     euSignFactory = mod.euSignFactory;
+    // Інстанс euSign приватний у фабриці; для feature-detection токенів
+    // перевіряємо прототип класу EUSignCP (експортується з euscpm.js) на
+    // наявність методів роботи з носіями.
+    try {
+      const m = await import("/eusign/modules/euscpm.js");
+      euSignClass = m.EUSignCP || null;
+    } catch (_) { euSignClass = null; }
     euSignFactory.onChangeCAs = renderCAs;
     euSignFactory.onerror = (m) => toast("EUSign: " + m);
     // дочекатися завантаження переліку КНЕДП
@@ -22,7 +31,8 @@ async function initEUSign() {
         clearInterval(wait);
         euReady = true;
         renderCAs();
-        st.textContent = "EUSign готовий. Оберіть КНЕДП, ключ і пароль.";
+        detectTokenSupport();
+        st.textContent = "EUSign готовий. Оберіть спосіб ключа, КНЕДП і пароль.";
         document.getElementById("signBtn").disabled = false;
       }
     }, 400);
@@ -30,9 +40,77 @@ async function initEUSign() {
       const f = e.target.files;
       euSignFactory.setPrivateKeyFile(f.length ? f[0] : null);
     };
+    document.getElementById("keySource").onchange = onKeySourceChange;
   } catch (err) {
     st.textContent = "Не вдалося завантажити EUSign: " + err
       + " — підпис недоступний, решта порталу працює.";
+  }
+}
+
+// Feature-detection: чи має завантажений EUSign методи роботи з носіями.
+// WASM-збірка у репо їх НЕ має (лише файловий ключ) — тоді режим токена
+// чесно позначаємо недоступним і пояснюємо, що потрібне «ІІТ Користувач ЦСК».
+function detectTokenSupport() {
+  // токен-здатна збірка експонує на прототипі EUSignCP методи роботи з носіями
+  // (перелік пристроїв + читання ключа з носія, не лише *Binary з файлу).
+  const proto = euSignClass && euSignClass.prototype;
+  tokenSupported = !!(proto && (
+    typeof proto.EnumKeyMediaDevices === "function" ||
+    typeof proto.GetKeyMediaDevices === "function" ||
+    typeof proto.ReadPrivateKey === "function"  // не Binary — саме читання з носія
+  ));
+}
+
+function onKeySourceChange() {
+  const mode = document.getElementById("keySource").value;
+  const tokenWrap = document.getElementById("tokenWrap");
+  const fileWrap = document.getElementById("fileWrap");
+  if (mode === "token") {
+    fileWrap.style.display = "none";
+    tokenWrap.style.display = "";
+    const hint = document.getElementById("tokenHint");
+    if (!tokenSupported) {
+      hint.innerHTML = '<span style="color:var(--bad)">Апаратні токени недоступні у цій ' +
+        'збірці бібліотеки. Встановіть «ІІТ Користувач ЦСК» (euscpnmh) — тоді портал ' +
+        'бачитиме підключені носії. Поки що скористайтеся файловим ключем.</span>';
+      document.getElementById("tokenSelect").innerHTML = "";
+    } else {
+      enumerateTokens();
+    }
+  } else {
+    tokenWrap.style.display = "none";
+    fileWrap.style.display = "";
+  }
+}
+
+function enumerateTokens() {
+  const sel = document.getElementById("tokenSelect");
+  const hint = document.getElementById("tokenHint");
+  sel.innerHTML = "";
+  // інстанс EUSignCP, що вміє носії, надає токен-здатна збірка (через native
+  // host «ІІТ Користувач ЦСК»). Беремо його з фабрики, якщо доступний.
+  const eu = euSignFactory && (euSignFactory.euSign || euSignFactory.getEUSign &&
+             euSignFactory.getEUSign());
+  if (!eu) {
+    hint.textContent = "Носії недоступні: токен-здатний модуль EUSign не активний.";
+    return;
+  }
+  try {
+    const list = (eu.EnumKeyMediaDevices && eu.EnumKeyMediaDevices()) ||
+                 (eu.GetKeyMediaDevices && eu.GetKeyMediaDevices()) || [];
+    if (!list.length) {
+      hint.textContent = "Підключених носіїв не знайдено. Вставте токен і оновіть сторінку.";
+      return;
+    }
+    list.forEach((dev, i) => {
+      const o = document.createElement("option");
+      o.value = i;
+      o.text = typeof dev === "string" ? dev : (dev.name || `Носій #${i}`);
+      sel.add(o);
+    });
+    hint.textContent = `Знайдено носіїв: ${list.length}.`;
+  } catch (e) {
+    hint.textContent = "Помилка переліку носіїв: " + e;
   }
 }
 
@@ -174,13 +252,35 @@ window.signCurrent = async () => {
   if (!next) { toast("Немає активного підписанта (подайте у чергу)"); return; }
 
   try {
-    // 1) налаштувати ключ та КНЕДП
-    const caIdx = document.getElementById("caSelect").selectedIndex;
-    euSignFactory.setCASettings(caIdx < 0 ? -1 : caIdx);
-    euSignFactory.pkFilePassword = document.getElementById("keyPass").value;
-    euSignFactory.pkFileItemIndex = -1;
-    euSignFactory.readPrivateKeyButtonClick();
-    if (!euSignFactory.pkReaded) { toast("Не вдалося прочитати ключ (пароль/файл)"); return; }
+    const mode = document.getElementById("keySource").value;
+    const password = document.getElementById("keyPass").value;
+
+    // 1) прочитати ключ — з файлу або з апаратного носія
+    if (mode === "token") {
+      if (!tokenSupported) {
+        toast("Апаратні токени недоступні: встановіть «ІІТ Користувач ЦСК»");
+        return;
+      }
+      const eu = euSignFactory && (euSignFactory.euSign || euSignFactory.getEUSign &&
+                 euSignFactory.getEUSign());
+      if (!eu) { toast("Токен-здатний модуль EUSign не активний"); return; }
+      const devIdx = parseInt(document.getElementById("tokenSelect").value, 10);
+      if (isNaN(devIdx)) { toast("Оберіть носій (токен)"); return; }
+      // читання приватного ключа з носія: typeIndex авто (-1), devIndex обраний
+      eu.ReadPrivateKey(eu.MakeKeyMedia
+        ? eu.MakeKeyMedia(-1, devIdx, password)
+        : { typeIndex: -1, devIndex, password });
+      if (!eu.IsPrivateKeyReaded()) {
+        toast("Не вдалося прочитати ключ з токена (пароль/носій)"); return;
+      }
+    } else {
+      const caIdx = document.getElementById("caSelect").selectedIndex;
+      euSignFactory.setCASettings(caIdx < 0 ? -1 : caIdx);
+      euSignFactory.pkFilePassword = password;
+      euSignFactory.pkFileItemIndex = -1;
+      euSignFactory.readPrivateKeyButtonClick();
+      if (!euSignFactory.pkReaded) { toast("Не вдалося прочитати ключ (пароль/файл)"); return; }
+    }
 
     // 2) отримати з сервера точні байти ASiCManifest поточного підписанта
     //    і підписати саме їх DETACHED-CAdES (isInternalSign=false) — так підпис
