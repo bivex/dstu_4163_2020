@@ -353,6 +353,33 @@ def test_draft_pdf_has_no_marks_signed_has_marks(client):
     assert "Підписувач" in t1
 
 
+def test_marked_progressive_after_each_sign(client):
+    """Marked-візуалізація перебудовується після КОЖНОГО підпису: спершу видно
+    лише першого підписанта, після другого — обох у порядку черги."""
+    import io
+    from pypdf import PdfReader
+
+    client.post("/documents", json=_doc_payload())
+    client.post("/documents/T-001/generate")
+    client.post("/documents/T-001/submit")
+    # перший підпис
+    client.post("/documents/T-001/sign", json={
+        "signer_order_index": 0, "signature_b64": _fake_cms()})
+    t1 = "".join((p.extract_text() or "") for p in
+                 PdfReader(io.BytesIO(client.get("/documents/T-001/download").content)).pages)
+    assert t1.count("Підписувач") == 1  # лише перший
+    # другий підпис
+    client.post("/documents/T-001/sign", json={
+        "signer_order_index": 1, "signature_b64": _fake_cms()})
+    t2 = "".join((p.extract_text() or "") for p in
+                 PdfReader(io.BytesIO(client.get("/documents/T-001/download").content)).pages)
+    assert t2.count("Підписувач") == 2  # обидва
+    # порядок: перший підписант іде раніше за другого у тексті
+    p0 = _doc_payload()["signers"][0]["full_name"]
+    p1 = _doc_payload()["signers"][1]["full_name"]
+    assert t2.find(p0) < t2.find(p1)
+
+
 def test_asice_404_before_signed(client):
     client.post("/documents", json=_doc_payload())
     client.post("/documents/T-001/generate")

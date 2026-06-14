@@ -327,24 +327,31 @@ def sign_document(doc_id: str, payload: dict = Body(...)) -> dict:
         if following is None:
             doc.status = DocStatus.SIGNED
             _audit(session, doc, "all_signed")
-            # зібрати ASiC-E з документа та всіх КЕП-підписів
+            # зібрати ASiC-E з документа та всіх КЕП-підписів — лише в кінці
             _assemble_asice(session, doc)
-            # побудувати версію з відмітками про КЕП + QR (з реальних даних
-            # сертифікатів) — лише ТЕПЕР, після фактичного підпису
-            _render_marked(session, doc)
         else:
             following.status = SignerStatus.INVITED
+
+        # прогресивно перебудувати marked-візуалізацію ПІСЛЯ кожного підпису:
+        # накопичено показуємо, хто вже підписав (у порядку черги, з часом).
+        # Оригінал doc.rendered лишається недоторканим — над ним накладено КЕП.
+        _render_marked(session, doc)
 
         session.commit()
         return _doc_to_dict(doc)
 
 
 def _render_marked(session, doc: Document) -> None:
-    """Згенерувати PDF/DOCX з відмітками про КЕП + QR після підпису всіма.
+    """Перебудувати marked-візуалізацію (PDF/DOCX з відмітками про КЕП + QR).
 
-    Відмітки будуються з РЕАЛЬНИХ даних, отриманих від клієнта при /sign
-    (ПІБ, серійник, видавець, час). Чистий doc.rendered лишається недоторканим
-    (саме над його digest накладено КЕП у ASiC-E)."""
+    Викликається ПІСЛЯ КОЖНОГО підпису: накопичено показує тих, хто вже підписав,
+    у порядку черги (signers впорядковані за order_index → перший→останній).
+    Дані відміток — реальні, видобуті з CMS при /sign (ПІБ, серійник, видавець,
+    строк дії, час). Чистий doc.rendered лишається недоторканим — саме над його
+    digest накладено КЕП, які пакуються у ASiC-E.
+
+    Це окреме людино-читане представлення (як у Вчасно/Дія): підписується
+    оригінал, а візуалізація лише відображає стан підписання."""
     payload = bridge.content_from_json(doc.content_json)
     payload["e_signatures"] = [
         {
