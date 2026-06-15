@@ -94,54 +94,64 @@ def get_document_delivery(doc_id: str) -> dict:
 
 def draw_f107_copy(c: canvas.Canvas, y_offset: float, sender: dict, recipient: dict, items: list) -> None:
     # Top info
-    c.setFont(FONT_BOLD, 10)
-    c.drawString(15 * mm, y_offset + 130 * mm, "УКРПОШТА")
     c.setFont(FONT_REGULAR, 7)
-    c.drawRightString(195 * mm, y_offset + 130 * mm, "Форма 107")
+    c.drawRightString(195 * mm, y_offset + 133 * mm, "Ф. 107")
+
+    # Post office line
+    c.setFont(FONT_REGULAR, 8)
+    c.drawString(15 * mm, y_offset + 128 * mm, "__________________________________________________")
+    c.setFont(FONT_REGULAR, 6)
+    c.drawCentredString(65 * mm, y_offset + 125 * mm, "(найменування об’єкта поштового зв’язку)")
 
     # Title
     c.setFont(FONT_BOLD, 12)
-    c.drawCentredString(105 * mm, y_offset + 122 * mm, "ОПИС ВКЛАДЕННЯ")
+    c.drawCentredString(105 * mm, y_offset + 117 * mm, "ОПИС")
     c.setFont(FONT_REGULAR, 8)
-    c.drawCentredString(105 * mm, y_offset + 117 * mm, "до рекомендованого листа з оголошеною цінністю")
+    c.drawString(15 * mm, y_offset + 110 * mm, "вкладення до ____________________________________________________________________")
+    c.setFont(FONT_REGULAR, 6)
+    c.drawCentredString(115 * mm, y_offset + 107 * mm, "(найменування поштового відправлення, номер*)")
 
-    # Recipient details
+    # Recipient
     c.setFont(FONT_REGULAR, 8)
-    c.drawString(15 * mm, y_offset + 108 * mm, "Кому (адресат):")
-    c.setFont(FONT_BOLD, 9)
-    recipient_label = recipient.get("name", "")
-    if recipient.get("code"):
-        recipient_label += f" (код/ІПН: {recipient['code']})"
-    c.drawString(45 * mm, y_offset + 108 * mm, recipient_label)
+    c.drawString(15 * mm, y_offset + 100 * mm, "На ім’я ___________________________________________________________________________")
+    c.setFont(FONT_REGULAR, 6)
+    c.drawCentredString(108 * mm, y_offset + 97 * mm, "(найменування адресата)")
 
+    # Fill Recipient Name if exists
+    if recipient.get("name"):
+        c.setFont(FONT_BOLD, 8)
+        c.drawString(30 * mm, y_offset + 101 * mm, recipient["name"])
+
+    # Address
     c.setFont(FONT_REGULAR, 8)
-    c.drawString(15 * mm, y_offset + 102 * mm, "Куди (адреса):")
-    c.setFont(FONT_REGULAR, 9)
-    c.drawString(45 * mm, y_offset + 102 * mm, recipient.get("address", ""))
+    c.drawString(15 * mm, y_offset + 90 * mm, "Куди _____________________________________________________________________________")
+    c.setFont(FONT_REGULAR, 6)
+    c.drawCentredString(108 * mm, y_offset + 87 * mm, "(поштова адреса)")
+
+    # Fill Address if exists
+    if recipient.get("address"):
+        c.setFont(FONT_REGULAR, 8)
+        c.drawString(27 * mm, y_offset + 91 * mm, recipient["address"])
 
     # Table Grid
-    table_top = y_offset + 94 * mm
+    table_top = y_offset + 80 * mm
     row_h = 7 * mm
-    col_w = [12 * mm, 113 * mm, 20 * mm, 35 * mm]
-    x_positions = [15 * mm, 27 * mm, 140 * mm, 160 * mm, 195 * mm]
+    x_positions = [15 * mm, 27 * mm, 132 * mm, 160 * mm, 195 * mm]
 
     # Draw Headers
-    c.setFillColorRGB(0.95, 0.95, 0.95)
-    c.rect(15 * mm, table_top - row_h, 180 * mm, row_h, fill=1, stroke=1)
-    c.setFillColorRGB(0, 0, 0)
-
+    c.rect(15 * mm, table_top - row_h, 180 * mm, row_h, fill=0, stroke=1)
     c.setFont(FONT_BOLD, 8)
     c.drawCentredString(21 * mm, table_top - 5 * mm, "№ з/п")
-    c.drawString(29 * mm, table_top - 5 * mm, "Найменування предметів")
-    c.drawCentredString(150 * mm, table_top - 5 * mm, "Кількість")
-    c.drawCentredString(177.5 * mm, table_top - 5 * mm, "Цінність (грн)")
+    c.drawCentredString(79.5 * mm, table_top - 5 * mm, "Найменування вкладення")
+    c.drawCentredString(146 * mm, table_top - 5 * mm, "Кількість предметів, аркушів")
+    c.drawCentredString(177.5 * mm, table_top - 5 * mm, "Оголошена цінність")
 
     # Draw Items
     curr_y = table_top - row_h
     total_qty = 0
     total_val = 0.0
 
-    for idx, item in enumerate(items[:6]):  # Max 6 items to fit half page
+    for idx, item in enumerate(items[:6]):  # Max 6 items
         idx_str = str(idx + 1)
         name = item.get("name", "")
         qty = int(item.get("quantity", 1))
@@ -161,17 +171,19 @@ def draw_f107_copy(c: canvas.Canvas, y_offset: float, sender: dict, recipient: d
         if len(name) > 65:
             name = name[:62] + "..."
         c.drawString(29 * mm, curr_y - 5 * mm, name)
-        c.drawCentredString(150 * mm, curr_y - 5 * mm, str(qty))
+        c.drawCentredString(146 * mm, curr_y - 5 * mm, str(qty))
         c.drawCentredString(177.5 * mm, curr_y - 5 * mm, f"{val:.2f}")
 
         curr_y -= row_h
 
     # Total Row
     c.rect(15 * mm, curr_y - row_h, 180 * mm, row_h, stroke=1)
-    c.setFont(FONT_BOLD, 8)
-    c.drawString(29 * mm, curr_y - 5 * mm, "Усього предметів")
-    c.drawCentredString(150 * mm, curr_y - 5 * mm, str(total_qty))
-    c.drawCentredString(177.5 * mm, curr_y - 5 * mm, f"{total_val:.2f}")
+    c.setFont(FONT_BOLD, 7)
+    c.drawString(17 * mm, curr_y - 5 * mm, "Загальний підсумок предметів, аркушів і оголошеної цінності")
+    c.setFont(FONT_REGULAR, 8)
+    c.drawString(135 * mm, curr_y - 5 * mm, f"________________ {total_val:.2f} грн")
+    c.setFont(FONT_REGULAR, 6)
+    c.drawString(135 * mm, curr_y - 6.5 * mm, f" (усього: {total_qty} шт.)")
 
     # Draw vertical grid lines
     for xp in x_positions:
@@ -179,25 +191,36 @@ def draw_f107_copy(c: canvas.Canvas, y_offset: float, sender: dict, recipient: d
 
     curr_y -= row_h
 
-    # Signatures
-    sig_y = curr_y - 12 * mm
+    # Sender & Postal Employee info
+    sig_y = curr_y - 10 * mm
     c.setFont(FONT_REGULAR, 8)
-    c.drawString(15 * mm, sig_y, "Відправник:")
-    c.line(40 * mm, sig_y, 110 * mm, sig_y)
+    c.drawString(15 * mm, sig_y, "Відправник _________________________________________")
     c.setFont(FONT_REGULAR, 6)
-    c.drawCentredString(75 * mm, sig_y - 2 * mm, "(підпис)")
+    c.drawCentredString(177.5 * mm, sig_y - 2 * mm, "(підпис)")
+    if sender.get("name"):
+        c.setFont(FONT_BOLD, 8)
+        c.drawString(32 * mm, sig_y + 1 * mm, sender["name"])
 
     c.setFont(FONT_REGULAR, 8)
-    c.drawString(15 * mm, sig_y - 8 * mm, "Прийняв працівник зв'язку:")
-    c.line(60 * mm, sig_y - 8 * mm, 110 * mm, sig_y - 8 * mm)
+    c.drawString(15 * mm, sig_y - 8 * mm, "Перевірив _________________________________________")
+    c.setFont(FONT_REGULAR, 6)
+    c.drawCentredString(72 * mm, sig_y - 11 * mm, "(прізвище працівника поштового зв’язку)")
 
-    # Stamp box
+    # Bottom notifications
+    c.setFont(FONT_BOLD, 7)
+    c.drawString(15 * mm, sig_y - 16 * mm, "Виправлення не допускаються")
+    
+    c.setFont(FONT_REGULAR, 6)
+    c.drawString(15 * mm, sig_y - 21 * mm, "* номер поштового відправлення зазначається на опису, що видається відправнику")
+
+    # Stamp box (left side, as in typical post stamps)
     stamp_x = 145 * mm
-    stamp_y = curr_y - 25 * mm
-    c.rect(stamp_x, stamp_y, 45 * mm, 20 * mm, stroke=1)
-    c.setFont(FONT_REGULAR, 7)
-    c.drawCentredString(stamp_x + 22.5 * mm, stamp_y + 10 * mm, "Відбиток календарного")
-    c.drawCentredString(stamp_x + 22.5 * mm, stamp_y + 6 * mm, "штемпеля")
+    stamp_y = curr_y - 30 * mm
+    c.rect(stamp_x, stamp_y, 45 * mm, 18 * mm, stroke=1)
+    c.setFont(FONT_REGULAR, 6)
+    c.drawCentredString(stamp_x + 22.5 * mm, stamp_y + 11 * mm, "(відбиток")
+    c.drawCentredString(stamp_x + 22.5 * mm, stamp_y + 7 * mm, "календарного")
+    c.drawCentredString(stamp_x + 22.5 * mm, stamp_y + 3 * mm, "штемпеля)")
 
 
 @router.post("/documents/{doc_id}/delivery/export")
