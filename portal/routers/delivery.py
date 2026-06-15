@@ -151,8 +151,13 @@ def draw_f107_copy(c: canvas.Canvas, y_offset: float, sender: dict, recipient: d
     c.setFont(FONT_BOLD, 8)
     c.drawCentredString(21 * mm, table_top - 5 * mm, "№ з/п")
     c.drawCentredString(79.5 * mm, table_top - 5 * mm, "Найменування вкладення")
-    c.drawCentredString(146 * mm, table_top - 5 * mm, "Кількість предметів, аркушів")
-    c.drawCentredString(177.5 * mm, table_top - 5 * mm, "Оголошена цінність")
+    
+    c.setFont(FONT_BOLD, 7)
+    c.drawCentredString(146 * mm, table_top - 3 * mm, "Кількість")
+    c.drawCentredString(146 * mm, table_top - 6 * mm, "предметів, арк.")
+    
+    c.drawCentredString(177.5 * mm, table_top - 3 * mm, "Оголошена")
+    c.drawCentredString(177.5 * mm, table_top - 6 * mm, "цінність (грн)")
 
     # Draw Items
     curr_y = table_top - row_h
@@ -188,10 +193,9 @@ def draw_f107_copy(c: canvas.Canvas, y_offset: float, sender: dict, recipient: d
     c.rect(15 * mm, curr_y - row_h, 180 * mm, row_h, stroke=1)
     c.setFont(FONT_BOLD, 7)
     c.drawString(17 * mm, curr_y - 5 * mm, "Загальний підсумок предметів, аркушів і оголошеної цінності")
-    c.setFont(FONT_REGULAR, 8)
-    c.drawString(135 * mm, curr_y - 5 * mm, f"________________ {total_val:.2f} грн")
-    c.setFont(FONT_REGULAR, 6)
-    c.drawString(135 * mm, curr_y - 6.5 * mm, f" (усього: {total_qty} шт.)")
+    c.setFont(FONT_BOLD, 8)
+    c.drawCentredString(146 * mm, curr_y - 5 * mm, str(total_qty))
+    c.drawCentredString(177.5 * mm, curr_y - 5 * mm, f"{total_val:.2f}")
 
     # Draw vertical grid lines
     for xp in x_positions:
