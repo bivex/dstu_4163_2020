@@ -70,6 +70,20 @@ def submit_for_approval(doc_id: str, current_user: dict = Depends(_current_user)
         return {"status": doc.status}
 
 
+def _matches_user(a: Approver, current_user: dict) -> bool:
+    """Чи є погоджувач `a` поточним користувачем.
+
+    Спершу за user_id (надійно), з фолбеком на ПІБ для старих записів без user_id.
+    """
+    uid = current_user.get("sub")
+    if a.user_id is not None and uid is not None:
+        try:
+            return a.user_id == int(uid)
+        except (TypeError, ValueError):
+            return False
+    return a.full_name.strip().lower() == current_user.get("name", "").strip().lower()
+
+
 @router.post("/documents/{doc_id}/approval/action")
 def approval_action(
     doc_id: str, payload: ApprovalActionSchema, current_user: dict = Depends(_current_user)
@@ -83,8 +97,7 @@ def approval_action(
         active_approver = None
         for a in doc.approvers:
             if a.status == ApproverStatus.INVITED:
-                # We match by email or name (case-insensitive checks)
-                if a.full_name.strip().lower() == current_user["name"].strip().lower():
+                if _matches_user(a, current_user):
                     active_approver = a
                     break
 
@@ -267,11 +280,10 @@ def get_approval_sheet(doc_id: str, current_user: dict = Depends(_current_user))
 @router.get("/approvals/my")
 def get_my_approvals(current_user: dict = Depends(_current_user)):
     with SessionLocal() as session:
-        username = current_user["name"].strip().lower()
         results = []
         approvers = session.query(Approver).filter_by(status=ApproverStatus.INVITED).all()
         for a in approvers:
-            if a.full_name.strip().lower() != username:
+            if not _matches_user(a, current_user):
                 continue
             doc = session.query(Document).filter_by(id=a.document_id).first()
             if not doc:
@@ -282,6 +294,7 @@ def get_my_approvals(current_user: dict = Depends(_current_user)):
                     "title": doc.title,
                     "status": doc.status.value,
                     "approver_status": a.status.value,
+                    "user_id": a.user_id,
                     "full_name": a.full_name,
                     "position": a.position,
                     "order_index": a.order_index,

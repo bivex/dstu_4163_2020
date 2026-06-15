@@ -16,6 +16,7 @@ def _make_token(user: User) -> str:
         "sub": str(user.id),
         "email": user.email,
         "name": user.name,
+        "position": user.position,
         "exp": dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=_JWT_TTL_HOURS),
     }
     return jwt.encode(payload, _JWT_SECRET, algorithm=_JWT_ALGO)

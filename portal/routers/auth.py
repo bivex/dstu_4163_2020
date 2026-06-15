@@ -14,9 +14,9 @@ def auth_login(payload: dict = Body(...)) -> dict:
         if not user or not user.verify_password(password):
             raise HTTPException(401, "Невірний email або пароль")
         token = _make_token(user)
-        return {"token": token, "user": {"email": user.email, "name": user.name}}
+        return {"token": token, "user": {"email": user.email, "name": user.name, "position": user.position}}
 
 
 @router.get("/auth/me")
 def auth_me(current: dict = Depends(_current_user)) -> dict:
-    return {"email": current["email"], "name": current["name"]}
+    return {"email": current["email"], "name": current["name"], "position": current.get("position", "")}

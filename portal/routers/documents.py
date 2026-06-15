@@ -49,6 +49,7 @@ def create_document(payload: dict = Body(...)) -> dict:
                 existing.approvers.append(
                     Approver(
                         order_index=i,
+                        user_id=int(a["user_id"]) if a.get("user_id") else None,
                         full_name=str(a.get("full_name", "")),
                         position=str(a.get("position", "")),
                         status=ApproverStatus.WAITING
@@ -83,6 +84,7 @@ def create_document(payload: dict = Body(...)) -> dict:
             doc.approvers.append(
                 Approver(
                     order_index=i,
+                    user_id=int(a["user_id"]) if a.get("user_id") else None,
                     full_name=str(a.get("full_name", "")),
                     position=str(a.get("position", "")),
                     status=ApproverStatus.WAITING
@@ -222,6 +224,7 @@ def edit_document(doc_id: str, payload: dict = Body(...)) -> dict:
                 doc.approvers.append(
                     Approver(
                         order_index=i,
+                        user_id=int(a["user_id"]) if a.get("user_id") else None,
                         full_name=str(a.get("full_name", "")),
                         position=str(a.get("position", "")),
                         status=ApproverStatus.WAITING

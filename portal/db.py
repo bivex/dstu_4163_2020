@@ -242,6 +242,7 @@ class Approver(Base):
         ForeignKey("documents.id", ondelete="CASCADE"), index=True
     )
     order_index: Mapped[int] = mapped_column(Integer)
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     full_name: Mapped[str] = mapped_column(String(256))
     position: Mapped[str] = mapped_column(String(256), default="")
     status: Mapped[ApproverStatus] = mapped_column(
@@ -314,6 +315,7 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     email: Mapped[str] = mapped_column(String(256), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(256), default="")
+    position: Mapped[str] = mapped_column(String(256), default="")
     password_hash: Mapped[str] = mapped_column(String(128))
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
@@ -407,6 +409,18 @@ def init_db() -> None:
                 conn.execute(text("ALTER TABLE signers ADD COLUMN valid_from VARCHAR(64)"))
             if "valid_to" not in scols:
                 conn.execute(text("ALTER TABLE signers ADD COLUMN valid_to VARCHAR(64)"))
+    # users: посаду користувача (для вибору погоджувачів із реальних юзерів системи)
+    if "users" in insp.get_table_names():
+        ucols = {c["name"] for c in insp.get_columns("users")}
+        with engine.begin() as conn:
+            if "position" not in ucols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN position VARCHAR(256) DEFAULT ''"))
+    # approvers: зв'язок погоджувача з користувачем системи (user_id)
+    if "approvers" in insp.get_table_names():
+        acols = {c["name"] for c in insp.get_columns("approvers")}
+        with engine.begin() as conn:
+            if "user_id" not in acols:
+                conn.execute(text("ALTER TABLE approvers ADD COLUMN user_id INTEGER"))
     # сіємо дефолтного адміна якщо таблиця users порожня
     _seed_default_admin()
     # сіємо дефолтних контрагентів
@@ -452,6 +466,7 @@ def _seed_default_admin() -> None:
         user = User(
             email=default_email,
             name="Адміністратор",
+            position="Адміністратор",
             password_hash=User.hash_password(default_pass),
         )
         session.add(user)

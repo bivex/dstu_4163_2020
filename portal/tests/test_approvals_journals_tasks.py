@@ -23,9 +23,9 @@ _JWT_SECRET = "dilovod-dev-secret-change-in-prod"
 _JWT_ALGO = "HS256"
 
 
-def _make_token(name: str = "Адміністратор", email: str = "admin@dilovod.local") -> str:
+def _make_token(name: str = "Адміністратор", email: str = "admin@dilovod.local", sub: str = "1") -> str:
     payload = {
-        "sub": "1",
+        "sub": sub,
         "email": email,
         "name": name,
         "exp": __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
@@ -34,8 +34,8 @@ def _make_token(name: str = "Адміністратор", email: str = "admin@di
     return jwt.encode(payload, _JWT_SECRET, algorithm=_JWT_ALGO)
 
 
-def _auth_headers(name: str = "Адміністратор") -> dict:
-    return {"Authorization": f"Bearer {_make_token(name=name)}"}
+def _auth_headers(name: str = "Адміністратор", sub: str = "1") -> dict:
+    return {"Authorization": f"Bearer {_make_token(name=name, sub=sub)}"}
 
 
 def _doc_payload(doc_id: str = "AJ-001", signers: int = 1) -> dict:
@@ -377,6 +377,76 @@ class TestApprovals:
         assert len(data) == 1
         assert data[0]["approver_status"] == "invited"
 
+    def test_my_approvals_matches_by_user_id(self, client):
+        """Погоджувач, прив'язаний через user_id, бачить документ у /approvals/my і може діяти."""
+        import importlib as _il
+        db = _il.import_module("portal.db")
+        with db.SessionLocal() as s:
+            u = db.User(
+                email="jurist@dilovod.local",
+                name="КОВАЛЬЧУК Ірина",
+                position="Юрист",
+                password_hash=db.User.hash_password("x"),
+            )
+            s.add(u)
+            s.commit()
+            s.refresh(u)
+            uid = u.id
+
+        payload = _doc_payload("AP-UID")
+        payload["approvers"] = [
+            {"order_index": 0, "user_id": uid, "full_name": "КОВАЛЬЧУК Ірина", "position": "Юрист"}
+        ]
+        client.post("/documents", json=payload)
+        client.post("/documents/AP-UID/approval/submit", headers=_auth_headers())
+
+        headers = _auth_headers(name="КОВАЛЬЧУК Ірина", sub=str(uid))
+        r = client.get("/approvals/my", headers=headers)
+        assert r.status_code == 200
+        data = r.json()
+        assert len(data) == 1
+        assert data[0]["doc_id"] == "AP-UID"
+        assert data[0]["user_id"] == uid
+
+        # може погодити — action матчить за user_id
+        r2 = client.post(
+            "/documents/AP-UID/approval/action",
+            json={"action": "approve"},
+            headers=headers,
+        )
+        assert r2.status_code == 200
+
+        # після погодження зник із черги (статус != invited)
+        assert client.get("/approvals/my", headers=headers).json() == []
+
+    def test_user_id_takes_precedence_over_name(self, client):
+        """За наявності user_id мач тільки по ньому; ПІБ не впливає."""
+        import importlib as _il
+        db = _il.import_module("portal.db")
+        with db.SessionLocal() as s:
+            u = db.User(
+                email="a@x.local",
+                name="АНДРІЄНКО Олег",
+                position="Бухгалтер",
+                password_hash=db.User.hash_password("x"),
+            )
+            s.add(u)
+            s.commit()
+            s.refresh(u)
+            uid = u.id
+
+        payload = _doc_payload("AP-PRE")
+        payload["approvers"] = [
+            {"order_index": 0, "user_id": uid, "full_name": "ХТОСЬ ЗОВСІМ ІНШИЙ", "position": "x"}
+        ]
+        client.post("/documents", json=payload)
+        client.post("/documents/AP-PRE/approval/submit", headers=_auth_headers())
+
+        # власник user_id бачить документ незважаючи на те, що ПІБ не збігається
+        r = client.get("/approvals/my", headers=_auth_headers(sub=str(uid), name="АНДРІЄНКО Олег"))
+        assert r.status_code == 200
+        assert len(r.json()) == 1
+
 
 # ============================================================
 # RESOLUTIONS
@@ -608,3 +678,24 @@ class TestTasks:
         # ПЕТРОВ все ще активний
         tasks_p = client.get("/tasks/my", headers=_auth_headers("ПЕТРОВ Богдан")).json()
         assert tasks_p[0]["status"] == "pending"
+
+
+# ============================================================
+# USERS
+# ============================================================
+
+
+class TestUsers:
+    def test_list_users_returns_seeded_admin(self, client):
+        r = client.get("/users", headers=_auth_headers())
+        assert r.status_code == 200
+        users = r.json()
+        admin = next((u for u in users if u["email"] == "admin@dilovod.local"), None)
+        assert admin is not None
+        assert admin["position"] == "Адміністратор"
+        for key in ("id", "name", "email", "position"):
+            assert key in admin
+
+    def test_list_users_unauthorized_401(self, client):
+        r = client.get("/users")
+        assert r.status_code == 401
