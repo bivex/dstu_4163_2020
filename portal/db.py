@@ -70,6 +70,11 @@ class Document(Base):
     title: Mapped[str] = mapped_column(String(512))
     status: Mapped[DocStatus] = mapped_column(Enum(DocStatus), default=DocStatus.DRAFT)
     fmt: Mapped[str] = mapped_column(String(8), default="pdf")  # pdf | docx
+    # папка-категорія (організаційне групування, незалежне від статусу/архіву).
+    # NULL — документ поза папками («Без папки»).
+    folder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("folders.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     # JSON DocumentContent + Document params, з яких будується документ
     content_json: Mapped[str] = mapped_column(Text)
     # згенерований документ (PDF/DOCX) та контейнер з підписами (ASiC-E)
@@ -119,6 +124,7 @@ class Document(Base):
     events: Mapped[list["AuditEvent"]] = relationship(
         back_populates="document", cascade="all, delete-orphan", order_by="AuditEvent.created_at"
     )
+    folder: Mapped["Folder | None"] = relationship(back_populates="documents")
 
     @property
     def next_signer(self) -> "Signer | None":
@@ -127,6 +133,25 @@ class Document(Base):
             if s.status in (SignerStatus.INVITED, SignerStatus.WAITING):
                 return s
         return None
+
+
+class Folder(Base):
+    """Папка-категорія для організаційного групування документів.
+
+    Незалежна від workflow-статусу та архіву — суто зручність користувача
+    для розкладання документів по теках. Видалення папки не чіпає документи
+    (folder_id → NULL завдяки ondelete=SET NULL).
+    """
+
+    __tablename__ = "folders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(256))
+    color: Mapped[str | None] = mapped_column(String(32), nullable=True)  # напр. «primary», «#aabbcc»
+    position: Mapped[int] = mapped_column(Integer, default=0)  # порядок у списку
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    documents: Mapped[list["Document"]] = relationship(back_populates="folder")
 
 
 class Signer(Base):
@@ -225,6 +250,8 @@ def init_db() -> None:
                 conn.execute(text("ALTER TABLE documents ADD COLUMN archived_at DATETIME"))
             if "is_scanned" not in cols:
                 conn.execute(text("ALTER TABLE documents ADD COLUMN is_scanned BOOLEAN DEFAULT 0"))
+            if "folder_id" not in cols:
+                conn.execute(text("ALTER TABLE documents ADD COLUMN folder_id INTEGER"))
     if "signers" in insp.get_table_names():
         scols = {c["name"] for c in insp.get_columns("signers")}
         with engine.begin() as conn:

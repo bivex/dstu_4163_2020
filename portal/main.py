@@ -33,6 +33,7 @@ from .db import (
     AuditEvent,
     Document,
     DocStatus,
+    Folder,
     SessionLocal,
     Signer,
     SignerStatus,
@@ -805,6 +806,111 @@ def unarchive_document(doc_id: str) -> dict:
         return _doc_to_dict(doc)
 
 
+# ====================== ПАПКИ-КАТЕГОРІЇ ======================
+def _folder_to_dict(folder: Folder, doc_count: int | None = None) -> dict:
+    return {
+        "id": folder.id,
+        "name": folder.name,
+        "color": folder.color,
+        "position": folder.position,
+        "created_at": folder.created_at.isoformat() if folder.created_at else None,
+        "doc_count": doc_count,
+    }
+
+
+@app.get("/folders")
+def list_folders() -> dict:
+    """Перелік папок із лічильником документів у кожній (без архівних)."""
+    from sqlalchemy import func
+
+    with SessionLocal() as session:
+        folders = session.query(Folder).order_by(Folder.position, Folder.id).all()
+        rows = (
+            session.query(Document.folder_id, func.count(Document.id))
+            .filter(Document.folder_id.isnot(None), Document.archived_at.is_(None))
+            .group_by(Document.folder_id)
+            .all()
+        )
+        counts: dict[int, int] = {fid: cnt for fid, cnt in rows if fid is not None}
+        return {
+            "folders": [_folder_to_dict(f, counts.get(f.id, 0)) for f in folders]
+        }
+
+
+@app.post("/folders")
+def create_folder(payload: dict = Body(...)) -> dict:
+    """Створити папку. payload: { name, color? }"""
+    name = str(payload.get("name", "")).strip()
+    if not name:
+        raise HTTPException(400, "назва папки обовʼязкова")
+    with SessionLocal() as session:
+        max_pos = session.query(Folder).count()
+        folder = Folder(
+            name=name,
+            color=(str(payload["color"]) if payload.get("color") else None),
+            position=max_pos,
+        )
+        session.add(folder)
+        session.commit()
+        return _folder_to_dict(folder, 0)
+
+
+@app.put("/folders/{folder_id}")
+def rename_folder(folder_id: int, payload: dict = Body(...)) -> dict:
+    """Перейменувати папку / змінити колір. payload: { name?, color? }"""
+    with SessionLocal() as session:
+        folder = session.get(Folder, folder_id)
+        if folder is None:
+            raise HTTPException(404, f"папку {folder_id} не знайдено")
+        if "name" in payload:
+            new_name = str(payload["name"]).strip()
+            if not new_name:
+                raise HTTPException(400, "назва папки не може бути порожньою")
+            folder.name = new_name
+        if "color" in payload:
+            folder.color = str(payload["color"]) if payload["color"] else None
+        session.commit()
+        return _folder_to_dict(folder)
+
+
+@app.delete("/folders/{folder_id}")
+def delete_folder(folder_id: int) -> dict:
+    """Видалити папку. Документи не видаляються — їх folder_id → NULL."""
+    with SessionLocal() as session:
+        folder = session.get(Folder, folder_id)
+        if folder is None:
+            raise HTTPException(404, f"папку {folder_id} не знайдено")
+        # відвʼязуємо документи (ondelete=SET NULL спрацьовує не на всіх БД —
+        # робимо це явно для надійності на SQLite)
+        for doc in session.query(Document).filter_by(folder_id=folder_id).all():
+            doc.folder_id = None
+        session.delete(folder)
+        session.commit()
+        return {"deleted": folder_id}
+
+
+@app.post("/documents/{doc_id}/folder")
+def set_document_folder(doc_id: str, payload: dict = Body(...)) -> dict:
+    """Перемістити документ у папку (або прибрати з папки).
+
+    payload: { folder_id: int|null } — null прибирає документ з папки.
+    """
+    with SessionLocal() as session:
+        doc = _load(session, doc_id)
+        folder_id = payload.get("folder_id")
+        if folder_id is None:
+            doc.folder_id = None
+            _audit(session, doc, "folder_cleared")
+        else:
+            folder = session.get(Folder, int(folder_id))
+            if folder is None:
+                raise HTTPException(404, f"папку {folder_id} не знайдено")
+            doc.folder_id = folder.id
+            _audit(session, doc, "folder_set", detail=f"folder={folder.name}")
+        session.commit()
+        return _doc_to_dict(doc)
+
+
 # --- helpers ---
 def _load(session, doc_id: str) -> Document:
     doc = session.query(Document).filter_by(doc_id=doc_id).first()
@@ -842,6 +948,7 @@ def _doc_to_dict(doc: Document, brief: bool = False) -> dict:
         "archived": doc.archived_at is not None,
         "archived_at": doc.archived_at.isoformat() if doc.archived_at else None,
         "is_scanned": bool(doc.is_scanned),
+        "folder_id": doc.folder_id,
     }
     if not brief:
         import json as _json

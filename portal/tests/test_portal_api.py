@@ -843,3 +843,107 @@ def test_scan_unit_normalize():
 
     with _pytest.raises(scan_ingest.ScanError):
         scan_ingest.normalize_to_pdf(b"", "image/png", "x.png")
+
+
+
+# --- папки-категорії ---
+def test_create_folder_auto_position(client):
+    r = client.post("/folders", json={"name": "Фінанси", "color": "primary"})
+    assert r.status_code == 200, r.text
+    f1 = r.json()
+    assert f1["name"] == "Фінанси"
+    assert f1["color"] == "primary"
+    assert f1["position"] == 0
+    assert f1["doc_count"] == 0
+
+    f2 = client.post("/folders", json={"name": "Кадри"}).json()
+    assert f2["position"] == 1  # наступна позиція = кількість наявних папок
+
+
+def test_create_folder_requires_name(client):
+    r = client.post("/folders", json={"name": "   "})
+    assert r.status_code == 400
+
+
+def test_list_folders_with_counts(client):
+    fin = client.post("/folders", json={"name": "Фінанси"}).json()
+    client.post("/documents", json=_doc_payload("FOLD-A"))
+    client.post("/documents", json=_doc_payload("FOLD-B"))
+    client.post("/documents/FOLD-A/folder", json={"folder_id": fin["id"]})
+    client.post("/documents/FOLD-B/folder", json={"folder_id": fin["id"]})
+
+    r = client.get("/folders")
+    assert r.status_code == 200
+    by_name = {f["name"]: f for f in r.json()["folders"]}
+    assert by_name["Фінанси"]["doc_count"] == 2
+
+
+def test_rename_and_recolor_folder(client):
+    f = client.post("/folders", json={"name": "Стара"}).json()
+    r = client.put(f"/folders/{f['id']}", json={"name": "Нова", "color": "warning"})
+    assert r.status_code == 200
+    out = r.json()
+    assert out["name"] == "Нова"
+    assert out["color"] == "warning"
+
+
+def test_rename_folder_rejects_empty(client):
+    f = client.post("/folders", json={"name": "X"}).json()
+    assert client.put(f"/folders/{f['id']}", json={"name": "  "}).status_code == 400
+
+
+def test_move_document_into_and_out_of_folder(client):
+    fin = client.post("/folders", json={"name": "Фінанси"}).json()
+    client.post("/documents", json=_doc_payload("FOLD-M"))
+    # спершу документ поза папками
+    assert client.get("/documents/FOLD-M").json()["folder_id"] is None
+    # переміщуємо у папку
+    moved = client.post("/documents/FOLD-M/folder", json={"folder_id": fin["id"]}).json()
+    assert moved["folder_id"] == fin["id"]
+    assert client.get("/documents/FOLD-M").json()["folder_id"] == fin["id"]
+    # прибираємо з папки (folder_id = null)
+    cleared = client.post("/documents/FOLD-M/folder", json={"folder_id": None}).json()
+    assert cleared["folder_id"] is None
+
+
+def test_move_to_unknown_folder_404(client):
+    client.post("/documents", json=_doc_payload("FOLD-U"))
+    r = client.post("/documents/FOLD-U/folder", json={"folder_id": 999999})
+    assert r.status_code == 404
+
+
+def test_delete_folder_unlinks_documents(client):
+    fin = client.post("/folders", json={"name": "Фінанси"}).json()
+    client.post("/documents", json=_doc_payload("FOLD-D1"))
+    client.post("/documents", json=_doc_payload("FOLD-D2"))
+    client.post("/documents/FOLD-D1/folder", json={"folder_id": fin["id"]})
+    client.post("/documents/FOLD-D2/folder", json={"folder_id": fin["id"]})
+
+    assert client.delete(f"/folders/{fin['id']}").status_code == 200
+    # документи лишились, але розірвані з видаленою папкою
+    assert client.get("/documents/FOLD-D1").json()["folder_id"] is None
+    assert client.get("/documents/FOLD-D2").json()["folder_id"] is None
+    # самої папки більше немає
+    assert all(f["id"] != fin["id"] for f in client.get("/folders").json()["folders"])
+
+
+def test_delete_missing_folder_404(client):
+    assert client.delete("/folders/999999").status_code == 404
+
+
+def test_folder_id_in_documents_list(client):
+    fin = client.post("/folders", json={"name": "Фінанси"}).json()
+    client.post("/documents", json=_doc_payload("FOLD-L"))
+    client.post("/documents/FOLD-L/folder", json={"folder_id": fin["id"]})
+    docs = client.get("/documents").json()["documents"]
+    hit = next(d for d in docs if d["doc_id"] == "FOLD-L")
+    assert hit["folder_id"] == fin["id"]
+
+
+def test_archived_excluded_from_folder_counts(client):
+    fin = client.post("/folders", json={"name": "Фінанси"}).json()
+    client.post("/documents", json=_doc_payload("FOLD-AC"))
+    client.post("/documents/FOLD-AC/folder", json={"folder_id": fin["id"]})
+    client.post("/documents/FOLD-AC/archive")  # архівуємо — не рахується
+    folders = {f["name"]: f for f in client.get("/folders").json()["folders"]}
+    assert folders["Фінанси"]["doc_count"] == 0
