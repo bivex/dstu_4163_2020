@@ -125,12 +125,19 @@ def build_content(payload: dict[str, Any], *, with_marks: bool = False) -> Docum
     """
     e_sigs = tuple(_mark_from_dict(m) for m in payload.get("e_signatures", ())) \
         if with_marks else ()
+    doc_type = str(payload.get("doc_type", "Наказ"))
+    # «Заголовок» — це заголовок до тексту (про що документ), а не вид документа.
+    # Якщо користувач продублював вид у полі заголовка (напр. doc_type=«Заява» і
+    # title=«Заява»), не друкуємо його вдруге — вид уже виводиться як назва документа.
+    title = str(payload.get("title", ""))
+    if title.strip().lower() == doc_type.strip().lower():
+        title = ""
     return DocumentContent(
         org_name=_subject_name(payload),
-        doc_type=str(payload.get("doc_type", "Наказ")),
+        doc_type=doc_type,
         date_text=str(payload.get("date_text", "")),
         reg_index=str(payload.get("reg_index", "")),
-        title=str(payload.get("title", "")),
+        title=title,
         body=tuple(payload.get("body", ())),
         signature_position=str(payload.get("signature_position", "")),
         signature_name=str(payload.get("signature_name", "")),
