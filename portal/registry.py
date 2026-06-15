@@ -89,8 +89,10 @@ def assign_registration(
         if journal:
             number = journal.next_number
             doc.reg_number = number
-            # Форматуємо за шаблоном
+            # Форматуємо за шаблоном. Знак «№» додається на етапі рендеру документа,
+            # тож прибираємо його з шаблону, щоб не виходило «№ № 3-ВИХ» (подвійний номер).
             idx_str = journal.number_template.replace("{number}", str(number)).replace("{prefix}", journal.prefix)
+            idx_str = idx_str.lstrip("№ ").lstrip("№").strip()
             doc.reg_index = idx_str
             doc.reg_date = format_ua_date(when.date())
             journal.next_number += 1

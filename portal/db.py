@@ -402,6 +402,21 @@ def init_db() -> None:
                         text("UPDATE documents SET reg_index = :v WHERE id = :id"),
                         {"v": new_val, "id": row[0]},
                     )
+    # clean up journal templates that have the № prefix baked in (рендер додає № сам,
+    # тож шаблон з «№» давав подвійний номер «№ № 3-ВИХ»)
+    if "journals" in insp.get_table_names():
+        with engine.begin() as conn:
+            jrows = conn.execute(
+                text("SELECT id, number_template FROM journals WHERE number_template LIKE :pat"),
+                {"pat": "№%"},
+            ).fetchall()
+            for jr in jrows:
+                new_tpl = jr[1].lstrip("№ ").lstrip("№").strip()
+                if new_tpl != jr[1]:
+                    conn.execute(
+                        text("UPDATE journals SET number_template = :v WHERE id = :id"),
+                        {"v": new_tpl, "id": jr[0]},
+                    )
     if "signers" in insp.get_table_names():
         scols = {c["name"] for c in insp.get_columns("signers")}
         with engine.begin() as conn:
