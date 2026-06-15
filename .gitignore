@@ -43,3 +43,6 @@ samples/multipage/enakaz_3page.pdf
 /ospcu.ini
 /.euscp_store/
 /portal/web/node_modules
+portal/portal.db
+portal/portal.db.empty-bak
+portal/portal.db.fromvolume
