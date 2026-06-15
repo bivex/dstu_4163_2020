@@ -217,6 +217,19 @@ class User(Base):
             return False
 
 
+class Counterparty(Base):
+    __tablename__ = "counterparties"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(256))
+    code: Mapped[str] = mapped_column(String(64), index=True)
+    subject_type: Mapped[str] = mapped_column(String(32))  # legal | fop | person
+    email: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 def init_db() -> None:
     """Створити таблиці (ідемпотентно) + легка міграція нових колонок."""
     # переконатися, що каталог для SQLite існує
@@ -261,6 +274,8 @@ def init_db() -> None:
                 conn.execute(text("ALTER TABLE signers ADD COLUMN valid_to VARCHAR(64)"))
     # сіємо дефолтного адміна якщо таблиця users порожня
     _seed_default_admin()
+    # сіємо дефолтних контрагентів
+    _seed_default_counterparties()
 
 
 def _seed_default_admin() -> None:
@@ -276,4 +291,37 @@ def _seed_default_admin() -> None:
             password_hash=User.hash_password(default_pass),
         )
         session.add(user)
+        session.commit()
+
+
+def _seed_default_counterparties() -> None:
+    """Створити дефолтних контрагентів якщо таблиця порожня."""
+    with SessionLocal() as session:
+        if session.query(Counterparty).first():
+            return
+        c1 = Counterparty(
+            name='ТОВ "Дія Консалтинг"',
+            code="12345678",
+            subject_type="legal",
+            email="info@diaconsulting.com.ua",
+            phone="+380441112233",
+            address="м. Київ, вул. Хрещатик, 1",
+        )
+        c2 = Counterparty(
+            name='АТ "Укрпошта"',
+            code="21560043",
+            subject_type="legal",
+            email="ukrposhta@ukrposhta.ua",
+            phone="+380442223344",
+            address="м. Київ, вул. Хрещатик, 22",
+        )
+        c3 = Counterparty(
+            name="ФОП Шевченко Тарас Григорович",
+            code="3012345678",
+            subject_type="fop",
+            email="shevchenko@gmail.com",
+            phone="+380998887766",
+            address="м. Канів, вул. Шевченка, 10",
+        )
+        session.add_all([c1, c2, c3])
         session.commit()

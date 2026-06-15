@@ -986,3 +986,67 @@ def test_export_archive(client):
     # 4. Експорт за періодом, де немає документів
     r_empty = client.get("/documents/archive/export?start_date=2020-01-01&end_date=2020-01-02")
     assert r_empty.status_code == 404
+
+
+def test_counterparties_crud(client):
+    # 1. List default seeded counterparties
+    r = client.get("/counterparties")
+    assert r.status_code == 200
+    data = r.json()
+    assert "counterparties" in data
+    assert len(data["counterparties"]) == 3
+    names = {c["name"] for c in data["counterparties"]}
+    assert 'ТОВ "Дія Консалтинг"' in names
+    assert 'АТ "Укрпошта"' in names
+
+    # 2. Create new counterparty
+    payload = {
+        "name": "ТОВ Тест Орг",
+        "code": "87654321",
+        "subject_type": "legal",
+        "email": "test@org.ua",
+        "phone": "+380501112233",
+        "address": "м. Львів, вул. Франка, 5"
+    }
+    r = client.post("/counterparties", json=payload)
+    assert r.status_code == 200
+    c_new = r.json()
+    assert c_new["id"] is not None
+    assert c_new["name"] == "ТОВ Тест Орг"
+    assert c_new["code"] == "87654321"
+    assert c_new["subject_type"] == "legal"
+
+    # Verify lists contains 4 counterparties now
+    r = client.get("/counterparties")
+    assert len(r.json()["counterparties"]) == 4
+
+    # 3. Update counterparty
+    r = client.put(f"/counterparties/{c_new['id']}", json={"name": "ТОВ Оновлена назва", "code": "11111111"})
+    assert r.status_code == 200
+    c_updated = r.json()
+    assert c_updated["name"] == "ТОВ Оновлена назва"
+    assert c_updated["code"] == "11111111"
+
+    # 4. Delete counterparty
+    r = client.delete(f"/counterparties/{c_new['id']}")
+    assert r.status_code == 200
+    assert r.json() == {"deleted": c_new["id"]}
+
+    # Verify lists contains 3 counterparties again
+    r = client.get("/counterparties")
+    assert len(r.json()["counterparties"]) == 3
+
+    # 5. Invalid subject type and validation errors
+    r = client.post("/counterparties", json={"name": "Тест", "code": "123", "subject_type": "invalid"})
+    assert r.status_code == 400
+
+    r = client.post("/counterparties", json={"name": "", "code": "123"})
+    assert r.status_code == 400
+
+    r = client.post("/counterparties", json={"name": "Тест", "code": ""})
+    assert r.status_code == 400
+
+    # 6. Missing counterparty 404
+    assert client.put("/counterparties/999999", json={"name": "Нова"}).status_code == 404
+    assert client.delete("/counterparties/999999").status_code == 404
+
