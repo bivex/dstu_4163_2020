@@ -46,3 +46,4 @@ samples/multipage/enakaz_3page.pdf
 portal/portal.db
 portal/portal.db.empty-bak
 portal/portal.db.fromvolume
+portal/web/pnpm-lock.yaml
