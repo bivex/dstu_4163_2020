@@ -158,7 +158,7 @@ def generate(payload: dict[str, Any], fmt: str, dest_path: str) -> dict[str, Any
     doc = _conformant_document(str(payload["doc_id"]), is_electronic)
     clean_content = build_content(payload, with_marks=False)
 
-    writer = _writer_for(fmt)
+    writer = _writer_for(fmt, pagination_barcode=bool(payload.get("pagination_barcode", False)))
 
     # рендер чистого документа (без e_signatures)
     path = writer.write(doc, clean_content, dest_path)
@@ -193,15 +193,15 @@ def render_marked(payload: dict[str, Any], fmt: str, dest_path: str) -> str:
     is_electronic = bool(payload.get("is_electronic", True))
     doc = _conformant_document(str(payload["doc_id"]), is_electronic)
     marked_content = build_content(payload, with_marks=True)
-    writer = _writer_for(fmt)
+    writer = _writer_for(fmt, pagination_barcode=bool(payload.get("pagination_barcode", False)))
     return writer.write(doc, marked_content, dest_path)
 
 
-def _writer_for(fmt: str):
+def _writer_for(fmt: str, *, pagination_barcode: bool = False):
     if fmt == "pdf":
         from dilovod4.infrastructure.pdf_writer import PdfDocumentWriter
 
-        return PdfDocumentWriter()
+        return PdfDocumentWriter(pagination_barcode=pagination_barcode)
     from dilovod4.infrastructure.docx_writer import DocxDocumentWriter
 
     return DocxDocumentWriter()
