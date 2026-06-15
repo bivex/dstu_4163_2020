@@ -1050,3 +1050,34 @@ def test_counterparties_crud(client):
     assert client.put("/counterparties/999999", json={"name": "Нова"}).status_code == 404
     assert client.delete("/counterparties/999999").status_code == 404
 
+
+def test_delivery_f107_pdf(client):
+    # Create a document first
+    client.post("/documents", json=_doc_payload("DEL-01"))
+    
+    # 1. Get delivery details
+    r = client.get("/documents/DEL-01/delivery")
+    assert r.status_code == 200
+    data = r.json()
+    assert "sender" in data
+    assert "recipient" in data
+    assert "items" in data
+    assert data["sender"]["name"] == "ДЕРЖАВНЕ ПІДПРИЄМСТВО «УКРНДНЦ»"
+    assert "УКРНДНЦ" in data["recipient"]["name"]
+    assert len(data["items"]) == 1
+    assert "Наказ № 050-фін" in data["items"][0]["name"]
+
+    # 2. Export delivery PDF
+    payload = {
+        "sender": data["sender"],
+        "recipient": data["recipient"],
+        "items": data["items"],
+        "generate_f107": True,
+        "generate_label": True
+    }
+    r = client.post("/documents/DEL-01/delivery/export", json=payload)
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/pdf"
+    assert r.content.startswith(b"%PDF")
+
+
