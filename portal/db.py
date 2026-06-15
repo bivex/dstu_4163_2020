@@ -293,6 +293,7 @@ class Task(Base):
         ForeignKey("resolutions.id", ondelete="SET NULL"), nullable=True
     )
     executor: Mapped[str] = mapped_column(String(256))
+    executor_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     description: Mapped[str] = mapped_column(Text)
     due_date: Mapped[str] = mapped_column(String(64))  # напр. "2026-06-25"
     status: Mapped[TaskStatus] = mapped_column(
@@ -436,6 +437,12 @@ def init_db() -> None:
         with engine.begin() as conn:
             if "user_id" not in acols:
                 conn.execute(text("ALTER TABLE approvers ADD COLUMN user_id INTEGER"))
+    # tasks: зв'язок виконавця з користувачем системи (executor_user_id)
+    if "tasks" in insp.get_table_names():
+        tcols = {c["name"] for c in insp.get_columns("tasks")}
+        with engine.begin() as conn:
+            if "executor_user_id" not in tcols:
+                conn.execute(text("ALTER TABLE tasks ADD COLUMN executor_user_id INTEGER"))
     # сіємо дефолтного адміна якщо таблиця users порожня
     _seed_default_admin()
     # сіємо дефолтних контрагентів

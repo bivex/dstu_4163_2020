@@ -10,6 +10,7 @@ class TaskCreateSchema(BaseModel):
     executor: str
     description: str
     due_date: str
+    executor_user_id: int | None = None
 
 class ResolutionCreateSchema(BaseModel):
     text: str
@@ -21,6 +22,7 @@ class TaskSchema(BaseModel):
     description: str
     due_date: str
     status: TaskStatus
+    executor_user_id: int | None = None
 
     class Config:
         from_attributes = True
@@ -60,6 +62,7 @@ def create_resolution(
                 document_id=doc.id,
                 resolution_id=db_resolution.id,
                 executor=task_data.executor,
+                executor_user_id=task_data.executor_user_id,
                 description=task_data.description,
                 due_date=task_data.due_date,
                 status=TaskStatus.PENDING
@@ -87,6 +90,7 @@ def get_resolutions(doc_id: str, current_user: dict = Depends(_current_user)):
                     {
                         "id": t.id,
                         "executor": t.executor,
+                        "executor_user_id": t.executor_user_id,
                         "description": t.description,
                         "due_date": t.due_date,
                         "status": t.status.value
