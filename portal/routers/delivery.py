@@ -28,8 +28,21 @@ except Exception:
 @router.get("/documents/{doc_id}/delivery")
 def get_document_delivery(doc_id: str) -> dict:
     with SessionLocal() as session:
-        doc = _load(session, doc_id)
-        payload = json.loads(doc.content_json) if doc.content_json else {}
+        from portal.db import Document, Counterparty
+        doc = session.query(Document).filter_by(doc_id=doc_id).first()
+        
+        if doc:
+            payload = json.loads(doc.content_json) if doc.content_json else {}
+            doc_title = doc.title or "Документ"
+            doc_type = doc.doc_type or payload.get("doc_type") or "Документ"
+            doc_date = doc.reg_date or payload.get("date_text") or "—"
+            doc_num = doc.reg_index or payload.get("reg_index") or "—"
+        else:
+            payload = {}
+            doc_title = "Документ"
+            doc_type = "Наказ"
+            doc_date = "—"
+            doc_num = "—"
 
         # Default recipient info from document
         recipient_name = payload.get("org_name", "").strip()
@@ -39,7 +52,6 @@ def get_document_delivery(doc_id: str) -> dict:
         recipient_type = payload.get("subject_type", "legal")
 
         # Try to find matching counterparty by name
-        from portal.db import Counterparty
         cp = None
         if recipient_name:
             cp = session.query(Counterparty).filter(Counterparty.name == recipient_name).first()
@@ -60,10 +72,6 @@ def get_document_delivery(doc_id: str) -> dict:
         sender_code = "12345678"
 
         # Default list of items in the envelope (the document itself)
-        doc_title = doc.title or "Документ"
-        doc_type = doc.doc_type or payload.get("doc_type") or "Документ"
-        doc_date = doc.reg_date or payload.get("date_text") or "—"
-        doc_num = doc.reg_index or payload.get("reg_index") or "—"
         item_text = f"{doc_type} № {doc_num} від {doc_date} «{doc_title}»"
 
         items = [
