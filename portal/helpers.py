@@ -39,6 +39,15 @@ def _payload_with_signatures(doc: Document) -> dict:
     return payload
 
 
+def _extract_org_name(doc: Document) -> str:
+    """Найменування організації з content_json (для пошуку за контрагентом у списку)."""
+    try:
+        content = bridge.content_from_json(doc.content_json)
+        return str(content.get("org_name", "") or "")
+    except Exception:
+        return ""
+
+
 def _doc_to_dict(doc: Document, brief: bool = False) -> dict:
     data = {
         "doc_id": doc.doc_id,
@@ -70,6 +79,7 @@ def _doc_to_dict(doc: Document, brief: bool = False) -> dict:
         "is_scanned": bool(doc.is_scanned),
         "folder_id": doc.folder_id,
         "journal_id": doc.journal_id,
+        "org_name": _extract_org_name(doc),
         "approval_type": doc.approval_type.value if hasattr(doc.approval_type, "value") else doc.approval_type,
         "approvers": [
             {
