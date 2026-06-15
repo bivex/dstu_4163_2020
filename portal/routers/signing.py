@@ -11,6 +11,7 @@ from portal.helpers import (
     _regenerate,
     _render_marked,
     _assemble_asice,
+    _auto_register_for_signing,
 )
 
 router = APIRouter(tags=["signing"])
@@ -68,36 +69,7 @@ def submit_for_signing(doc_id: str, payload: dict = Body(default={})) -> dict:
                 "неможливе (підписи вже зібрано або процес триває)",
             )
 
-        from portal import registry
-
-        content = bridge.content_from_json(doc.content_json)
-        doc_type = str(content.get("doc_type", "Документ"))
-        manual_index = str(content.get("reg_index", "")).strip()
-        manual_date = str(content.get("date_text", "")).strip()
-        changed = False
-
-        if auto_register:
-            if not manual_index:
-                registry.assign_registration(session, doc, doc_type)
-                content["reg_index"] = doc.reg_index
-                content["date_text"] = manual_date or doc.reg_date
-                changed = True
-            else:
-                doc.doc_type = doc_type
-                doc.reg_index = manual_index
-                doc.reg_date = manual_date or registry.format_ua_date(
-                    dt.datetime.now(dt.timezone.utc).date()
-                )
-                doc.registered_at = dt.datetime.now(dt.timezone.utc)
-                content["date_text"] = doc.reg_date
-                changed = True
-
-        if changed:
-            doc.content_json = bridge.content_to_json(content)
-            if doc.rendered is not None and not doc.is_scanned:
-                _regenerate(session, doc, content)
-            _audit(session, doc, "registered",
-                   detail=f"reg_index={doc.reg_index} date={doc.reg_date}")
+        _auto_register_for_signing(session, doc, auto_register)
 
         doc.status = DocStatus.PENDING_SIGNATURES
         doc.signers[0].status = SignerStatus.INVITED

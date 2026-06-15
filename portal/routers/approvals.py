@@ -18,7 +18,7 @@ from portal.db import (
     SignerStatus,
 )
 from portal.auth import _current_user
-from portal.helpers import _load, _audit
+from portal.helpers import _load, _audit, _auto_register_for_signing
 
 router = APIRouter(tags=["approvals"])
 
@@ -176,6 +176,10 @@ def _complete_approval(session, doc: Document, actor: str):
 
     # If signers are configured, transition to pending_signatures and invite the first signer
     if doc.signers:
+        # Авто-реєстрація (індекс/дата) — та сама логіка, що й при ручному /submit,
+        # щоб документ не потрапляв у чергу підписання без реєстраційного індексу.
+        _auto_register_for_signing(session, doc, auto_register=True)
+
         doc.status = DocStatus.PENDING_SIGNATURES
         for i, s in enumerate(doc.signers):
             if i == 0:

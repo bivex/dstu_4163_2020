@@ -74,6 +74,7 @@ def _doc_to_dict(doc: Document, brief: bool = False) -> dict:
         "approvers": [
             {
                 "order_index": a.order_index,
+                "user_id": a.user_id,
                 "full_name": a.full_name,
                 "position": a.position,
                 "status": a.status.value if hasattr(a.status, "value") else a.status,
@@ -120,6 +121,45 @@ def _regenerate(session, doc: Document, payload: dict) -> None:
         for p in (dest, dest + f".{doc.fmt}"):
             if os.path.exists(p):
                 os.remove(p)
+
+
+def _auto_register_for_signing(session, doc: Document, auto_register: bool = True) -> None:
+    """Присвоїти реєстраційний індекс/дату й перевести документ у чергу підписання.
+
+    Спільна логіка для ручного /submit та авто-переходу після завершення погодження
+    (_complete_approval). Гарантує, що документ отримує реєстрацію в обох випадках.
+    Викликати лише коли doc.signers непорожній і doc у DRAFT.
+    """
+    from . import registry
+
+    content = bridge.content_from_json(doc.content_json)
+    doc_type = str(content.get("doc_type", "Документ"))
+    manual_index = str(content.get("reg_index", "")).strip()
+    manual_date = str(content.get("date_text", "")).strip()
+    changed = False
+
+    if auto_register:
+        if not manual_index:
+            registry.assign_registration(session, doc, doc_type)
+            content["reg_index"] = doc.reg_index
+            content["date_text"] = manual_date or doc.reg_date
+            changed = True
+        else:
+            doc.doc_type = doc_type
+            doc.reg_index = manual_index
+            doc.reg_date = manual_date or registry.format_ua_date(
+                dt.datetime.now(dt.timezone.utc).date()
+            )
+            doc.registered_at = dt.datetime.now(dt.timezone.utc)
+            content["date_text"] = doc.reg_date
+            changed = True
+
+    if changed:
+        doc.content_json = bridge.content_to_json(content)
+        if doc.rendered is not None and not doc.is_scanned:
+            _regenerate(session, doc, content)
+        _audit(session, doc, "registered",
+               detail=f"reg_index={doc.reg_index} date={doc.reg_date}")
 
 
 def _render_marked(session, doc: Document) -> None:
