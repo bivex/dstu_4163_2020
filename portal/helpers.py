@@ -69,6 +69,19 @@ def _doc_to_dict(doc: Document, brief: bool = False) -> dict:
         "archived_at": doc.archived_at.isoformat() if doc.archived_at else None,
         "is_scanned": bool(doc.is_scanned),
         "folder_id": doc.folder_id,
+        "journal_id": doc.journal_id,
+        "approval_type": doc.approval_type.value if hasattr(doc.approval_type, "value") else doc.approval_type,
+        "approvers": [
+            {
+                "order_index": a.order_index,
+                "full_name": a.full_name,
+                "position": a.position,
+                "status": a.status.value if hasattr(a.status, "value") else a.status,
+                "comment": a.comment,
+                "approved_at": a.approved_at.isoformat() if a.approved_at else None,
+            }
+            for a in doc.approvers
+        ],
     }
     if not brief:
         data["content_json"] = json.loads(doc.content_json) if doc.content_json else {}

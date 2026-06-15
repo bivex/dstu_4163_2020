@@ -50,9 +50,29 @@ class Base(DeclarativeBase):
 
 class DocStatus(str, enum.Enum):
     DRAFT = "draft"  # редагується
+    PENDING_APPROVAL = "pending_approval"  # погодження
     PENDING_SIGNATURES = "pending_signatures"  # очікує підписів у черзі
     SIGNED = "signed"  # усі підписали
     PUBLISHED = "published"  # оприлюднено (ст.14 996-XIV / ст.15 2939-VI)
+
+
+class ApprovalType(str, enum.Enum):
+    SEQUENTIAL = "sequential"
+    PARALLEL = "parallel"
+
+
+class ApproverStatus(str, enum.Enum):
+    WAITING = "waiting"
+    INVITED = "invited"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class TaskStatus(str, enum.Enum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    OVERDUE = "overdue"
 
 
 class SignerStatus(str, enum.Enum):
@@ -68,7 +88,9 @@ class Document(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     doc_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     title: Mapped[str] = mapped_column(String(512))
-    status: Mapped[DocStatus] = mapped_column(Enum(DocStatus), default=DocStatus.DRAFT)
+    status: Mapped[DocStatus] = mapped_column(
+        Enum(DocStatus, native_enum=False), default=DocStatus.DRAFT
+    )
     fmt: Mapped[str] = mapped_column(String(8), default="pdf")  # pdf | docx
     # папка-категорія (організаційне групування, незалежне від статусу/архіву).
     # NULL — документ поза папками («Без папки»).
@@ -105,9 +127,7 @@ class Document(Base):
     # архівування: організаційна позначка (незалежна від workflow-статусу).
     # Архівований документ ховається зі звичайного списку, але не видаляється —
     # лишається доступним у розділі «Архів» та для відновлення.
-    archived_at: Mapped[dt.datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    archived_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[dt.datetime] = mapped_column(
@@ -118,8 +138,22 @@ class Document(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    approval_type: Mapped[str] = mapped_column(String(32), default="sequential")
+    journal_id: Mapped[int | None] = mapped_column(
+        ForeignKey("journals.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
     signers: Mapped[list["Signer"]] = relationship(
         back_populates="document", cascade="all, delete-orphan", order_by="Signer.order_index"
+    )
+    approvers: Mapped[list["Approver"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan", order_by="Approver.order_index"
+    )
+    resolutions: Mapped[list["Resolution"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan"
+    )
+    tasks: Mapped[list["Task"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan"
     )
     events: Mapped[list["AuditEvent"]] = relationship(
         back_populates="document", cascade="all, delete-orphan", order_by="AuditEvent.created_at"
@@ -132,6 +166,14 @@ class Document(Base):
         for s in self.signers:
             if s.status in (SignerStatus.INVITED, SignerStatus.WAITING):
                 return s
+        return None
+
+    @property
+    def next_approver(self) -> "Approver | None":
+        """Наступний у черзі погоджувач (INVITED або перший WAITING)."""
+        for a in self.approvers:
+            if a.status in (ApproverStatus.INVITED, ApproverStatus.WAITING):
+                return a
         return None
 
 
@@ -147,7 +189,9 @@ class Folder(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(256))
-    color: Mapped[str | None] = mapped_column(String(32), nullable=True)  # напр. «primary», «#aabbcc»
+    color: Mapped[str | None] = mapped_column(
+        String(32), nullable=True
+    )  # напр. «primary», «#aabbcc»
     position: Mapped[int] = mapped_column(Integer, default=0)  # порядок у списку
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
@@ -163,7 +207,7 @@ class Signer(Base):
     full_name: Mapped[str] = mapped_column(String(256))  # ПІБ підписувача
     position: Mapped[str] = mapped_column(String(256), default="")  # посада (необовʼязково)
     status: Mapped[SignerStatus] = mapped_column(
-        Enum(SignerStatus), default=SignerStatus.WAITING
+        Enum(SignerStatus, native_enum=False), default=SignerStatus.WAITING
     )
     # дані КЕП-відмітки, видобуті із CMS-підпису після підпису
     certificate_serial: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -188,6 +232,76 @@ class AuditEvent(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     document: Mapped[Document] = relationship(back_populates="events")
+
+
+class Approver(Base):
+    __tablename__ = "approvers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), index=True
+    )
+    order_index: Mapped[int] = mapped_column(Integer)
+    full_name: Mapped[str] = mapped_column(String(256))
+    position: Mapped[str] = mapped_column(String(256), default="")
+    status: Mapped[ApproverStatus] = mapped_column(
+        Enum(ApproverStatus, native_enum=False), default=ApproverStatus.WAITING
+    )
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    approved_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    document: Mapped[Document] = relationship(back_populates="approvers")
+
+
+class Journal(Base):
+    __tablename__ = "journals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(256))
+    prefix: Mapped[str] = mapped_column(String(32))
+    number_template: Mapped[str] = mapped_column(String(128))  # напр. "№ {number}-{prefix}"
+    next_number: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class Resolution(Base):
+    __tablename__ = "resolutions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), index=True
+    )
+    author: Mapped[str] = mapped_column(String(256))
+    text: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    document: Mapped[Document] = relationship(back_populates="resolutions")
+    tasks: Mapped[list[Task]] = relationship(
+        back_populates="resolution", cascade="all, delete-orphan"
+    )
+
+
+class Task(Base):
+    __tablename__ = "tasks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), index=True
+    )
+    resolution_id: Mapped[int | None] = mapped_column(
+        ForeignKey("resolutions.id", ondelete="SET NULL"), nullable=True
+    )
+    executor: Mapped[str] = mapped_column(String(256))
+    description: Mapped[str] = mapped_column(Text)
+    due_date: Mapped[str] = mapped_column(String(64))  # напр. "2026-06-25"
+    status: Mapped[TaskStatus] = mapped_column(
+        Enum(TaskStatus, native_enum=False), default=TaskStatus.PENDING
+    )
+    completed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    document: Mapped[Document] = relationship(back_populates="tasks")
+    resolution: Mapped[Resolution | None] = relationship(back_populates="tasks")
 
 
 import hashlib
@@ -265,6 +379,27 @@ def init_db() -> None:
                 conn.execute(text("ALTER TABLE documents ADD COLUMN is_scanned BOOLEAN DEFAULT 0"))
             if "folder_id" not in cols:
                 conn.execute(text("ALTER TABLE documents ADD COLUMN folder_id INTEGER"))
+            if "approval_type" not in cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE documents ADD COLUMN approval_type VARCHAR(32) DEFAULT 'sequential'"
+                    )
+                )
+            if "journal_id" not in cols:
+                conn.execute(text("ALTER TABLE documents ADD COLUMN journal_id INTEGER"))
+        # clean up old reg_index values that have the № prefix baked in
+        # (templates were fixed to not include №, so existing values need stripping)
+        with engine.begin() as conn:
+            rows = conn.execute(
+                text("SELECT id, reg_index FROM documents WHERE reg_index LIKE :pat"), {"pat": "№%"}
+            ).fetchall()
+            for row in rows:
+                new_val = row[1].lstrip("№ ").lstrip("№")
+                if new_val != row[1]:
+                    conn.execute(
+                        text("UPDATE documents SET reg_index = :v WHERE id = :id"),
+                        {"v": new_val, "id": row[0]},
+                    )
     if "signers" in insp.get_table_names():
         scols = {c["name"] for c in insp.get_columns("signers")}
         with engine.begin() as conn:
@@ -276,6 +411,35 @@ def init_db() -> None:
     _seed_default_admin()
     # сіємо дефолтних контрагентів
     _seed_default_counterparties()
+    # сіємо дефолтні реєстраційні журнали
+    _seed_default_journals()
+
+
+def _seed_default_journals() -> None:
+    """Створити дефолтні реєстраційні журнали якщо таблиця порожня."""
+    with SessionLocal() as session:
+        if session.query(Journal).first():
+            return
+        j1 = Journal(
+            name="Накази з основної діяльності",
+            prefix="ОД",
+            number_template="{number}-{prefix}",
+            next_number=1,
+        )
+        j2 = Journal(
+            name="Вхідне листування",
+            prefix="ВХ",
+            number_template="{number}/{prefix}",
+            next_number=1,
+        )
+        j3 = Journal(
+            name="Вихідне листування",
+            prefix="ВИХ",
+            number_template="{number}-{prefix}/01-12",
+            next_number=1,
+        )
+        session.add_all([j1, j2, j3])
+        session.commit()
 
 
 def _seed_default_admin() -> None:

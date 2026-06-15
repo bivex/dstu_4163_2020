@@ -5,7 +5,7 @@ import io
 import zipfile
 import json
 from fastapi import APIRouter, Body, Depends, HTTPException, File, Form, UploadFile, Response
-from portal.db import Document, DocStatus, SessionLocal, Signer, SignerStatus
+from portal.db import Document, DocStatus, SessionLocal, Signer, SignerStatus, Approver, ApproverStatus
 from portal import domain_bridge as bridge
 from portal.helpers import _audit, _load, _doc_to_dict, _regenerate
 
@@ -28,9 +28,13 @@ def create_document(payload: dict = Body(...)) -> dict:
                 )
             existing.title = str(payload.get("title", existing.title))
             existing.fmt = str(payload.get("fmt", existing.fmt))
+            existing.journal_id = int(payload["journal_id"]) if payload.get("journal_id") else None
+            existing.approval_type = payload.get("approval_type", "sequential")
             existing.content_json = bridge.content_to_json(payload)
             for s in existing.signers:
                 session.delete(s)
+            for a in existing.approvers:
+                session.delete(a)
             session.flush()
             for s in payload.get("signers", []):
                 existing.signers.append(
@@ -39,6 +43,15 @@ def create_document(payload: dict = Body(...)) -> dict:
                         position=str(s.get("position", "")),
                         order_index=int(s.get("order_index", 0)),
                         status=SignerStatus.WAITING,
+                    )
+                )
+            for i, a in enumerate(payload.get("approvers", [])):
+                existing.approvers.append(
+                    Approver(
+                        order_index=i,
+                        full_name=str(a.get("full_name", "")),
+                        position=str(a.get("position", "")),
+                        status=ApproverStatus.WAITING
                     )
                 )
             _audit(session, existing, "updated")
@@ -54,6 +67,8 @@ def create_document(payload: dict = Body(...)) -> dict:
             content_json=bridge.content_to_json(payload),
             retention_until=dt.datetime.now(dt.timezone.utc)
             + dt.timedelta(days=365 * retention_years),
+            journal_id=int(payload["journal_id"]) if payload.get("journal_id") else None,
+            approval_type=payload.get("approval_type", "sequential"),
         )
         for s in payload.get("signers", []):
             doc.signers.append(
@@ -64,9 +79,18 @@ def create_document(payload: dict = Body(...)) -> dict:
                     status=SignerStatus.WAITING,
                 )
             )
+        for i, a in enumerate(payload.get("approvers", [])):
+            doc.approvers.append(
+                Approver(
+                    order_index=i,
+                    full_name=str(a.get("full_name", "")),
+                    position=str(a.get("position", "")),
+                    status=ApproverStatus.WAITING
+                )
+            )
         session.add(doc)
         session.flush()
-        _audit(session, doc, "created", detail=f"signers={len(doc.signers)}")
+        _audit(session, doc, "created", detail=f"signers={len(doc.signers)} approvers={len(doc.approvers)}")
         session.commit()
         return _doc_to_dict(doc)
 
@@ -186,6 +210,23 @@ def edit_document(doc_id: str, payload: dict = Body(...)) -> dict:
             raise HTTPException(409, "редагування лише у статусі DRAFT")
         doc.title = str(payload.get("title", doc.title))
         doc.fmt = str(payload.get("fmt", doc.fmt))
+        if "journal_id" in payload:
+            doc.journal_id = int(payload["journal_id"]) if payload["journal_id"] else None
+        if "approval_type" in payload:
+            doc.approval_type = str(payload["approval_type"])
+        if "approvers" in payload:
+            for a in doc.approvers:
+                session.delete(a)
+            session.flush()
+            for i, a in enumerate(payload["approvers"]):
+                doc.approvers.append(
+                    Approver(
+                        order_index=i,
+                        full_name=str(a.get("full_name", "")),
+                        position=str(a.get("position", "")),
+                        status=ApproverStatus.WAITING
+                    )
+                )
         merged = bridge.content_from_json(doc.content_json)
         merged.update(payload)
         doc.content_json = bridge.content_to_json(merged)

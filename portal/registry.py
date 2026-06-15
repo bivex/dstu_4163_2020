@@ -81,6 +81,21 @@ def assign_registration(
     when = when or dt.datetime.now(dt.timezone.utc)
     doc.doc_type = doc_type
     doc.registered_at = when
+
+    # Якщо обрано реєстраційний журнал, використовуємо його чергу та шаблон
+    if doc.journal_id:
+        from .db import Journal
+        journal = session.query(Journal).filter_by(id=doc.journal_id).first()
+        if journal:
+            number = journal.next_number
+            doc.reg_number = number
+            # Форматуємо за шаблоном
+            idx_str = journal.number_template.replace("{number}", str(number)).replace("{prefix}", journal.prefix)
+            doc.reg_index = idx_str
+            doc.reg_date = format_ua_date(when.date())
+            journal.next_number += 1
+            return
+
     number = next_reg_number(session, doc_type, when.year)
     doc.reg_number = number
     suffix = _TYPE_SUFFIX.get(doc_type, "")

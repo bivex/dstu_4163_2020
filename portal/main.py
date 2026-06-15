@@ -18,7 +18,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .db import init_db
-from .routers import auth, documents, signing, folders, registry, counterparties, delivery
+from .routers import auth, documents, signing, folders, registry, counterparties, delivery, journals, approvals, resolutions, tasks
 
 _cas_cache: dict = {"body": None, "ts": 0.0}
 
@@ -81,6 +81,10 @@ app.include_router(folders.router)
 app.include_router(registry.router)
 app.include_router(counterparties.router)
 app.include_router(delivery.router)
+app.include_router(journals.router)
+app.include_router(approvals.router)
+app.include_router(resolutions.router)
+app.include_router(tasks.router)
 
 
 # --- статика: фронт + бібліотека EUSign ---
