@@ -51,6 +51,12 @@ def submit_for_approval(doc_id: str, current_user: dict = Depends(_current_user)
         if not doc.approvers:
             raise HTTPException(400, "Немає призначених погоджувачів для документа")
 
+        # Авто-реєстрація вже на етапі подачі на погодження: документ отримує
+        # реєстраційний індекс/дату одразу, а не лише після завершення погодження.
+        # assign_registration ідемпотентна (перевіряє reg_number), тож фінальний
+        # перехід у чергу підписання номер не перезапише.
+        _auto_register_for_signing(session, doc, auto_register=True)
+
         doc.status = DocStatus.PENDING_APPROVAL
 
         # Reset all approver statuses
