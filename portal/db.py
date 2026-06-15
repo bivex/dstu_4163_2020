@@ -347,6 +347,25 @@ class Counterparty(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class Process(Base):
+    """Бізнес-процес документообігу — BPMN-lite граф (вузли + зв'язки) у JSON.
+
+    graph_json: {"nodes": [{"id","type","label","x","y"}], "edges": [{"from","to","label"}]}
+    type вузла: start | task | gateway | end.
+    """
+    __tablename__ = "processes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(256))
+    description: Mapped[str] = mapped_column(Text, default="")
+    graph_json: Mapped[str] = mapped_column(Text, default="{}")
+    is_builtin: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+
+
 def init_db() -> None:
     """Створити таблиці (ідемпотентно) + легка міграція нових колонок."""
     # переконатися, що каталог для SQLite існує
@@ -449,6 +468,8 @@ def init_db() -> None:
     _seed_default_counterparties()
     # сіємо дефолтні реєстраційні журнали
     _seed_default_journals()
+    # сіємо вбудовані бізнес-процеси документообігу
+    _seed_default_processes()
 
 
 def _seed_default_journals() -> None:
@@ -525,4 +546,102 @@ def _seed_default_counterparties() -> None:
             address="м. Канів, вул. Шевченка, 10",
         )
         session.add_all([c1, c2, c3])
+        session.commit()
+
+
+def _seed_default_processes() -> None:
+    """Створити вбудовані бізнес-процеси документообігу якщо таблиця порожня.
+
+    Кожен процес — BPMN-lite граф: вузли (start/task/gateway/end) з координатами
+    для розкладки зліва-направо та зв'язки між ними. Слугують шаблонами й
+    прикладами для конструктора процесів.
+    """
+    import json as _json
+
+    with SessionLocal() as session:
+        if session.query(Process).first():
+            return
+
+        def graph(nodes, edges):
+            return _json.dumps({"nodes": nodes, "edges": edges}, ensure_ascii=False)
+
+        # 1) Погодження та підписання вихідного документа
+        p1_nodes = [
+            {"id": "n1", "type": "start", "label": "Створення проєкту", "x": 40, "y": 120},
+            {"id": "n2", "type": "task", "label": "Погодження (візування)", "x": 220, "y": 120},
+            {"id": "n3", "type": "gateway", "label": "Погоджено?", "x": 430, "y": 120},
+            {"id": "n4", "type": "task", "label": "Доопрацювання", "x": 430, "y": 250},
+            {"id": "n5", "type": "task", "label": "Підписання КЕП", "x": 620, "y": 120},
+            {"id": "n6", "type": "task", "label": "Реєстрація", "x": 810, "y": 120},
+            {"id": "n7", "type": "end", "label": "Відправлення", "x": 1000, "y": 120},
+        ]
+        p1_edges = [
+            {"from": "n1", "to": "n2", "label": ""},
+            {"from": "n2", "to": "n3", "label": ""},
+            {"from": "n3", "to": "n5", "label": "так"},
+            {"from": "n3", "to": "n4", "label": "ні"},
+            {"from": "n4", "to": "n2", "label": "повторно"},
+            {"from": "n5", "to": "n6", "label": ""},
+            {"from": "n6", "to": "n7", "label": ""},
+        ]
+
+        # 2) Реєстрація та виконання вхідного документа
+        p2_nodes = [
+            {"id": "n1", "type": "start", "label": "Надходження", "x": 40, "y": 120},
+            {"id": "n2", "type": "task", "label": "Реєстрація вхідного", "x": 220, "y": 120},
+            {"id": "n3", "type": "task", "label": "Розгляд керівником", "x": 420, "y": 120},
+            {"id": "n4", "type": "task", "label": "Накладення резолюції", "x": 620, "y": 120},
+            {"id": "n5", "type": "task", "label": "Виконання доручення", "x": 820, "y": 120},
+            {"id": "n6", "type": "gateway", "label": "Виконано?", "x": 1020, "y": 120},
+            {"id": "n7", "type": "end", "label": "Списання у справу", "x": 1210, "y": 120},
+        ]
+        p2_edges = [
+            {"from": "n1", "to": "n2", "label": ""},
+            {"from": "n2", "to": "n3", "label": ""},
+            {"from": "n3", "to": "n4", "label": ""},
+            {"from": "n4", "to": "n5", "label": ""},
+            {"from": "n5", "to": "n6", "label": ""},
+            {"from": "n6", "to": "n7", "label": "так"},
+            {"from": "n6", "to": "n5", "label": "ні"},
+        ]
+
+        # 3) Видання наказу з основної діяльності
+        p3_nodes = [
+            {"id": "n1", "type": "start", "label": "Ініціювання наказу", "x": 40, "y": 120},
+            {"id": "n2", "type": "task", "label": "Підготовка проєкту", "x": 230, "y": 120},
+            {"id": "n3", "type": "task", "label": "Візування (юрист, бухгалтер)", "x": 440, "y": 120},
+            {"id": "n4", "type": "task", "label": "Підписання керівником", "x": 670, "y": 120},
+            {"id": "n5", "type": "task", "label": "Реєстрація (наскрізний №)", "x": 880, "y": 120},
+            {"id": "n6", "type": "task", "label": "Ознайомлення працівників", "x": 1100, "y": 120},
+            {"id": "n7", "type": "end", "label": "Зберігання у справі", "x": 1320, "y": 120},
+        ]
+        p3_edges = [
+            {"from": "n1", "to": "n2", "label": ""},
+            {"from": "n2", "to": "n3", "label": ""},
+            {"from": "n3", "to": "n4", "label": ""},
+            {"from": "n4", "to": "n5", "label": ""},
+            {"from": "n5", "to": "n6", "label": ""},
+            {"from": "n6", "to": "n7", "label": ""},
+        ]
+
+        session.add_all([
+            Process(
+                name="Погодження та підписання вихідного документа",
+                description="Типовий маршрут вихідного документа: візування → підписання КЕП → реєстрація → відправлення.",
+                graph_json=graph(p1_nodes, p1_edges),
+                is_builtin=True,
+            ),
+            Process(
+                name="Реєстрація та виконання вхідного документа",
+                description="Обробка вхідного: реєстрація → розгляд → резолюція → виконання → списання у справу.",
+                graph_json=graph(p2_nodes, p2_edges),
+                is_builtin=True,
+            ),
+            Process(
+                name="Видання наказу з основної діяльності",
+                description="Життєвий цикл наказу: підготовка → візування → підписання → реєстрація → ознайомлення.",
+                graph_json=graph(p3_nodes, p3_edges),
+                is_builtin=True,
+            ),
+        ])
         session.commit()
