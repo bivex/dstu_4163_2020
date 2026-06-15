@@ -559,11 +559,18 @@ def _seed_default_processes() -> None:
     import json as _json
 
     with SessionLocal() as session:
-        if session.query(Process).first():
-            return
+        existing_names = {p.name for p in session.query(Process.name).all()}
 
         def graph(nodes, edges):
             return _json.dumps({"nodes": nodes, "edges": edges}, ensure_ascii=False)
+
+        def add_if_new(items):
+            """Додати лише процеси, яких ще немає (за назвою) — ідемпотентно."""
+            fresh = [p for p in items if p.name not in existing_names]
+            if fresh:
+                session.add_all(fresh)
+                existing_names.update(p.name for p in fresh)
+            return fresh
 
         # 1) Погодження та підписання вихідного документа
         p1_nodes = [
@@ -624,7 +631,7 @@ def _seed_default_processes() -> None:
             {"from": "n6", "to": "n7", "label": ""},
         ]
 
-        session.add_all([
+        add_if_new([
             Process(
                 name="Погодження та підписання вихідного документа",
                 description="Типовий маршрут вихідного документа: візування → підписання КЕП → реєстрація → відправлення.",
@@ -641,6 +648,88 @@ def _seed_default_processes() -> None:
                 name="Видання наказу з основної діяльності",
                 description="Життєвий цикл наказу: підготовка → візування → підписання → реєстрація → ознайомлення.",
                 graph_json=graph(p3_nodes, p3_edges),
+                is_builtin=True,
+            ),
+        ])
+
+        # --- Професійні процеси для ФОП (фізична особа — підприємець) ---
+
+        # 4) Укладення договору з контрагентом
+        f1_nodes = [
+            {"id": "n1", "type": "start", "label": "Запит від клієнта", "x": 40, "y": 120},
+            {"id": "n2", "type": "task", "label": "Підготовка договору", "x": 230, "y": 120},
+            {"id": "n3", "type": "task", "label": "Узгодження умов", "x": 440, "y": 120},
+            {"id": "n4", "type": "gateway", "label": "Умови узгоджено?", "x": 650, "y": 120},
+            {"id": "n5", "type": "task", "label": "Коригування", "x": 650, "y": 250},
+            {"id": "n6", "type": "task", "label": "Підписання КЕП обома", "x": 860, "y": 120},
+            {"id": "n7", "type": "end", "label": "Договір у силі", "x": 1070, "y": 120},
+        ]
+        f1_edges = [
+            {"from": "n1", "to": "n2", "label": ""},
+            {"from": "n2", "to": "n3", "label": ""},
+            {"from": "n3", "to": "n4", "label": ""},
+            {"from": "n4", "to": "n6", "label": "так"},
+            {"from": "n4", "to": "n5", "label": "ні"},
+            {"from": "n5", "to": "n3", "label": "повторно"},
+            {"from": "n6", "to": "n7", "label": ""},
+        ]
+
+        # 5) Виставлення рахунку та облік оплати
+        f2_nodes = [
+            {"id": "n1", "type": "start", "label": "Надання послуги/товару", "x": 40, "y": 120},
+            {"id": "n2", "type": "task", "label": "Виставлення рахунку", "x": 250, "y": 120},
+            {"id": "n3", "type": "task", "label": "Надсилання клієнту", "x": 460, "y": 120},
+            {"id": "n4", "type": "gateway", "label": "Оплачено?", "x": 670, "y": 120},
+            {"id": "n5", "type": "task", "label": "Нагадування про оплату", "x": 670, "y": 250},
+            {"id": "n6", "type": "task", "label": "Акт виконаних робіт", "x": 880, "y": 120},
+            {"id": "n7", "type": "end", "label": "Облік доходу (Книга ОД)", "x": 1090, "y": 120},
+        ]
+        f2_edges = [
+            {"from": "n1", "to": "n2", "label": ""},
+            {"from": "n2", "to": "n3", "label": ""},
+            {"from": "n3", "to": "n4", "label": ""},
+            {"from": "n4", "to": "n6", "label": "так"},
+            {"from": "n4", "to": "n5", "label": "ні"},
+            {"from": "n5", "to": "n4", "label": "очікування"},
+            {"from": "n6", "to": "n7", "label": ""},
+        ]
+
+        # 6) Подання податкової звітності ФОП (єдиний податок + ЄСВ)
+        f3_nodes = [
+            {"id": "n1", "type": "start", "label": "Кінець звітного періоду", "x": 40, "y": 120},
+            {"id": "n2", "type": "task", "label": "Звірка доходів", "x": 240, "y": 120},
+            {"id": "n3", "type": "task", "label": "Формування декларації", "x": 450, "y": 120},
+            {"id": "n4", "type": "task", "label": "Підписання КЕП", "x": 660, "y": 120},
+            {"id": "n5", "type": "task", "label": "Подання до ДПС", "x": 850, "y": 120},
+            {"id": "n6", "type": "task", "label": "Сплата ЄП та ЄСВ", "x": 1050, "y": 120},
+            {"id": "n7", "type": "end", "label": "Квитанція №2 отримана", "x": 1270, "y": 120},
+        ]
+        f3_edges = [
+            {"from": "n1", "to": "n2", "label": ""},
+            {"from": "n2", "to": "n3", "label": ""},
+            {"from": "n3", "to": "n4", "label": ""},
+            {"from": "n4", "to": "n5", "label": ""},
+            {"from": "n5", "to": "n6", "label": ""},
+            {"from": "n6", "to": "n7", "label": ""},
+        ]
+
+        add_if_new([
+            Process(
+                name="ФОП: Укладення договору з контрагентом",
+                description="Договірна робота ФОП: запит → підготовка → узгодження → підписання КЕП обома сторонами.",
+                graph_json=graph(f1_nodes, f1_edges),
+                is_builtin=True,
+            ),
+            Process(
+                name="ФОП: Виставлення рахунку та облік оплати",
+                description="Розрахунки ФОП: рахунок → надсилання → контроль оплати → акт → запис у Книгу обліку доходів.",
+                graph_json=graph(f2_nodes, f2_edges),
+                is_builtin=True,
+            ),
+            Process(
+                name="ФОП: Подання податкової звітності (ЄП + ЄСВ)",
+                description="Звітність єдинника: звірка доходів → декларація → КЕП → подання до ДПС → сплата ЄП/ЄСВ.",
+                graph_json=graph(f3_nodes, f3_edges),
                 is_builtin=True,
             ),
         ])
