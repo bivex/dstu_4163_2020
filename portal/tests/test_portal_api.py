@@ -947,3 +947,42 @@ def test_archived_excluded_from_folder_counts(client):
     client.post("/documents/FOLD-AC/archive")  # архівуємо — не рахується
     folders = {f["name"]: f for f in client.get("/folders").json()["folders"]}
     assert folders["Фінанси"]["doc_count"] == 0
+
+
+def test_export_archive(client):
+    import io
+    import zipfile
+    import json
+    
+    # Створюємо 2 документи
+    client.post("/documents", json=_doc_payload("EXP-1"))
+    client.post("/documents/EXP-1/generate")
+    client.post("/documents", json=_doc_payload("EXP-2"))
+    client.post("/documents/EXP-2/generate")
+    
+    # 1. Експорт всього архіву
+    r = client.get("/documents/archive/export")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/zip"
+    
+    z = zipfile.ZipFile(io.BytesIO(r.content))
+    names = z.namelist()
+    assert "EXP-1.pdf" in names
+    assert "EXP-2.pdf" in names
+    assert "metadata.json" in names
+    
+    meta = json.loads(z.read("metadata.json").decode("utf-8"))
+    assert len(meta) == 2
+    assert {m["doc_id"] for m in meta} == {"EXP-1", "EXP-2"}
+    
+    # 2. Експорт за днями
+    r_days = client.get("/documents/archive/export?days=1")
+    assert r_days.status_code == 200
+    
+    # 3. Експорт за некоректною датою
+    r_bad = client.get("/documents/archive/export?start_date=invalid")
+    assert r_bad.status_code == 400
+    
+    # 4. Експорт за періодом, де немає документів
+    r_empty = client.get("/documents/archive/export?start_date=2020-01-01&end_date=2020-01-02")
+    assert r_empty.status_code == 404

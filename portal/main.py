@@ -530,6 +530,81 @@ def download_asice(doc_id: str) -> Response:
         )
 
 
+@app.get("/documents/archive/export")
+def export_archive(
+    days: int | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> Response:
+    """Експортувати архів документів (ZIP) за вказаний період або за весь час.
+
+    Пакує електронні оригінали (.asice для підписаних, .pdf/.docx для інших),
+    а також додає загальний metadata.json зі всією інформацією про документи.
+    """
+    import io
+    import zipfile
+    import json
+
+    with SessionLocal() as session:
+        query = session.query(Document)
+        
+        # Фільтр за датою створення
+        now = dt.datetime.now(dt.timezone.utc)
+        if days is not None:
+            start_dt = now - dt.timedelta(days=days)
+            query = query.filter(Document.created_at >= start_dt)
+        else:
+            if start_date:
+                try:
+                    start_dt = dt.datetime.combine(dt.date.fromisoformat(start_date), dt.time.min).replace(tzinfo=dt.timezone.utc)
+                    query = query.filter(Document.created_at >= start_dt)
+                except ValueError:
+                    raise HTTPException(400, "Невірний формат start_date (очікується YYYY-MM-DD)")
+            if end_date:
+                try:
+                    end_dt = dt.datetime.combine(dt.date.fromisoformat(end_date), dt.time.max).replace(tzinfo=dt.timezone.utc)
+                    query = query.filter(Document.created_at <= end_dt)
+                except ValueError:
+                    raise HTTPException(400, "Невірний формат end_date (очікується YYYY-MM-DD)")
+
+        docs = query.order_by(Document.created_at.desc()).all()
+        if not docs:
+            raise HTTPException(404, "Документів за вказаний період не знайдено")
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            # 1. Записуємо файли документів
+            for d in docs:
+                content = d.asice or d.rendered_marked or d.rendered
+                if not content:
+                    continue
+                ext = "asice" if d.asice else d.fmt
+                filename = f"{d.doc_id}.{ext}"
+                zip_file.writestr(filename, content)
+
+            # 2. Записуємо файл метаданих
+            meta_list = [_doc_to_dict(d) for d in docs]
+            meta_json = json.dumps(meta_list, ensure_ascii=False, indent=2)
+            zip_file.writestr("metadata.json", meta_json.encode("utf-8"))
+
+        zip_buffer.seek(0)
+
+        # Формування імені архіву
+        zip_filename = "archive_all.zip"
+        if days:
+            zip_filename = f"archive_last_{days}_days.zip"
+        elif start_date or end_date:
+            s_label = start_date or "start"
+            e_label = end_date or "end"
+            zip_filename = f"archive_{s_label}_to_{e_label}.zip"
+
+        return Response(
+            content=zip_buffer.getvalue(),
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{zip_filename}"'},
+        )
+
+
 @app.post("/documents/{doc_id}/submit")
 def submit_for_signing(doc_id: str, payload: dict = Body(default={})) -> dict:
     """Перевести чернетку у чергу підписання: перший підписант → INVITED.
