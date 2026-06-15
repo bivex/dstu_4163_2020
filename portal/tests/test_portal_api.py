@@ -26,9 +26,9 @@ def client(tmp_path, monkeypatch):
     db_file = tmp_path / "portal_test.db"
     monkeypatch.setenv("PORTAL_DATABASE_URL", f"sqlite:///{db_file}")
 
-    # перезавантажити db та main, щоб engine підхопив тестовий URL
-    for mod in ("portal.db", "portal.main"):
-        if mod in sys.modules:
+    # перезавантажити модулі portal, щоб engine підхопив тестовий URL в усіх роутерах і хелперах
+    for mod in list(sys.modules.keys()):
+        if mod == "portal" or mod.startswith("portal."):
             del sys.modules[mod]
     db = importlib.import_module("portal.db")
     main = importlib.import_module("portal.main")
