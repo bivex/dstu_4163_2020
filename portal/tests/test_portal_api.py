@@ -1081,3 +1081,38 @@ def test_delivery_f107_pdf(client):
     assert r.content.startswith(b"%PDF")
 
 
+def test_delivery_bulk_pdf(client):
+    # Create two documents
+    client.post("/documents", json=_doc_payload("DEL-B1"))
+    client.post("/documents", json=_doc_payload("DEL-B2"))
+
+    d1 = client.get("/documents/DEL-B1/delivery").json()
+    d2 = client.get("/documents/DEL-B2/delivery").json()
+
+    payload = {
+        "deliveries": [
+            {
+                "doc_id": "DEL-B1",
+                "sender": d1["sender"],
+                "recipient": d1["recipient"],
+                "items": d1["items"],
+                "generate_f107": True,
+                "generate_label": True
+            },
+            {
+                "doc_id": "DEL-B2",
+                "sender": d2["sender"],
+                "recipient": d2["recipient"],
+                "items": d2["items"],
+                "generate_f107": True,
+                "generate_label": False
+            }
+        ]
+    }
+    r = client.post("/documents/delivery/export-bulk", json=payload)
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/pdf"
+    assert r.content.startswith(b"%PDF")
+
+
+

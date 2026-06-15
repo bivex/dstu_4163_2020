@@ -223,6 +223,53 @@ def draw_f107_copy(c: canvas.Canvas, y_offset: float, sender: dict, recipient: d
     c.drawCentredString(stamp_x + 22.5 * mm, stamp_y + 3 * mm, "штемпеля)")
 
 
+def draw_address_label(c: canvas.Canvas, sender: dict, recipient: dict, items: list) -> None:
+    # Address Label (C5 envelope size: 229x162 mm, fitting nicely centered on A4)
+    c.setDash([4, 4])
+    # Border box
+    box_w = 180 * mm
+    box_h = 120 * mm
+    box_x = 15 * mm
+    box_y = 88 * mm
+    c.rect(box_x, box_y, box_w, box_h, stroke=1)
+    c.setDash([])  # Reset
+
+    # Logo / Stamp placeholder
+    c.setFont(FONT_BOLD, 12)
+    c.drawString(box_x + 10 * mm, box_y + box_h - 15 * mm, "УКРПОШТА")
+    c.setFont(FONT_REGULAR, 8)
+    c.drawRightString(box_x + box_w - 10 * mm, box_y + box_h - 15 * mm, "РЕКОМЕНДОВАНИЙ З ОПИСОМ")
+
+    # Sender top-left
+    c.setFont(FONT_BOLD, 7)
+    c.drawString(box_x + 10 * mm, box_y + box_h - 26 * mm, "ВІДПРАВНИК:")
+    c.setFont(FONT_REGULAR, 8)
+    c.drawString(box_x + 10 * mm, box_y + box_h - 32 * mm, sender.get("name", ""))
+    c.drawString(box_x + 10 * mm, box_y + box_h - 38 * mm, sender.get("address", ""))
+    if sender.get("phone"):
+        c.drawString(box_x + 10 * mm, box_y + box_h - 44 * mm, f"Тел: {sender['phone']}")
+
+    # Divider line
+    c.setLineWidth(0.5)
+    c.line(box_x + 10 * mm, box_y + 60 * mm, box_x + box_w - 10 * mm, box_y + 60 * mm)
+
+    # Recipient bottom-right
+    rx = box_x + 80 * mm
+    c.setFont(FONT_BOLD, 8)
+    c.drawString(rx, box_y + 50 * mm, "АДРЕСАТ:")
+    c.setFont(FONT_BOLD, 10)
+    c.drawString(rx, box_y + 42 * mm, recipient.get("name", ""))
+    c.setFont(FONT_REGULAR, 9)
+    c.drawString(rx, box_y + 34 * mm, recipient.get("address", ""))
+    if recipient.get("phone"):
+        c.drawString(rx, box_y + 26 * mm, f"Тел: {recipient['phone']}")
+
+    # Declared Value info at the bottom
+    c.setFont(FONT_REGULAR, 7)
+    total_val = sum(float(item.get("declared_value", 0)) * int(item.get("quantity", 1)) for item in items)
+    c.drawString(box_x + 10 * mm, box_y + 12 * mm, f"Цінність вкладення: {total_val:.2f} грн")
+
+
 @router.post("/documents/{doc_id}/delivery/export")
 def export_delivery_pdf(
     doc_id: str,
@@ -258,50 +305,7 @@ def export_delivery_pdf(
             c.showPage()
 
     if generate_label:
-        # Address Label (C5 envelope size: 229x162 mm, fitting nicely centered on A4)
-        c.setDash([4, 4])
-        # Border box
-        box_w = 180 * mm
-        box_h = 120 * mm
-        box_x = 15 * mm
-        box_y = 88 * mm
-        c.rect(box_x, box_y, box_w, box_h, stroke=1)
-        c.setDash([])  # Reset
-
-        # Logo / Stamp placeholder
-        c.setFont(FONT_BOLD, 12)
-        c.drawString(box_x + 10 * mm, box_y + box_h - 15 * mm, "УКРПОШТА")
-        c.setFont(FONT_REGULAR, 8)
-        c.drawRightString(box_x + box_w - 10 * mm, box_y + box_h - 15 * mm, "РЕКОМЕНДОВАНИЙ З ОПИСОМ")
-
-        # Sender top-left
-        c.setFont(FONT_BOLD, 7)
-        c.drawString(box_x + 10 * mm, box_y + box_h - 26 * mm, "ВІДПРАВНИК:")
-        c.setFont(FONT_REGULAR, 8)
-        c.drawString(box_x + 10 * mm, box_y + box_h - 32 * mm, sender.get("name", ""))
-        c.drawString(box_x + 10 * mm, box_y + box_h - 38 * mm, sender.get("address", ""))
-        if sender.get("phone"):
-            c.drawString(box_x + 10 * mm, box_y + box_h - 44 * mm, f"Тел: {sender['phone']}")
-
-        # Divider line
-        c.setLineWidth(0.5)
-        c.line(box_x + 10 * mm, box_y + 60 * mm, box_x + box_w - 10 * mm, box_y + 60 * mm)
-
-        # Recipient bottom-right
-        rx = box_x + 80 * mm
-        c.setFont(FONT_BOLD, 8)
-        c.drawString(rx, box_y + 50 * mm, "АДРЕСАТ:")
-        c.setFont(FONT_BOLD, 10)
-        c.drawString(rx, box_y + 42 * mm, recipient.get("name", ""))
-        c.setFont(FONT_REGULAR, 9)
-        c.drawString(rx, box_y + 34 * mm, recipient.get("address", ""))
-        if recipient.get("phone"):
-            c.drawString(rx, box_y + 26 * mm, f"Тел: {recipient['phone']}")
-
-        # Declared Value info at the bottom
-        c.setFont(FONT_REGULAR, 7)
-        total_val = sum(float(item.get("declared_value", 0)) * int(item.get("quantity", 1)) for item in items)
-        c.drawString(box_x + 10 * mm, box_y + 12 * mm, f"Цінність вкладення: {total_val:.2f} грн")
+        draw_address_label(c, sender, recipient, items)
 
     c.save()
     pdf_buffer.seek(0)
@@ -312,4 +316,59 @@ def export_delivery_pdf(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+@router.post("/documents/delivery/export-bulk")
+def export_bulk_delivery_pdf(
+    payload: dict = Body(...)
+) -> Response:
+    deliveries = payload.get("deliveries", [])
+    if not deliveries:
+        raise HTTPException(400, "Перелік відправлень порожній")
+
+    pdf_buffer = BytesIO()
+    c = canvas.Canvas(pdf_buffer, pagesize=A4)
+
+    for i, item_data in enumerate(deliveries):
+        sender = item_data.get("sender", {})
+        recipient = item_data.get("recipient", {})
+        items = item_data.get("items", [])
+        generate_f107 = bool(item_data.get("generate_f107", True))
+        generate_label = bool(item_data.get("generate_label", True))
+
+        if not items:
+            items = [{"name": "Документ", "quantity": 1, "declared_value": 1.0}]
+
+        if i > 0:
+            c.showPage()
+
+        if generate_f107:
+            # Top half copy
+            draw_f107_copy(c, 148.5 * mm, sender, recipient, items)
+
+            # Dashed cut line
+            c.setDash([3, 3])
+            c.line(0, 148.5 * mm, 210 * mm, 148.5 * mm)
+            c.setFont(FONT_REGULAR, 7)
+            c.drawCentredString(105 * mm, 149.5 * mm, "----------------- лінія відрізу -----------------")
+            c.setDash([])  # Reset
+
+            # Bottom half copy
+            draw_f107_copy(c, 0 * mm, sender, recipient, items)
+
+            if generate_label:
+                c.showPage()
+
+        if generate_label:
+            draw_address_label(c, sender, recipient, items)
+
+    c.save()
+    pdf_buffer.seek(0)
+    pdf_bytes = pdf_buffer.getvalue()
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="ukrposhta_delivery_bulk.pdf"'}
     )
