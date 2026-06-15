@@ -127,8 +127,8 @@ def draw_f107_copy(c: canvas.Canvas, y_offset: float, sender: dict, recipient: d
 
     # Fill Recipient Name if exists
     if recipient.get("name"):
-        c.setFont(FONT_BOLD, 8)
-        c.drawString(30 * mm, y_offset + 101 * mm, recipient["name"])
+      c.setFont(FONT_BOLD, 8)
+      c.drawString(30 * mm, y_offset + 102 * mm, recipient["name"])
 
     # Address
     c.setFont(FONT_REGULAR, 8)
@@ -138,8 +138,8 @@ def draw_f107_copy(c: canvas.Canvas, y_offset: float, sender: dict, recipient: d
 
     # Fill Address if exists
     if recipient.get("address"):
-        c.setFont(FONT_REGULAR, 8)
-        c.drawString(27 * mm, y_offset + 91 * mm, recipient["address"])
+      c.setFont(FONT_REGULAR, 8)
+      c.drawString(27 * mm, y_offset + 92 * mm, recipient["address"])
 
     # Table Grid
     table_top = y_offset + 80 * mm
@@ -210,8 +210,8 @@ def draw_f107_copy(c: canvas.Canvas, y_offset: float, sender: dict, recipient: d
     c.setFont(FONT_REGULAR, 6)
     c.drawCentredString(177.5 * mm, sig_y - 2 * mm, "(підпис)")
     if sender.get("name"):
-        c.setFont(FONT_BOLD, 8)
-        c.drawString(32 * mm, sig_y + 1 * mm, sender["name"])
+      c.setFont(FONT_BOLD, 8)
+      c.drawString(32 * mm, sig_y + 2 * mm, sender["name"])
 
     c.setFont(FONT_REGULAR, 8)
     c.drawString(15 * mm, sig_y - 8 * mm, "Перевірив _________________________________________")
