@@ -189,6 +189,17 @@ def list_documents() -> dict:
         return {"documents": [_doc_to_dict(d, brief=True) for d in docs]}
 
 
+@router.delete("/documents/all")
+def delete_all_documents(
+    current_user: dict = Depends(_current_user),
+) -> dict:
+    """Видаляє ВСІ документи з бази даних. Незворотна операція."""
+    with SessionLocal() as session:
+        deleted = session.query(Document).delete(synchronize_session=False)
+        session.commit()
+    return {"deleted": deleted}
+
+
 @router.get("/documents/export-json")
 def export_documents_json(
     ids: str | None = None,
