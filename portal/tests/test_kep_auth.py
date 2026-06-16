@@ -215,3 +215,38 @@ def test_unlink_kep(client, mock_kep):
         db_user = session.query(User).filter_by(email="test@example.com").first()
         assert db_user.kep_serial_number is None
         assert db_user.kep_subject_cn is None
+
+
+def test_proxy_handler(client, monkeypatch):
+    """Тест проксі-ендпоінту для OCSP/TSP запитів."""
+    import httpx
+    
+    class MockResponse:
+        def __init__(self, content):
+            self.content = content
+            
+    class MockAsyncClient:
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            pass
+        async def post(self, url, content, headers, timeout):
+            assert url == "http://zc.bank.gov.ua/services/ocsp"
+            assert content == b"decoded_request"
+            assert headers == {"Content-Type": "application/ocsp-request"}
+            return MockResponse(b"ocsp_response")
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *args, **kwargs: MockAsyncClient())
+    
+    # Клієнт шле POST запит з base64-кодованим тілом
+    payload_b64 = base64.b64encode(b"decoded_request").decode()
+    r = client.post(
+        "/signdata/ProxyHandler.php?address=http://zc.bank.gov.ua/services/ocsp",
+        content=payload_b64
+    )
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "X-user/base64-data"
+    
+    # Відповідь має бути base64-кодованим вмістом відповіді сервера
+    resp_bytes = base64.b64decode(r.text)
+    assert resp_bytes == b"ocsp_response"

@@ -1,9 +1,15 @@
 # Портал підписання документів — бекенд (FastAPI + доменне ядро dilovod4)
 FROM python:3.12-slim
 
-# системні залежності для reportlab (шрифти) та збірки
+# системні залежності для reportlab (шрифти), збірки UAPKI та openssl
 RUN apt-get update && apt-get install -y --no-install-recommends \
         fonts-liberation \
+        cmake \
+        make \
+        g++ \
+        gcc \
+        libssl-dev \
+        libcurl4-openssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -12,10 +18,22 @@ WORKDIR /app
 COPY portal/requirements.txt /app/portal/requirements.txt
 RUN pip install --no-cache-dir -r /app/portal/requirements.txt
 
-# доменне ядро + портал + бібліотека EUSign (для клієнтського підпису)
+# доменне ядро + портал + бібліотека EUSign (для клієнтського підпису) + UAPKI + CAs
 COPY src /app/src
 COPY portal /app/portal
 COPY external/EUSignES6 /app/external/EUSignES6
+COPY external/UAPKI /app/external/UAPKI
+COPY .euscp_store /app/.euscp_store
+
+# Збираємо нативну бібліотеку UAPKI для Linux всередині контейнера
+RUN rm -rf /app/external/UAPKI/library/build && \
+    cd /app/external/UAPKI/library && \
+    bash build-uapki.sh && \
+    cd build/out && \
+    ln -sf libuapki.so.* libuapki.so && \
+    ln -sf libuapkic.so.* libuapkic.so && \
+    ln -sf libuapkif.so.* libuapkif.so && \
+    ln -sf libcm-pkcs12.so.* libcm-pkcs12.so
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/src \

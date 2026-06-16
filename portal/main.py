@@ -9,10 +9,11 @@ import os
 import time
 import urllib.request
 import json
+import base64
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -87,6 +88,48 @@ app.include_router(resolutions.router)
 app.include_router(tasks.router)
 app.include_router(users.router)
 app.include_router(processes.router)
+
+
+# --- Proxy Handler for KEP (OCSP/TSP requests) ---
+@app.api_route("/signdata/ProxyHandler.php", methods=["GET", "POST"])
+async def proxy_handler(request: Request, address: str = Query(...)) -> Response:
+    body_bytes = await request.body()
+    
+    if request.method == "POST":
+        try:
+            req_data = base64.b64decode(body_bytes)
+        except Exception:
+            raise HTTPException(400, "Invalid base64 payload")
+    else:
+        req_data = b""
+
+    headers = {}
+    path = address.lower()
+    if "/ocsp" in path:
+        headers["Content-Type"] = "application/ocsp-request"
+    elif "/tsp" in path:
+        headers["Content-Type"] = "application/timestamp-query"
+        
+    import httpx
+    async with httpx.AsyncClient(verify=False) as client:
+        try:
+            if request.method == "POST":
+                resp = await client.post(address, content=req_data, headers=headers, timeout=15.0)
+            else:
+                resp = await client.get(address, headers=headers, timeout=15.0)
+        except Exception as e:
+            raise HTTPException(502, f"Failed to connect to CA server: {e}")
+            
+    resp_b64 = base64.b64encode(resp.content).decode("ascii")
+    return Response(
+        content=resp_b64,
+        media_type="X-user/base64-data",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Access-Control-Allow-Origin": _cors_origin(request),
+            "Access-Control-Allow-Credentials": "true",
+        }
+    )
 
 
 # --- статика: фронт + бібліотека EUSign ---

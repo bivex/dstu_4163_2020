@@ -342,21 +342,80 @@ def cert_info_from_cms(sig_bytes: bytes) -> dict[str, str]:
 
 
 def verify_signature(data_bytes: bytes, sig_bytes: bytes) -> bool:
-    """Криптографічна перевірка detached-підпису під даними через openssl cms."""
+    """Криптографічна перевірка підпису під даними через UAPKI з fallback на openssl cms.
+    Підтримує як detached (від'єднаний), так і attached (приєднаний) підписи.
+    """
+    import base64
+    import os
+    import sys
+    from dilovod4.infrastructure.uapki import UapkiClient, UapkiLibraryNotFound, UapkiError
+
+    # Спробуємо верифікацію через UAPKI
+    try:
+        # Визначаємо шлях до кешу сертифікатів
+        cert_cache = "/app/.euscp_store"
+        if not os.path.exists(cert_cache):
+            # Fallback для хост-машини або інших шляхів
+            cert_cache = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".euscp_store")
+            if not os.path.exists(cert_cache):
+                # Тимчасова пуста папка, якщо взагалі немає кешу
+                cert_cache = "/tmp/certs"
+
+        crl_cache = "/tmp/crls"
+        os.makedirs(cert_cache, exist_ok=True)
+        os.makedirs(crl_cache, exist_ok=True)
+
+        with UapkiClient() as client:
+            client.init(cert_cache, crl_cache, offline=True)
+            sig_b64 = base64.b64encode(sig_bytes).decode("ascii")
+
+            # 1. Спробуємо спочатку як attached (приєднаний) підпис (без передачі content)
+            try:
+                res = client.verify(sig_b64)
+                infos = res.get("signatureInfos", [])
+                if infos and infos[0].get("statusSignature") == "VALID":
+                    # Перевіряємо, чи повернутий вміст збігається з очікуваними даними
+                    content_b64 = res.get("content", {}).get("bytes")
+                    if content_b64:
+                        content_bytes = base64.b64decode(content_b64)
+                        if content_bytes == data_bytes:
+                            return True
+            except UapkiError as e:
+                # Якщо помилка не RET_UAPKI_CONTENT_NOT_PRESENT (4147 / 0x1033), прокинемо її далі
+                if e.error_code != 4147:
+                    raise
+
+            # 2. Спробуємо як detached (від'єднаний) підпис
+            data_b64 = base64.b64encode(data_bytes).decode("ascii")
+            res = client.verify(sig_b64, data_b64)
+            infos = res.get("signatureInfos", [])
+            if infos and infos[0].get("statusSignature") == "VALID":
+                return True
+
+            return False
+
+    except UapkiLibraryNotFound:
+        # Fallback на openssl, якщо бібліотека UAPKI не зібрана (наприклад, на хост-машині розробника)
+        print("UAPKI library not found. Falling back to openssl cms verify.", file=sys.stderr)
+    except Exception as e:
+        print(f"UAPKI verification failed ({e}). Falling back to openssl cms verify.", file=sys.stderr)
+
+    # Старий код на openssl cms (fallback)
     import tempfile
     import subprocess
-    import os
 
     with tempfile.NamedTemporaryFile(suffix=".p7s", delete=False) as sig_tmp, \
-         tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as data_tmp:
+         tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as data_tmp, \
+         tempfile.NamedTemporaryFile(suffix=".out", delete=False) as out_tmp:
         sig_tmp.write(sig_bytes)
         data_tmp.write(data_bytes)
         sig_path = sig_tmp.name
         data_path = data_tmp.name
+        out_path = out_tmp.name
 
     try:
-        # Перевіряємо математичну цілісність підпису без валідації ланцюжка ЦСК
-        cmd = [
+        # 1. Спочатку спробуємо як detached (від'єднаний) підпис
+        cmd_detached = [
             "openssl", "cms", "-verify",
             "-inform", "DER",
             "-content", data_path,
@@ -364,12 +423,28 @@ def verify_signature(data_bytes: bytes, sig_bytes: bytes) -> bool:
             "-noverify",
             "-out", "/dev/null"
         ]
-        res = subprocess.run(cmd, capture_output=True, timeout=10)
-        return res.returncode == 0
+        res = subprocess.run(cmd_detached, capture_output=True, timeout=10)
+        if res.returncode == 0:
+            return True
+
+        # 2. Якщо не вдалося, спробуємо як attached (приєднаний) підпис
+        cmd_attached = [
+            "openssl", "cms", "-verify",
+            "-inform", "DER",
+            "-in", sig_path,
+            "-noverify",
+            "-out", out_path
+        ]
+        res = subprocess.run(cmd_attached, capture_output=True, timeout=10)
+        if res.returncode == 0:
+            with open(out_path, "rb") as f:
+                verified_content = f.read()
+            return verified_content == data_bytes
+
+        return False
     except Exception:
         return False
     finally:
-        if os.path.exists(sig_path):
-            os.remove(sig_path)
-        if os.path.exists(data_path):
-            os.remove(data_path)
+        for p in (sig_path, data_path, out_path):
+            if os.path.exists(p):
+                os.remove(p)
