@@ -24,6 +24,7 @@ def auth_login(payload: dict = Body(...)) -> dict:
         return {
             "token": token,
             "user": {
+                "id": user.id,
                 "email": user.email,
                 "name": user.name,
                 "position": user.position,
@@ -42,6 +43,7 @@ def auth_me(current: dict = Depends(_current_user)) -> dict:
         if not user:
             raise HTTPException(404, "Користувача не знайдено")
         return {
+            "id": user.id,
             "email": user.email,
             "name": user.name,
             "position": user.position,
@@ -96,6 +98,7 @@ def login_kep(payload: dict = Body(...)) -> dict:
         return {
             "token": token,
             "user": {
+                "id": user.id,
                 "email": user.email,
                 "name": user.name,
                 "position": user.position,
@@ -150,6 +153,7 @@ def link_kep(current: dict = Depends(_current_user), payload: dict = Body(...)) 
         return {
             "status": "ok",
             "user": {
+                "id": user.id,
                 "email": user.email,
                 "name": user.name,
                 "position": user.position,
