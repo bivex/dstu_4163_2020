@@ -39,18 +39,18 @@ function print_help() {
 case "$1" in
   up)
     echo -e "${BLUE}Starting Docker containers...${NC}"
-    docker compose -f "${PORTAL_DIR}/docker-compose.yml" up --build -d
+    docker compose -f "${BASE_DIR}/docker-compose.yml" up --build -d
     ;;
   down)
     echo -e "${YELLOW}Stopping Docker containers...${NC}"
-    docker compose -f "${PORTAL_DIR}/docker-compose.yml" down
+    docker compose -f "${BASE_DIR}/docker-compose.yml" down
     ;;
   logs)
-    docker compose -f "${PORTAL_DIR}/docker-compose.yml" logs -f
+    docker compose -f "${BASE_DIR}/docker-compose.yml" logs -f
     ;;
   restart)
     echo -e "${BLUE}Restarting Docker containers...${NC}"
-    docker compose -f "${PORTAL_DIR}/docker-compose.yml" restart
+    docker compose -f "${BASE_DIR}/docker-compose.yml" restart
     ;;
   backend-dev)
     echo -e "${BLUE}Starting local backend development server...${NC}"
@@ -78,7 +78,7 @@ case "$1" in
     ;;
   status)
     echo -e "${BLUE}=== Docker Containers ===${NC}"
-    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "portal-api|NAMES" || echo "No portal containers running"
+    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "dstu_4163_2020|NAMES" || echo "No containers running"
     echo
     echo -e "${BLUE}=== Active Ports ===${NC}"
     lsof -i :8000 -i :3000 | grep LISTEN || echo "Ports 8000 (backend) and 3000 (frontend) are free"

@@ -1,0 +1,31 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: portal/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - portal_data:/data
+    environment:
+      PORTAL_DATABASE_URL: "sqlite:////data/portal.db"
+      PORTAL_CORS: "*"
+      PORTAL_CAS_URL: "https://iit.com.ua/download/productfiles/CAs.json"
+      PORTAL_CAS_TTL: "3600"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./external/dms-dir
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NUXT_PUBLIC_API_BASE: "http://localhost:8000"
+      NUXT_API_BASE_INTERNAL: "http://api:8000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  portal_data:
