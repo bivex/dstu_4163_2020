@@ -6,6 +6,7 @@ import zipfile
 import json
 from fastapi import APIRouter, Body, Depends, HTTPException, File, Form, UploadFile, Response
 from portal.db import Document, DocStatus, SessionLocal, Signer, SignerStatus, Approver, ApproverStatus
+from portal.auth import _current_user
 from portal import domain_bridge as bridge
 from portal.helpers import _audit, _load, _doc_to_dict, _regenerate
 
@@ -186,6 +187,138 @@ def list_documents() -> dict:
     with SessionLocal() as session:
         docs = session.query(Document).order_by(Document.created_at.desc()).all()
         return {"documents": [_doc_to_dict(d, brief=True) for d in docs]}
+
+
+@router.get("/documents/export-json")
+def export_documents_json(
+    ids: str | None = None,
+    current_user: dict = Depends(_current_user),
+):
+    """Повертає всі (або вибрані) документи як JSON-масив для бекапу/переносу."""
+    with SessionLocal() as session:
+        q = session.query(Document)
+        if ids:
+            id_list = [i.strip() for i in ids.split(",") if i.strip()]
+            q = q.filter(Document.doc_id.in_(id_list))
+        docs = q.order_by(Document.created_at).all()
+        result = [_doc_to_dict(d, brief=False) for d in docs]
+
+    payload_bytes = json.dumps(result, ensure_ascii=False, indent=2).encode("utf-8")
+    return Response(
+        content=payload_bytes,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="dms_backup.json"'},
+    )
+
+
+@router.post("/documents/import-json")
+def import_documents_json(
+    payload: list[dict] = Body(...),
+    current_user: dict = Depends(_current_user),
+) -> dict:
+    """Відновлює документи з JSON-бекапу.
+
+    Повертає { imported, skipped, errors }.
+    Якщо doc_id вже існує — пропускається (не перезаписується).
+    Документи відновлюються зі статусом DRAFT.
+    """
+    imported = 0
+    skipped = 0
+    errors: list[str] = []
+
+    with SessionLocal() as session:
+        for item in payload:
+            doc_id = item.get("doc_id", "")
+            if not doc_id:
+                errors.append("Пропущено запис без doc_id")
+                continue
+
+            try:
+                existing = session.query(Document).filter_by(doc_id=doc_id).first()
+                if existing:
+                    skipped += 1
+                    continue
+
+                raw_content = item.get("content_json", {})
+                if isinstance(raw_content, dict):
+                    content_json_str = json.dumps(raw_content, ensure_ascii=False)
+                else:
+                    content_json_str = str(raw_content)
+
+                created_at = None
+                if item.get("created_at"):
+                    try:
+                        created_at = dt.datetime.fromisoformat(item["created_at"])
+                    except Exception:
+                        pass
+                created_at = created_at or dt.datetime.now(dt.timezone.utc)
+
+                registered_at = None
+                if item.get("registered_at"):
+                    try:
+                        registered_at = dt.datetime.fromisoformat(item["registered_at"])
+                    except Exception:
+                        pass
+
+                retention_until = None
+                if item.get("retention_until"):
+                    try:
+                        retention_until = dt.datetime.fromisoformat(item["retention_until"])
+                    except Exception:
+                        pass
+                if not retention_until:
+                    retention_until = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=365 * 5)
+
+                doc = Document(
+                    doc_id=doc_id,
+                    title=str(item.get("title", "")),
+                    fmt=str(item.get("fmt", "pdf")),
+                    status=DocStatus.DRAFT,
+                    content_json=content_json_str,
+                    doc_type=item.get("doc_type"),
+                    reg_number=item.get("reg_number"),
+                    reg_index=item.get("reg_index"),
+                    reg_date=item.get("reg_date"),
+                    registered_at=registered_at,
+                    approval_type=item.get("approval_type", "sequential"),
+                    is_scanned=bool(item.get("is_scanned", False)),
+                    created_at=created_at,
+                    retention_until=retention_until,
+                )
+
+                for s in item.get("signers", []):
+                    doc.signers.append(Signer(
+                        order_index=int(s.get("order_index", 0)),
+                        full_name=str(s.get("full_name", "")),
+                        position=str(s.get("position", "")),
+                        status=SignerStatus.WAITING,
+                    ))
+
+                for i, a in enumerate(item.get("approvers", [])):
+                    doc.approvers.append(Approver(
+                        order_index=int(a.get("order_index", i)),
+                        user_id=int(a["user_id"]) if a.get("user_id") else None,
+                        full_name=str(a.get("full_name", "")),
+                        position=str(a.get("position", "")),
+                        status=ApproverStatus.WAITING,
+                    ))
+
+                session.add(doc)
+                session.flush()
+                _audit(
+                    session, doc,
+                    "imported",
+                    actor=current_user.get("name", ""),
+                    detail=f"відновлено з бекапу: {doc.title}",
+                )
+                imported += 1
+
+            except Exception as exc:
+                errors.append(f"{doc_id}: {exc}")
+
+        session.commit()
+
+    return {"imported": imported, "skipped": skipped, "errors": errors}
 
 
 @router.get("/documents/{doc_id}")
