@@ -140,7 +140,7 @@ _EUSIGN_DIR = _HERE.parent / "external" / "EUSignES6"
 
 @app.get("/")
 def _root() -> RedirectResponse:
-    return RedirectResponse(url="/web/")
+    return RedirectResponse(url="/docs")
 
 
 @app.get("/favicon.ico")

@@ -66,15 +66,15 @@ case "$1" in
     ;;
   frontend-dev)
     echo -e "${BLUE}Starting frontend development server...${NC}"
-    pnpm -C "${FRONTEND_DIR}" dev
+    (cd "${FRONTEND_DIR}" && bun run dev)
     ;;
   frontend-build)
     echo -e "${BLUE}Building frontend application...${NC}"
-    pnpm -C "${FRONTEND_DIR}" build
+    (cd "${FRONTEND_DIR}" && bun run build)
     ;;
   frontend-check)
     echo -e "${BLUE}Running frontend typecheck...${NC}"
-    pnpm -C "${FRONTEND_DIR}" typecheck
+    (cd "${FRONTEND_DIR}" && bun run typecheck)
     ;;
   status)
     echo -e "${BLUE}=== Docker Containers ===${NC}"

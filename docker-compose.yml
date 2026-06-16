@@ -18,11 +18,19 @@ services:
     build:
       context: ./external/dms-dir
       dockerfile: Dockerfile
+      target: builder
+    command: bun run dev --host 0.0.0.0
     ports:
       - "3000:3000"
+      - "24678:24678" # Vite HMR
+    volumes:
+      - ./external/dms-dir:/app
+      - /app/node_modules
+      - /app/.nuxt
     environment:
       NUXT_PUBLIC_API_BASE: "http://localhost:8000"
       NUXT_API_BASE_INTERNAL: "http://api:8000"
+      CHOKIDAR_USEPOLLING: "true"
     depends_on:
       - api
     restart: unless-stopped
