@@ -310,6 +310,7 @@ def cert_info_from_cms(sig_bytes: bytes) -> dict[str, str]:
         iss = next((ln for ln in certs.splitlines() if ln.startswith("issuer=")), "")
         if subj:
             info["signer"] = _rdn(subj, "CN")
+            info["serialNumber"] = _rdn(subj, "serialNumber")
         if iss:
             info["issuer"] = _rdn(iss, "CN")
         # серійник + строк дії — з x509-текстового дампу сертифіката
@@ -338,3 +339,37 @@ def cert_info_from_cms(sig_bytes: bytes) -> dict[str, str]:
         if _os.path.exists(path):
             _os.remove(path)
     return info
+
+
+def verify_signature(data_bytes: bytes, sig_bytes: bytes) -> bool:
+    """Криптографічна перевірка detached-підпису під даними через openssl cms."""
+    import tempfile
+    import subprocess
+    import os
+
+    with tempfile.NamedTemporaryFile(suffix=".p7s", delete=False) as sig_tmp, \
+         tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as data_tmp:
+        sig_tmp.write(sig_bytes)
+        data_tmp.write(data_bytes)
+        sig_path = sig_tmp.name
+        data_path = data_tmp.name
+
+    try:
+        # Перевіряємо математичну цілісність підпису без валідації ланцюжка ЦСК
+        cmd = [
+            "openssl", "cms", "-verify",
+            "-inform", "DER",
+            "-content", data_path,
+            "-in", sig_path,
+            "-noverify",
+            "-out", "/dev/null"
+        ]
+        res = subprocess.run(cmd, capture_output=True, timeout=10)
+        return res.returncode == 0
+    except Exception:
+        return False
+    finally:
+        if os.path.exists(sig_path):
+            os.remove(sig_path)
+        if os.path.exists(data_path):
+            os.remove(data_path)

@@ -318,6 +318,9 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(256), default="")
     position: Mapped[str] = mapped_column(String(256), default="")
     password_hash: Mapped[str] = mapped_column(String(128))
+    kep_serial_number: Mapped[str | None] = mapped_column(String(256), unique=True, index=True, nullable=True)
+    kep_certificate_serial: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
+    kep_subject_cn: Mapped[str | None] = mapped_column(String(256), nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     @staticmethod
@@ -378,6 +381,16 @@ def init_db() -> None:
     from sqlalchemy import inspect, text
 
     insp = inspect(engine)
+    if "users" in insp.get_table_names():
+        u_cols = {c["name"] for c in insp.get_columns("users")}
+        with engine.begin() as conn:
+            if "kep_serial_number" not in u_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN kep_serial_number VARCHAR(256)"))
+            if "kep_certificate_serial" not in u_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN kep_certificate_serial VARCHAR(256)"))
+            if "kep_subject_cn" not in u_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN kep_subject_cn VARCHAR(256)"))
+
     if "documents" in insp.get_table_names():
         cols = {c["name"] for c in insp.get_columns("documents")}
         if "rendered_marked" not in cols:
