@@ -4,7 +4,7 @@ import os
 import tempfile
 from fastapi import HTTPException
 from . import domain_bridge as bridge
-from .db import AuditEvent, Document, Folder, SessionLocal, Signer, SignerStatus
+from .db import AuditEvent, Document, DocStatus, Folder, SessionLocal, Signer, SignerStatus, UserRole
 
 
 def _audit(session, doc: Document, kind: str, actor: str = "", detail: str = "") -> None:
@@ -16,6 +16,27 @@ def _load(session, doc_id: str) -> Document:
     if doc is None:
         raise HTTPException(404, f"документ {doc_id} не знайдено")
     return doc
+
+
+def _assert_editable(doc: Document, current_user: dict | None) -> None:
+    """Централізований guard: чи може цей користувач змінювати документ.
+
+    Правило: документ лочиться повністю при виході зі статусу DRAFT
+    (pending_approval/pending_signatures/signed/published). Усі, крім admin,
+    отримують 409. admin — виняток для службових дій (повертає в draft через
+    окремий адмін-маршрут, а не прямим редагуванням).
+
+    current_user — розкодований JWT-dict (з _current_user) або None, якщо
+    ендпоїнт ще не авторизований (тоді перевірка лише за статусом — лочить всіх).
+    """
+    if doc.status == DocStatus.DRAFT:
+        return
+    role = (current_user or {}).get("role")
+    if role != UserRole.ADMIN.value:
+        raise HTTPException(
+            409,
+            f"документ у статусі «{doc.status.value}» — редагування заборонено",
+        )
 
 
 def _payload_with_signatures(doc: Document) -> dict:

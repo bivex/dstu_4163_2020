@@ -22,17 +22,28 @@ if str(_PORTAL.parent) not in sys.path:
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
-    """TestClient зі свіжою ізольованою БД на кожен тест."""
+    """TestClient зі свіжою ізольованою БД на кожен тест.
+
+    Запити виконуються від імені admin (через dependency override) — щоб не
+    розносити auth-заголовки по 200+ викликах потоку підписання, де один актор
+    створює, генерує, подає, підписує кількома КЕП (admin обійти перевірку
+    «активний підписант»). Тести status-lock (409 на редагуванні підписаного)
+    використовують окремий токен не-admin через хелпер lowerrole_headers()."""
     db_file = tmp_path / "portal_test.db"
     monkeypatch.setenv("PORTAL_DATABASE_URL", f"sqlite:///{db_file}")
 
-    # перезавантажити модулі portal, щоб engine підхопив тестовий URL в усіх роутерах і хелперах
     for mod in list(sys.modules.keys()):
         if mod == "portal" or mod.startswith("portal."):
             del sys.modules[mod]
     db = importlib.import_module("portal.db")
     main = importlib.import_module("portal.main")
     db.init_db()
+
+    auth = importlib.import_module("portal.auth")
+    main.app.dependency_overrides[auth._current_user] = lambda: {
+        "sub": "1", "email": "admin@dilovod.local", "name": "Адміністратор",
+        "role": "admin", "position": "Адміністратор",
+    }
 
     from fastapi.testclient import TestClient
 
@@ -82,6 +93,34 @@ def _fake_cms() -> str:
     return base64.b64encode(body).decode()
 
 
+def _clerk_headers() -> dict:
+    """Токен звичайного користувача (clerk) — для тестів status-lock, де важливо,
+    що НЕ-admin отримує 409 на редагуванні підписаного документа."""
+    import jwt
+    import datetime as _dt
+    payload = {
+        "sub": "777", "email": "clerk@org.local", "name": "КЛЕРК Тестовий",
+        "role": "clerk", "position": "Інспектор",
+        "exp": _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=24),
+    }
+    return {"Authorization": "Bearer " + jwt.encode(payload, "dilovod-dev-secret-change-in-prod", algorithm="HS256")}
+
+
+@pytest.fixture()
+def no_override_client(client):
+    """Скинути admin-override: реальна перевірка токена з headers.
+
+    Використовується тестами status-lock/RBAC, яким потрібний звичайний
+    користувач (clerk), а не admin з фикстури."""
+    import importlib
+    main = importlib.import_module("portal.main")
+    saved = dict(main.app.dependency_overrides)
+    main.app.dependency_overrides.clear()
+    yield client
+    main.app.dependency_overrides.clear()
+    main.app.dependency_overrides.update(saved)
+
+
 # --- базові ---
 def test_health(client):
     r = client.get("/health")
@@ -100,19 +139,19 @@ def test_create_document(client):
     assert d["retention_until"] is not None  # ст.13 851-IV
 
 
-def test_create_duplicate_upserts_draft(client):
+def test_create_duplicate_upserts_draft(no_override_client):
     """POST на існуючу чернетку — upsert (оновлення), а не 409. Конфлікт 409
     лише якщо документ уже не draft (поданий/підписаний)."""
-    client.post("/documents", json=_doc_payload())
+    no_override_client.post("/documents", json=_doc_payload(), headers=_clerk_headers())
     # повторний POST на draft → upsert (200), оновлює картку
     p2 = _doc_payload()
     p2["title"] = "Оновлений заголовок"
-    r = client.post("/documents", json=p2)
+    r = no_override_client.post("/documents", json=p2, headers=_clerk_headers())
     assert r.status_code == 200
     assert r.json()["title"] == "Оновлений заголовок"
-    # після submit документ не draft → повторний POST дає 409
-    client.post("/documents/T-001/submit", json={"auto_register": False})
-    r2 = client.post("/documents", json=_doc_payload())
+    # після submit документ не draft → повторний POST дає 409 для звичайного юзера
+    no_override_client.post("/documents/T-001/submit", json={"auto_register": False}, headers=_clerk_headers())
+    r2 = no_override_client.post("/documents", json=_doc_payload(), headers=_clerk_headers())
     assert r2.status_code == 409
 
 
@@ -334,10 +373,11 @@ def test_edit_draft(client):
     assert d["title"] == "Новий заголовок"
 
 
-def test_edit_after_submit_rejected(client):
-    client.post("/documents", json=_doc_payload())
-    client.post("/documents/T-001/submit")
-    r = client.put("/documents/T-001", json={"title": "X"})
+def test_edit_after_submit_rejected(no_override_client):
+    no_override_client.post("/documents", json=_doc_payload(), headers=_clerk_headers())
+    no_override_client.post("/documents/T-001/submit", headers=_clerk_headers())
+    # звичайний користувач (clerk) не може редагувати не-draft → 409
+    r = no_override_client.put("/documents/T-001", json={"title": "X"}, headers=_clerk_headers())
     assert r.status_code == 409
 
 

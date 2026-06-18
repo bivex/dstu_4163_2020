@@ -3,7 +3,7 @@ import os
 import jwt
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from .db import User
+from .db import User, UserRole
 
 _JWT_SECRET = os.environ.get("PORTAL_JWT_SECRET", "dilovod-dev-secret-change-in-prod")
 _JWT_ALGO = "HS256"
@@ -17,6 +17,8 @@ def _make_token(user: User) -> str:
         "email": user.email,
         "name": user.name,
         "position": user.position,
+        # роль у токен — фронт одразу знає права без додаткового запиту
+        "role": user.role,
         "exp": dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=_JWT_TTL_HOURS),
     }
     return jwt.encode(payload, _JWT_SECRET, algorithm=_JWT_ALGO)
@@ -33,3 +35,19 @@ def _current_user(
         raise HTTPException(401, "Токен прострочений")
     except jwt.PyJWTError:
         raise HTTPException(401, "Недійсний токен")
+
+
+def _require_role(*roles: UserRole):
+    """Залежність FastAPI: пускає лише користувачів із вказаними ролями.
+
+    Використання:
+        @router.delete("/dangerous", dependencies=[Depends(_require_role(UserRole.ADMIN))])
+        def handler(current_user: dict = Depends(_current_user)): ...
+    """
+
+    def dep(current_user: dict = Depends(_current_user)) -> dict:
+        if current_user.get("role") not in [r.value for r in roles]:
+            raise HTTPException(403, "недостатньо прав для цієї дії")
+        return current_user
+
+    return dep

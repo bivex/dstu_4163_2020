@@ -23,19 +23,25 @@ _JWT_SECRET = "dilovod-dev-secret-change-in-prod"
 _JWT_ALGO = "HS256"
 
 
-def _make_token(name: str = "Адміністратор", email: str = "admin@dilovod.local", sub: str = "1") -> str:
+def _make_token(
+    name: str = "Адміністратор",
+    email: str = "admin@dilovod.local",
+    sub: str = "1",
+    role: str = "admin",
+) -> str:
     payload = {
         "sub": sub,
         "email": email,
         "name": name,
+        "role": role,
         "exp": __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
         + __import__("datetime").timedelta(hours=24),
     }
     return jwt.encode(payload, _JWT_SECRET, algorithm=_JWT_ALGO)
 
 
-def _auth_headers(name: str = "Адміністратор", sub: str = "1") -> dict:
-    return {"Authorization": f"Bearer {_make_token(name=name, sub=sub)}"}
+def _auth_headers(name: str = "Адміністратор", sub: str = "1", role: str = "admin") -> dict:
+    return {"Authorization": f"Bearer {_make_token(name=name, sub=sub, role=role)}"}
 
 
 def _doc_payload(doc_id: str = "AJ-001", signers: int = 1) -> dict:
@@ -143,14 +149,14 @@ class TestJournals:
 
 class TestApprovals:
     def _create_doc(self, client) -> dict:
-        client.post("/documents", json=_doc_payload("AP-001"))
+        client.post("/documents", json=_doc_payload("AP-001"), headers=_auth_headers())
         return client.get("/documents/AP-001", headers=_auth_headers()).json()
 
     def test_submit_requires_approvers(self, client):
         """Без погоджувачів submit має падати з 400."""
         payload = _doc_payload("AP-NOAPP")
         payload["approvers"] = []
-        client.post("/documents", json=payload)
+        client.post("/documents", json=payload, headers=_auth_headers())
         r = client.post("/documents/AP-NOAPP/approval/submit", headers=_auth_headers())
         assert r.status_code == 400
 
@@ -174,7 +180,7 @@ class TestApprovals:
     def test_submit_all_invited_parallel(self, client):
         payload = _doc_payload("AP-PAR")
         payload["approval_type"] = "parallel"
-        client.post("/documents", json=payload)
+        client.post("/documents", json=payload, headers=_auth_headers())
         client.post("/documents/AP-PAR/approval/submit", headers=_auth_headers())
 
         doc = client.get("/documents/AP-PAR", headers=_auth_headers()).json()
@@ -397,7 +403,7 @@ class TestApprovals:
         payload["approvers"] = [
             {"order_index": 0, "user_id": uid, "full_name": "КОВАЛЬЧУК Ірина", "position": "Юрист"}
         ]
-        client.post("/documents", json=payload)
+        client.post("/documents", json=payload, headers=_auth_headers())
         client.post("/documents/AP-UID/approval/submit", headers=_auth_headers())
 
         headers = _auth_headers(name="КОВАЛЬЧУК Ірина", sub=str(uid))
@@ -439,7 +445,7 @@ class TestApprovals:
         payload["approvers"] = [
             {"order_index": 0, "user_id": uid, "full_name": "ХТОСЬ ЗОВСІМ ІНШИЙ", "position": "x"}
         ]
-        client.post("/documents", json=payload)
+        client.post("/documents", json=payload, headers=_auth_headers())
         client.post("/documents/AP-PRE/approval/submit", headers=_auth_headers())
 
         # власник user_id бачить документ незважаючи на те, що ПІБ не збігається
@@ -455,9 +461,9 @@ class TestApprovals:
 
 class TestResolutions:
     def _signed_doc(self, client) -> dict:
-        client.post("/documents", json=_doc_payload("RS-001"))
-        client.post("/documents/RS-001/generate")
-        client.post("/documents/RS-001/submit")
+        client.post("/documents", json=_doc_payload("RS-001"), headers=_auth_headers())
+        client.post("/documents/RS-001/generate", headers=_auth_headers())
+        client.post("/documents/RS-001/submit", headers=_auth_headers())
         client.post(
             "/documents/RS-001/sign",
             json={
@@ -466,11 +472,12 @@ class TestResolutions:
                 "certificate_serial": "58E2D9",
                 "issuer": "КН ЕДП Дія",
             },
+            headers=_auth_headers(),
         )
         return client.get("/documents/RS-001", headers=_auth_headers()).json()
 
     def test_resolution_on_draft_400(self, client):
-        client.post("/documents", json=_doc_payload("RS-DRAFT"))
+        client.post("/documents", json=_doc_payload("RS-DRAFT"), headers=_auth_headers())
         r = client.post(
             "/documents/RS-DRAFT/resolutions",
             json={"text": "Тест", "tasks": []},
@@ -533,9 +540,9 @@ class TestResolutions:
         assert data[0]["text"] == "Резолюція 1"
 
     def test_resolution_on_published_document(self, client):
-        client.post("/documents", json=_doc_payload("RS-PUB"))
-        client.post("/documents/RS-PUB/generate")
-        client.post("/documents/RS-PUB/submit")
+        client.post("/documents", json=_doc_payload("RS-PUB"), headers=_auth_headers())
+        client.post("/documents/RS-PUB/generate", headers=_auth_headers())
+        client.post("/documents/RS-PUB/submit", headers=_auth_headers())
         client.post(
             "/documents/RS-PUB/sign",
             json={
@@ -544,8 +551,9 @@ class TestResolutions:
                 "certificate_serial": "58E2D9",
                 "issuer": "КН ЕДП Дія",
             },
+            headers=_auth_headers(),
         )
-        client.post("/documents/RS-PUB/publish")
+        client.post("/documents/RS-PUB/publish", headers=_auth_headers())
 
         r = client.post(
             "/documents/RS-PUB/resolutions",
@@ -562,9 +570,9 @@ class TestResolutions:
 
 class TestTasks:
     def _setup_tasks(self, client) -> None:
-        client.post("/documents", json=_doc_payload("TK-001"))
-        client.post("/documents/TK-001/generate")
-        client.post("/documents/TK-001/submit")
+        client.post("/documents", json=_doc_payload("TK-001"), headers=_auth_headers())
+        client.post("/documents/TK-001/generate", headers=_auth_headers())
+        client.post("/documents/TK-001/submit", headers=_auth_headers())
         client.post(
             "/documents/TK-001/sign",
             json={
@@ -573,6 +581,7 @@ class TestTasks:
                 "certificate_serial": "58E2D9",
                 "issuer": "КН ЕДП Дія",
             },
+            headers=_auth_headers(),
         )
         client.post(
             "/documents/TK-001/resolutions",

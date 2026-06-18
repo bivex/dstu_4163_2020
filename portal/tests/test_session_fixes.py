@@ -32,18 +32,24 @@ _JWT_SECRET = "dilovod-dev-secret-change-in-prod"
 _JWT_ALGO = "HS256"
 
 
-def _make_token(name: str = "Адміністратор", email: str = "admin@dilovod.local", sub: str = "1") -> str:
+def _make_token(
+    name: str = "Адміністратор",
+    email: str = "admin@dilovod.local",
+    sub: str = "1",
+    role: str = "director",
+) -> str:
     payload = {
         "sub": sub,
         "email": email,
         "name": name,
+        "role": role,
         "exp": dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=24),
     }
     return jwt.encode(payload, _JWT_SECRET, algorithm=_JWT_ALGO)
 
 
-def _auth_headers(name: str = "Адміністратор", sub: str = "1") -> dict:
-    return {"Authorization": f"Bearer {_make_token(name=name, sub=sub)}"}
+def _auth_headers(name: str = "Адміністратор", sub: str = "1", role: str = "director") -> dict:
+    return {"Authorization": f"Bearer {_make_token(name=name, sub=sub, role=role)}"}
 
 
 def _fake_cms() -> str:
@@ -124,7 +130,7 @@ class TestRegistrationOnApprovalSubmit:
             approvers=[{"order_index": 0, "user_id": 1,
                         "full_name": "Адміністратор", "position": "Директор"}],
         )
-        client.post("/documents", json=payload)
+        client.post("/documents", json=payload, headers=_auth_headers())
 
         r = client.post("/documents/REG-APP-1/approval/submit", headers=_auth_headers())
         assert r.status_code == 200
@@ -141,7 +147,7 @@ class TestRegistrationOnApprovalSubmit:
             approvers=[{"order_index": 0, "user_id": 1,
                         "full_name": "Адміністратор", "position": "Директор"}],
         )
-        client.post("/documents", json=payload)
+        client.post("/documents", json=payload, headers=_auth_headers())
         client.post("/documents/REG-APP-2/approval/submit", headers=_auth_headers())
 
         doc1 = client.get("/documents/REG-APP-2", headers=_auth_headers()).json()
@@ -172,7 +178,7 @@ class TestRegistrationOnAutoQueue:
             approvers=[{"order_index": 0, "user_id": 1,
                         "full_name": "Адміністратор", "position": "Директор"}],
         )
-        client.post("/documents", json=payload)
+        client.post("/documents", json=payload, headers=_auth_headers())
         client.post("/documents/REG-AUTO-1/approval/submit", headers=_auth_headers())
         client.post(
             "/documents/REG-AUTO-1/approval/action",
@@ -205,8 +211,8 @@ class TestJournalDoubleNumberSign:
         vyh = next(j for j in journals if j["prefix"] == "ВИХ")
 
         payload = _doc_payload("JRNL-1", signers=1, journal_id=vyh["id"])
-        client.post("/documents", json=payload)
-        r = client.post("/documents/JRNL-1/submit", json={"auto_register": True})
+        client.post("/documents", json=payload, headers=_auth_headers())
+        r = client.post("/documents/JRNL-1/submit", json={"auto_register": True}, headers=_auth_headers())
         assert r.status_code == 200
         reg_index = r.json()["reg_index"]
         assert reg_index
@@ -237,7 +243,7 @@ def _make_signed_doc(client, doc_id: str) -> None:
     """Створити документ і перевести його у статус SIGNED напряму через БД."""
     payload = _doc_payload(doc_id, signers=1)
     payload.pop("approvers", None)
-    client.post("/documents", json=payload)
+    client.post("/documents", json=payload, headers=_auth_headers())
 
     db = importlib.import_module("portal.db")
     with db.SessionLocal() as s:
@@ -360,7 +366,7 @@ class TestDocTypePersistence:
     def test_doc_type_in_content_json_on_create(self, client):
         payload = _doc_payload("DT-1", doc_type="Розпорядження")
         payload.pop("approvers", None)
-        r = client.post("/documents", json=payload)
+        r = client.post("/documents", json=payload, headers=_auth_headers())
         assert r.status_code == 200
 
         doc = client.get("/documents/DT-1", headers=_auth_headers()).json()
@@ -370,12 +376,12 @@ class TestDocTypePersistence:
     def test_doc_type_survives_edit(self, client):
         payload = _doc_payload("DT-2", doc_type="Лист")
         payload.pop("approvers", None)
-        client.post("/documents", json=payload)
+        client.post("/documents", json=payload, headers=_auth_headers())
 
         # повторний upsert (редагування чернетки) зі зміною виду
         payload["doc_type"] = "Акт"
         payload["title"] = "Оновлено"
-        client.post("/documents", json=payload)
+        client.post("/documents", json=payload, headers=_auth_headers())
 
         doc = client.get("/documents/DT-2", headers=_auth_headers()).json()
         assert doc["content_json"]["doc_type"] == "Акт"
@@ -383,8 +389,8 @@ class TestDocTypePersistence:
     def test_doc_type_promoted_to_column_on_registration(self, client):
         payload = _doc_payload("DT-3", doc_type="Наказ", signers=1)
         payload.pop("approvers", None)
-        client.post("/documents", json=payload)
-        client.post("/documents/DT-3/submit", json={"auto_register": True})
+        client.post("/documents", json=payload, headers=_auth_headers())
+        client.post("/documents/DT-3/submit", json={"auto_register": True}, headers=_auth_headers())
 
         doc = client.get("/documents/DT-3", headers=_auth_headers()).json()
         assert doc["doc_type"] == "Наказ"
@@ -399,7 +405,7 @@ class TestSubmitWithoutSigners:
     def test_submit_without_signers_returns_400(self, client):
         payload = _doc_payload("NOSIGN-1", signers=0)
         payload.pop("approvers", None)
-        client.post("/documents", json=payload)
+        client.post("/documents", json=payload, headers=_auth_headers())
 
-        r = client.post("/documents/NOSIGN-1/submit", json={"auto_register": True})
+        r = client.post("/documents/NOSIGN-1/submit", json={"auto_register": True}, headers=_auth_headers())
         assert r.status_code == 400

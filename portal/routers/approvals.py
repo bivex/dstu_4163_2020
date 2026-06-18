@@ -18,7 +18,7 @@ from portal.db import (
     SignerStatus,
 )
 from portal.auth import _current_user
-from portal.helpers import _load, _audit, _auto_register_for_signing
+from portal.helpers import _load, _audit, _assert_editable, _auto_register_for_signing
 
 router = APIRouter(tags=["approvals"])
 
@@ -45,8 +45,7 @@ class ApprovalActionSchema(BaseModel):
 def submit_for_approval(doc_id: str, current_user: dict = Depends(_current_user)):
     with SessionLocal() as session:
         doc = _load(session, doc_id)
-        if doc.status != DocStatus.DRAFT:
-            raise HTTPException(400, "Документ має бути в статусі чернетки")
+        _assert_editable(doc, current_user)
 
         if not doc.approvers:
             raise HTTPException(400, "Немає призначених погоджувачів для документа")

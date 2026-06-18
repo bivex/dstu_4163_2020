@@ -1,8 +1,9 @@
 import datetime as _dt
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from portal.db import Document, SessionLocal
+from portal.auth import _current_user
 
-router = APIRouter(tags=["registry"])
+router = APIRouter(tags=["registry"], dependencies=[Depends(_current_user)])
 
 
 @router.get("/registry")

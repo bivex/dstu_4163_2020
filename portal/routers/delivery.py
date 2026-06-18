@@ -1,6 +1,6 @@
 import json
 from io import BytesIO
-from fastapi import APIRouter, Body, HTTPException, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Response
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -9,8 +9,9 @@ from reportlab.lib.units import mm
 
 from portal.db import SessionLocal
 from portal.helpers import _load
+from portal.auth import _current_user
 
-router = APIRouter(tags=["delivery"])
+router = APIRouter(tags=["delivery"], dependencies=[Depends(_current_user)])
 
 # Register Times New Roman or compatible font
 try:

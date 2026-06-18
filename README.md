@@ -29,6 +29,40 @@ Catala-специфікації (`dstu_4163_2020.catala_en`) у чистій (г
   `resolutions`, `tasks`, `users`, `registry` — у `portal/routers/`.
 - **БД:** SQLite на тому (типово) або PostgreSQL (прод). Конфіг через env.
 
+### Ролі та блокування документів
+
+Система має 4 ролі (`portal/db.py`, `UserRole`):
+
+| Роль | Права |
+|---|---|
+| `admin` | усе, зокрема `DELETE /documents/all` та зміна ролей користувачам |
+| `director` | створює/подає/підписує/публікує документи вищого рівня |
+| `accountant` | фінансові документи, погодження, підпис |
+| `clerk` | лише чернетки + перегляд (мінімум прав) |
+
+**Блокування:** документ лочиться повністю при виході зі статусу `draft`
+(`pending_approval` / `pending_signatures` / `signed` / `published`). Усі, крім
+`admin`, отримують **409** на редагуванні/видаленні/генерації (`PUT`/`DELETE`/
+`POST .../generate` через `_assert_editable`). Щоб змінити підписаний документ —
+відхиліть підпис/погодження (`reject` повертає у `draft`). `admin` має службовий
+обхід, але криптоцілісність ASiC-E при перепідписанні не гарантується —
+використовуйте `reject`.
+
+**Підпис:** підписати документ може лише **активний підписант** (збіг ПІБ/КЕП) або
+`admin` (службова заміна) — `signing.py` `_is_active_signer`.
+
+**Початковий admin:** `init_db()` сіє `admin@dilovod.local / admin` (env
+`PORTAL_ADMIN_EMAIL`/`PORTAL_ADMIN_PASSWORD`). Для наявної бази, де міграція
+проставила всім `role='clerk'`, задайте `PORTAL_BOOTSTRAP_ADMIN_EMAIL=your@org.local`
+— цей користувач стане admin при старті. Далі ролі призначаються через
+`PUT /users/{id}` (поле `role`) — зміну ролі дозволено лише `admin`.
+
+Роль їде в JWT (`_make_token`) і повертається у `/auth/login`, `/auth/me`,
+`/auth/login-kep`, `/auth/link-kep`. Фронт (`dms-dir`) використовує
+`app/composables/useRoles.ts` для блокування UI (`StepDocument` — fieldset
+`:disabled`, `KeypadPanel` — перевірка активного підписанта, `UserModal` — селект
+ролі лише для admin).
+
 ### Швидкий старт усієї системи
 
 ```bash

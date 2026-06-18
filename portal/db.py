@@ -56,6 +56,17 @@ class DocStatus(str, enum.Enum):
     PUBLISHED = "published"  # оприлюднено (ст.14 996-XIV / ст.15 2939-VI)
 
 
+class UserRole(str, enum.Enum):
+    """Глобальна роль користувача. Окремо від position (вільний текст для
+    PDF/листів погодження) — саме role використовується для прийняття рішень
+    про доступ на бекенді та блокування UI на фронті."""
+
+    ADMIN = "admin"        # повний доступ, керування користувачами/ролями
+    DIRECTOR = "director"  # створює/підписує/публікує документи вищого рівня
+    ACCOUNTANT = "accountant"  # фінансові документи, погодження, підпис
+    CLERK = "clerk"        # створює чернетки, перегляд — мінімум прав
+
+
 class ApprovalType(str, enum.Enum):
     SEQUENTIAL = "sequential"
     PARALLEL = "parallel"
@@ -317,6 +328,11 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(256), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(256), default="")
     position: Mapped[str] = mapped_column(String(256), default="")
+    # роль для контролю доступу (див. UserRole). Окремо від position: position —
+    # вільний текст для відображення (PDF, листи погодження); role — enum для gate-ів.
+    role: Mapped[str] = mapped_column(
+        Enum(UserRole, native_enum=False), default=UserRole.CLERK.value, nullable=False
+    )
     password_hash: Mapped[str] = mapped_column(String(128))
     kep_serial_number: Mapped[str | None] = mapped_column(String(256), unique=True, index=True, nullable=True)
     kep_certificate_serial: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
@@ -390,6 +406,12 @@ def init_db() -> None:
                 conn.execute(text("ALTER TABLE users ADD COLUMN kep_certificate_serial VARCHAR(256)"))
             if "kep_subject_cn" not in u_cols:
                 conn.execute(text("ALTER TABLE users ADD COLUMN kep_subject_cn VARCHAR(256)"))
+            # роль для контролю доступу; всім наявним — clerk (мінімум прав),
+            # адміна піднімаємо окремо через PORTAL_BOOTSTRAP_ADMIN_EMAIL.
+            if "role" not in u_cols:
+                conn.execute(
+                    text("ALTER TABLE users ADD COLUMN role VARCHAR(32) NOT NULL DEFAULT 'clerk'")
+                )
 
     if "documents" in insp.get_table_names():
         cols = {c["name"] for c in insp.get_columns("documents")}
@@ -518,14 +540,35 @@ def _seed_default_admin() -> None:
     default_pass = os.environ.get("PORTAL_ADMIN_PASSWORD", "admin")
     with SessionLocal() as session:
         if session.query(User).first():
+            # таблиця не порожня — спробуємо підняти адміна через bootstrap-email
+            _bootstrap_admin(session, default_email)
             return
         user = User(
             email=default_email,
             name="Адміністратор",
             position="Адміністратор",
+            role=UserRole.ADMIN.value,
             password_hash=User.hash_password(default_pass),
         )
         session.add(user)
+        session.commit()
+
+
+def _bootstrap_admin(session, email: str | None) -> None:
+    """Підняти роль вказаного користувача до admin при старті.
+
+    Використовується для існуючих баз, де міграція проставила всім role='clerk':
+    задайте PORTAL_BOOTSTRAP_ADMIN_EMAIL=email@org — і цей користувач стане адміном.
+    Це разова дія при старті; якщо роль вже admin — нічого не робимо."""
+    bootstrap_email = os.environ.get("PORTAL_BOOTSTRAP_ADMIN_EMAIL") or email
+    if not bootstrap_email:
+        return
+    # якщо вже є хоча б один admin — не втручаємося (адмін призначений вручну)
+    if session.query(User).filter_by(role=UserRole.ADMIN.value).first():
+        return
+    user = session.query(User).filter_by(email=bootstrap_email).first()
+    if user and user.role != UserRole.ADMIN.value:
+        user.role = UserRole.ADMIN.value
         session.commit()
 
 

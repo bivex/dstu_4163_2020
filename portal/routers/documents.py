@@ -5,16 +5,18 @@ import io
 import zipfile
 import json
 from fastapi import APIRouter, Body, Depends, HTTPException, File, Form, UploadFile, Response
-from portal.db import Document, DocStatus, SessionLocal, Signer, SignerStatus, Approver, ApproverStatus
-from portal.auth import _current_user
+from portal.db import (
+    Document, DocStatus, SessionLocal, Signer, SignerStatus, Approver, ApproverStatus, UserRole
+)
+from portal.auth import _current_user, _require_role
 from portal import domain_bridge as bridge
-from portal.helpers import _audit, _load, _doc_to_dict, _regenerate
+from portal.helpers import _audit, _assert_editable, _load, _doc_to_dict, _regenerate
 
 router = APIRouter(tags=["documents"])
 
 
 @router.post("/documents")
-def create_document(payload: dict = Body(...)) -> dict:
+def create_document(payload: dict = Body(...), current_user: dict = Depends(_current_user)) -> dict:
     doc_id = payload.get("doc_id")
     if not doc_id:
         raise HTTPException(400, "doc_id обовʼязковий")
@@ -22,11 +24,7 @@ def create_document(payload: dict = Body(...)) -> dict:
     with SessionLocal() as session:
         existing = session.query(Document).filter_by(doc_id=doc_id).first()
         if existing:
-            if existing.status != DocStatus.DRAFT:
-                raise HTTPException(
-                    409,
-                    f"документ {doc_id} у статусі «{existing.status.value}» — редагування заборонено",
-                )
+            _assert_editable(existing, current_user)
             existing.title = str(payload.get("title", existing.title))
             existing.fmt = str(payload.get("fmt", existing.fmt))
             existing.journal_id = int(payload["journal_id"]) if payload.get("journal_id") else None
@@ -105,6 +103,7 @@ async def ingest_scan(
     title: str = Form(""),
     signers: str = Form(""),
     retention_years: int = Form(5),
+    current_user: dict = Depends(_current_user),
 ) -> dict:
     from portal import scan_ingest
 
@@ -135,12 +134,8 @@ async def ingest_scan(
 
     with SessionLocal() as session:
         existing = session.query(Document).filter_by(doc_id=doc_id).first()
-        if existing and existing.status != DocStatus.DRAFT:
-            raise HTTPException(
-                409,
-                f"документ {doc_id} у статусі «{existing.status.value}» — "
-                "заміна скану заборонена",
-            )
+        if existing:
+            _assert_editable(existing, current_user)
         doc = existing or Document(doc_id=doc_id)
         doc.title = title or f"Скан {doc_id}"
         doc.fmt = "pdf"
@@ -191,9 +186,9 @@ def list_documents() -> dict:
 
 @router.delete("/documents/all")
 def delete_all_documents(
-    current_user: dict = Depends(_current_user),
+    current_user: dict = Depends(_require_role(UserRole.ADMIN)),
 ) -> dict:
-    """Видаляє ВСІ документи з бази даних. Незворотна операція."""
+    """Видаляє ВСІ документи з бази даних. Незворотна операція (тільки admin)."""
     with SessionLocal() as session:
         deleted = session.query(Document).delete(synchronize_session=False)
         session.commit()
@@ -340,20 +335,22 @@ def get_document(doc_id: str) -> dict:
 
 
 @router.delete("/documents/{doc_id}")
-def delete_document(doc_id: str) -> dict:
+def delete_document(doc_id: str, current_user: dict = Depends(_current_user)) -> dict:
     with SessionLocal() as session:
         doc = _load(session, doc_id)
+        _assert_editable(doc, current_user)
         session.delete(doc)
         session.commit()
         return {"deleted": doc_id}
 
 
 @router.put("/documents/{doc_id}")
-def edit_document(doc_id: str, payload: dict = Body(...)) -> dict:
+def edit_document(
+    doc_id: str, payload: dict = Body(...), current_user: dict = Depends(_current_user)
+) -> dict:
     with SessionLocal() as session:
         doc = _load(session, doc_id)
-        if doc.status != DocStatus.DRAFT:
-            raise HTTPException(409, "редагування лише у статусі DRAFT")
+        _assert_editable(doc, current_user)
         doc.title = str(payload.get("title", doc.title))
         doc.fmt = str(payload.get("fmt", doc.fmt))
         if "journal_id" in payload:
@@ -383,9 +380,14 @@ def edit_document(doc_id: str, payload: dict = Body(...)) -> dict:
 
 
 @router.post("/documents/{doc_id}/generate")
-def generate_document(doc_id: str) -> dict:
+def generate_document(
+    doc_id: str, current_user: dict = Depends(_current_user)
+) -> dict:
     with SessionLocal() as session:
         doc = _load(session, doc_id)
+        # критично для криптоцілості: генерація переписує doc.rendered, digest якого
+        # лежить в ASiC-E підписах. Після підпису — лочимо для всіх (навіть admin).
+        _assert_editable(doc, current_user)
         if doc.is_scanned:
             raise HTTPException(
                 409,

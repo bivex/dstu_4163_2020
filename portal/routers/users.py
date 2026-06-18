@@ -1,9 +1,12 @@
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel
-from portal.db import SessionLocal, User
-from portal.auth import _current_user
+from portal.db import SessionLocal, User, UserRole
+from portal.auth import _current_user, _require_role
 
 router = APIRouter(tags=["users"])
+
+
+_VALID_ROLES = {r.value for r in UserRole}
 
 
 class UserSchema(BaseModel):
@@ -11,6 +14,7 @@ class UserSchema(BaseModel):
     name: str
     email: str
     position: str
+    role: str = UserRole.CLERK.value
     kep_subject_cn: str | None = None
     kep_serial_number: str | None = None
     kep_certificate_serial: str | None = None
@@ -25,6 +29,7 @@ def _user_to_dict(u: User) -> dict:
         "name": u.name,
         "email": u.email,
         "position": u.position,
+        "role": u.role,
         "kep_subject_cn": u.kep_subject_cn,
         "kep_serial_number": u.kep_serial_number,
         "kep_certificate_serial": u.kep_certificate_serial,
@@ -53,6 +58,15 @@ def create_user(payload: dict = Body(...), current_user: dict = Depends(_current
     if not password:
         raise HTTPException(400, "Пароль обовʼязковий для нового користувача")
 
+    # роль при створенні призначає лише admin; решті — clerk за замовчуванням
+    role = UserRole.CLERK.value
+    if "role" in payload:
+        if current_user.get("role") != UserRole.ADMIN.value:
+            raise HTTPException(403, "призначати роль може лише admin")
+        role = str(payload["role"]).strip()
+        if role not in _VALID_ROLES:
+            raise HTTPException(400, f"невідома роль: {role}")
+
     with SessionLocal() as session:
         existing = session.query(User).filter_by(email=email).first()
         if existing:
@@ -61,6 +75,7 @@ def create_user(payload: dict = Body(...), current_user: dict = Depends(_current
             name=name,
             email=email,
             position=position,
+            role=role,
             password_hash=User.hash_password(password),
         )
         session.add(u)
@@ -93,6 +108,16 @@ def update_user(user_id: int, payload: dict = Body(...), current_user: dict = De
 
         if "position" in payload:
             u.position = str(payload["position"]).strip()
+
+        # Зміну ролі дозволено лише admin. Це єдиний привілейований запис —
+        # інакше будь-хто підніме себе до admin.
+        if "role" in payload:
+            if current_user.get("role") != UserRole.ADMIN.value:
+                raise HTTPException(403, "змінювати роль може лише admin")
+            new_role = str(payload["role"]).strip()
+            if new_role not in _VALID_ROLES:
+                raise HTTPException(400, f"невідома роль: {new_role}")
+            u.role = new_role
 
         # пароль міняємо лише якщо переданий непорожній
         new_password = str(payload.get("password", "")).strip()

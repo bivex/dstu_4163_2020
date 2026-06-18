@@ -1,7 +1,8 @@
 import base64
 import datetime as dt
-from fastapi import APIRouter, Body, HTTPException, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Response
 from portal.db import Document, DocStatus, SessionLocal, SignerStatus
+from portal.auth import _current_user
 from portal import domain_bridge as bridge
 from portal.helpers import (
     _audit,
@@ -17,8 +18,24 @@ from portal.helpers import (
 router = APIRouter(tags=["signing"])
 
 
+def _is_active_signer(nxt, current_user: dict) -> bool:
+    """Чи може цей користувач підписати як активний підписант.
+
+    Signer не має user_id (на відміну від Approver), тож звіряємо по ПІБ
+    та сертифікату. Admin може підписати за будь-кого (службова заміна)."""
+    role = current_user.get("role")
+    if role == "admin":
+        return True
+    name = (current_user.get("name") or "").strip().lower()
+    subject_cn = (current_user.get("kep_subject_cn") or "").strip().lower()
+    signer_name = (nxt.full_name or "").strip().lower()
+    return signer_name in (name, subject_cn) if signer_name else False
+
+
 @router.post("/documents/{doc_id}/validate")
-def validate_document(doc_id: str) -> dict:
+def validate_document(
+    doc_id: str, current_user: dict = Depends(_current_user)
+) -> dict:
     with SessionLocal() as session:
         doc = _load(session, doc_id)
         payload = _payload_with_signatures(doc)
@@ -26,7 +43,9 @@ def validate_document(doc_id: str) -> dict:
 
 
 @router.get("/documents/{doc_id}/manifest")
-def signing_manifest(doc_id: str) -> Response:
+def signing_manifest(
+    doc_id: str, current_user: dict = Depends(_current_user)
+) -> Response:
     with SessionLocal() as session:
         doc = _load(session, doc_id)
         if not doc.rendered:
@@ -41,7 +60,9 @@ def signing_manifest(doc_id: str) -> Response:
 
 
 @router.get("/documents/{doc_id}/download/asice")
-def download_asice(doc_id: str) -> Response:
+def download_asice(
+    doc_id: str, current_user: dict = Depends(_current_user)
+) -> Response:
     with SessionLocal() as session:
         doc = _load(session, doc_id)
         if not doc.asice:
@@ -56,7 +77,11 @@ def download_asice(doc_id: str) -> Response:
 
 
 @router.post("/documents/{doc_id}/submit")
-def submit_for_signing(doc_id: str, payload: dict = Body(default={})) -> dict:
+def submit_for_signing(
+    doc_id: str,
+    payload: dict = Body(default={}),
+    current_user: dict = Depends(_current_user),
+) -> dict:
     auto_register = bool(payload.get("auto_register", True))
     with SessionLocal() as session:
         doc = _load(session, doc_id)
@@ -73,13 +98,17 @@ def submit_for_signing(doc_id: str, payload: dict = Body(default={})) -> dict:
 
         doc.status = DocStatus.PENDING_SIGNATURES
         doc.signers[0].status = SignerStatus.INVITED
-        _audit(session, doc, "submitted")
+        _audit(session, doc, "submitted", actor=current_user.get("name", ""))
         session.commit()
         return _doc_to_dict(doc)
 
 
 @router.post("/documents/{doc_id}/sign")
-def sign_document(doc_id: str, payload: dict = Body(...)) -> dict:
+def sign_document(
+    doc_id: str,
+    payload: dict = Body(...),
+    current_user: dict = Depends(_current_user),
+) -> dict:
     with SessionLocal() as session:
         doc = _load(session, doc_id)
         if doc.status != DocStatus.PENDING_SIGNATURES:
@@ -92,6 +121,12 @@ def sign_document(doc_id: str, payload: dict = Body(...)) -> dict:
         if idx != nxt.order_index:
             raise HTTPException(
                 409, f"зараз черга підписанта #{nxt.order_index} ({nxt.full_name})"
+            )
+        # лише активний підписант (або admin) може підписати цим КЕП
+        if not _is_active_signer(nxt, current_user):
+            raise HTTPException(
+                403,
+                f"ви не є активним підписувачем ({nxt.full_name}) цього документа",
             )
 
         sig_b64 = payload.get("signature_b64")
@@ -136,12 +171,19 @@ def sign_document(doc_id: str, payload: dict = Body(...)) -> dict:
 
 
 @router.post("/documents/{doc_id}/reject")
-def reject_document(doc_id: str, payload: dict = Body(...)) -> dict:
+def reject_document(
+    doc_id: str,
+    payload: dict = Body(...),
+    current_user: dict = Depends(_current_user),
+) -> dict:
     with SessionLocal() as session:
         doc = _load(session, doc_id)
         nxt = doc.next_signer
         if nxt is None:
             raise HTTPException(409, "немає активного підписанта")
+        # відхилити може активний підписант (це його право не підписувати) або admin
+        if not _is_active_signer(nxt, current_user):
+            raise HTTPException(403, "відхилити може лише активний підписувач або admin")
         nxt.status = SignerStatus.REJECTED
         doc.status = DocStatus.DRAFT
         _audit(session, doc, "rejected", actor=nxt.full_name,
@@ -151,34 +193,40 @@ def reject_document(doc_id: str, payload: dict = Body(...)) -> dict:
 
 
 @router.post("/documents/{doc_id}/publish")
-def publish_document(doc_id: str) -> dict:
+def publish_document(
+    doc_id: str, current_user: dict = Depends(_current_user)
+) -> dict:
     with SessionLocal() as session:
         doc = _load(session, doc_id)
         if doc.status != DocStatus.SIGNED:
             raise HTTPException(409, "оприлюднення лише після підписання всіма")
         doc.status = DocStatus.PUBLISHED
-        _audit(session, doc, "published")
+        _audit(session, doc, "published", actor=current_user.get("name", ""))
         session.commit()
         return _doc_to_dict(doc)
 
 
 @router.post("/documents/{doc_id}/archive")
-def archive_document(doc_id: str) -> dict:
+def archive_document(
+    doc_id: str, current_user: dict = Depends(_current_user)
+) -> dict:
     with SessionLocal() as session:
         doc = _load(session, doc_id)
         if doc.archived_at is None:
             doc.archived_at = dt.datetime.now(dt.timezone.utc)
-            _audit(session, doc, "archived")
+            _audit(session, doc, "archived", actor=current_user.get("name", ""))
             session.commit()
         return _doc_to_dict(doc)
 
 
 @router.post("/documents/{doc_id}/unarchive")
-def unarchive_document(doc_id: str) -> dict:
+def unarchive_document(
+    doc_id: str, current_user: dict = Depends(_current_user)
+) -> dict:
     with SessionLocal() as session:
         doc = _load(session, doc_id)
         if doc.archived_at is not None:
             doc.archived_at = None
-            _audit(session, doc, "unarchived")
+            _audit(session, doc, "unarchived", actor=current_user.get("name", ""))
             session.commit()
         return _doc_to_dict(doc)

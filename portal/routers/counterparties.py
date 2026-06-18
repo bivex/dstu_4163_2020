@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from portal.db import Counterparty, SessionLocal
+from portal.auth import _current_user
 
-router = APIRouter(tags=["counterparties"])
+router = APIRouter(tags=["counterparties"], dependencies=[Depends(_current_user)])
 
 
 def _counterparty_to_dict(c: Counterparty) -> dict:
