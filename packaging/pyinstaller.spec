@@ -43,6 +43,10 @@ hiddenimports = [
     'portal.db', 'portal.scan_ingest', 'portal.domain_bridge', 'portal.helpers',
     # роутери (збираємо всі)
     *collect_submodules('portal.routers'),
+    # reportlab: barcode-модулі імпортуються динамічно (code93/code128/qr/...)
+    # — PyInstaller їх не бачить статично → generate() падав з ModuleNotFoundError.
+    *collect_submodules('reportlab.graphics.barcode'),
+    *collect_submodules('reportlab.graphics'),
     # доменне ядро
     'dilovod4.infrastructure.uapki', 'dilovod4.infrastructure.pdf_writer',
     'dilovod4.infrastructure.docx_writer', 'dilovod4.infrastructure.fonts',

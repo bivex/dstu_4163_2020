@@ -88,10 +88,10 @@ def main() -> None:
     server_thread.start()
 
     if _wait_for_health():
-        webbrowser.open("http://localhost:8000")
+        webbrowser.open("http://localhost:8000/login")
     else:
         # Сервер піднімається довго — відкриваємо anyhow, користувач дочекається.
-        webbrowser.open("http://localhost:8000")
+        webbrowser.open("http://localhost:8000/login")
 
     # Блокуємо, поки сервер живий (додаток «відкритий»).
     try:

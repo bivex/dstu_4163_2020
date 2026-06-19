@@ -143,13 +143,27 @@ if not _WEB_DIR.is_dir():
 _EUSIGN_DIR = _HERE.parent / "external" / "EUSignES6"
 
 
+def _spa_shell() -> Path | None:
+    """Шлях до Nuxt SPA-shell.
+
+    Nuxt static-export створює:
+      - index.html — лише meta-refresh (бо index.vue робить navigateTo('/login')
+        при prerender), НЕ містить JS/__nuxt — віддавати її не можна.
+      - 200.html — справжній SPA-shell з <div id=__nuxt>, _nuxt/*.js, конфігом.
+    Тому віддаємо 200.html; fallback на index.html лише якщо 200.html нема."""
+    for name in ("200.html", "index.html"):
+        f = _WEB_DIR / name
+        if f.is_file():
+            return f
+    return None
+
+
 @app.get("/", response_model=None)
 def _root():
-    # Якщо є Nuxt-статика — віддаємо SPA-shell index.html (роутер сам редиректне
-    # на /login). Інакше — fallback на API-документацію.
-    index = _WEB_DIR / "index.html"
-    if index.is_file():
-        return FileResponse(str(index))
+    # Nuxt SPA-shell — роутер на клієнті сам розбереться з /login, /dashboard.
+    shell = _spa_shell()
+    if shell:
+        return FileResponse(str(shell))
     return RedirectResponse(url="/docs")
 
 
@@ -198,12 +212,10 @@ if _WEB_DIR.is_dir():
     app.mount("/web", StaticFiles(directory=str(_WEB_DIR), html=True), name="web")
 
 
-# SPA catch-all: невідомі GET-шляхи (крім API/static) → index.html, щоб
-# Vue-router взяв управління клієнтським роутингом (/login, /dashboard тощо).
+# SPA catch-all: невідомі GET-шляхи (крім API/static) → SPA-shell (200.html),
+# щоб Vue-router взяв управління клієнтським роутингом (/login, /dashboard).
 # Реєструється ОСТАННІМ — після всіх API-роутів і mount-ів, інакше перехопить їх.
-if (_WEB_DIR / "index.html").is_file():
-    _SPA_INDEX = _WEB_DIR / "index.html"
-
+if _spa_shell():
     @app.get("/{full_path:path}", response_model=None, include_in_schema=False)
     def _spa_fallback(full_path: str):
         # Пропускаємо явно API/static-префікси (вже оброблені вище) — 404 як було.
@@ -216,5 +228,6 @@ if (_WEB_DIR / "index.html").is_file():
         candidate = _WEB_DIR / full_path
         if candidate.is_file():
             return FileResponse(str(candidate))
-        # Інакше — SPA-shell, роутер розбереться на клієнті.
-        return FileResponse(str(_SPA_INDEX))
+        # Інакше — SPA-shell (200.html з __nuxt + JS), роутер розбереться на клієнті.
+        shell = _spa_shell()
+        return FileResponse(str(shell)) if shell else Response(status_code=404)
