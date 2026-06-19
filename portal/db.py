@@ -13,6 +13,8 @@ from __future__ import annotations
 import datetime as dt
 import enum
 import os
+import sys
+from pathlib import Path
 
 from sqlalchemy import (
     DateTime,
@@ -32,7 +34,20 @@ from sqlalchemy.orm import (
     sessionmaker,
 )
 
-DATABASE_URL = os.environ.get("PORTAL_DATABASE_URL", "sqlite:////data/portal.db")
+def _default_db_path() -> str:
+    """Дефолтний шлях SQLite-БД за платформою.
+
+    macOS (packaged-app): ~/Library/Application Support/dms-dir/portal.db —
+    переживає видалення .app. Docker/інші: /data/portal.db (том контейнера).
+    Явний PORTAL_DATABASE_URL завжди має пріоритет (див. нижче)."""
+    if sys.platform == "darwin":
+        d = Path.home() / "Library" / "Application Support" / "dms-dir"
+        d.mkdir(parents=True, exist_ok=True)
+        return f"sqlite:///{d / 'portal.db'}"
+    return "sqlite:////data/portal.db"
+
+
+DATABASE_URL = os.environ.get("PORTAL_DATABASE_URL") or _default_db_path()
 
 # SQLite потребує check_same_thread=False для багатопотокового FastAPI.
 _connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}

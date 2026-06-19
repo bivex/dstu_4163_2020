@@ -48,3 +48,5 @@ portal/portal.db.empty-bak
 portal/portal.db.fromvolume
 portal/web/pnpm-lock.yaml
 /.playwright-mcp
+/portal/web
+/portal/web/vendor

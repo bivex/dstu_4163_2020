@@ -15,7 +15,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .db import init_db
@@ -134,12 +134,22 @@ async def proxy_handler(request: Request, address: str = Query(...)) -> Response
 
 # --- статика: фронт + бібліотека EUSign ---
 _HERE = Path(__file__).resolve().parent
-_WEB_DIR = _HERE / "web"
+# пріоритет: NUXT_OUTPUT (env, ставить launcher/збірка), потім dev-шлях до
+# згенерованого Nuxt-виводу, потім fallback на portal/web/ (стара статика).
+_WEB_DIR = Path(os.environ.get("NUXT_OUTPUT",
+               _HERE.parent / "external" / "dms-dir" / ".output" / "public"))
+if not _WEB_DIR.is_dir():
+    _WEB_DIR = _HERE / "web"
 _EUSIGN_DIR = _HERE.parent / "external" / "EUSignES6"
 
 
-@app.get("/")
-def _root() -> RedirectResponse:
+@app.get("/", response_model=None)
+def _root():
+    # Якщо є Nuxt-статика — віддаємо SPA-shell index.html (роутер сам редиректне
+    # на /login). Інакше — fallback на API-документацію.
+    index = _WEB_DIR / "index.html"
+    if index.is_file():
+        return FileResponse(str(index))
     return RedirectResponse(url="/docs")
 
 
@@ -177,8 +187,34 @@ def cas_json() -> Response:
 
 if _EUSIGN_DIR.is_dir():
     app.mount("/eusign", StaticFiles(directory=str(_EUSIGN_DIR)), name="eusign")
+    # Аліас /api/eusign для статичної збірки Nuxt: у dev фронт йде через Nuxt-proxy
+    # /api/eusign/** → /eusign/**, але в packaged-app (Nuxt як статика) проксі
+    # нема, тож маунтим той самий каталог під другим шляхом.
+    app.mount("/api/eusign", StaticFiles(directory=str(_EUSIGN_DIR)), name="eusign_api")
     _SIGNDATA = _EUSIGN_DIR / "signdata"
     if _SIGNDATA.is_dir():
         app.mount("/signdata", StaticFiles(directory=str(_SIGNDATA)), name="signdata")
 if _WEB_DIR.is_dir():
     app.mount("/web", StaticFiles(directory=str(_WEB_DIR), html=True), name="web")
+
+
+# SPA catch-all: невідомі GET-шляхи (крім API/static) → index.html, щоб
+# Vue-router взяв управління клієнтським роутингом (/login, /dashboard тощо).
+# Реєструється ОСТАННІМ — після всіх API-роутів і mount-ів, інакше перехопить їх.
+if (_WEB_DIR / "index.html").is_file():
+    _SPA_INDEX = _WEB_DIR / "index.html"
+
+    @app.get("/{full_path:path}", response_model=None, include_in_schema=False)
+    def _spa_fallback(full_path: str):
+        # Пропускаємо явно API/static-префікси (вже оброблені вище) — 404 як було.
+        if (full_path.startswith(("auth/", "documents", "users", "folders",
+                                   "counterparties", "registry", "journals",
+                                   "processes", "tasks"))
+                or full_path in ("openapi.json", "docs", "redoc", "health")):
+            raise HTTPException(404)
+        # Якщо шлях збігає з реальним файлом у статиці — віддаємо файл (assets, _nuxt).
+        candidate = _WEB_DIR / full_path
+        if candidate.is_file():
+            return FileResponse(str(candidate))
+        # Інакше — SPA-shell, роутер розбереться на клієнті.
+        return FileResponse(str(_SPA_INDEX))

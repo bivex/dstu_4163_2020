@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Еталонний Info.plist для «Діловод.app».
+
+PyInstaller генерує фінальний Info.plist з info_plist-дикту в pyinstaller.spec,
+тому цей файл — лише довідник/шаблон для ручного редагування або прямого
+застосування поза spec (напр. при перевиданні без перезбірки).
+
+Применение після збірки (опц.):
+  plutil -p dist/Діловод.app/Contents/Info.plist   # перевірити
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>uk</string>
+    <key>CFBundleDisplayName</key>
+    <string>Діловод</string>
+    <key>CFBundleExecutable</key>
+    <string>Dilovod</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon.icns</string>
+    <key>CFBundleIdentifier</key>
+    <string>ua.dilovod.dms-dir</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>Діловод</string>
+    <key>CFBundleDisplayName</key>
+    <string>Діловод</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleSignature</key>
+    <string>????</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>11.0</string>
+    <!-- Показуватись у Dock та меню (не фоновий сервіс) -->
+    <key>LSUIElement</key>
+    <false/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <!-- Дозволити http://localhost:8000 (нерозподілена ATS-модель) -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
+    <key>NSHumanReadableCopyright</key>
+    <string>© Діловод, MIT</string>
+</dict>
+</plist>
