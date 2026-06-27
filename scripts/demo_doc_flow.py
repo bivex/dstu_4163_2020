@@ -34,6 +34,7 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime
+from pathlib import Path
 
 BASE = "http://localhost:8000"
 
@@ -115,7 +116,34 @@ def main() -> int:
     doc_id = f"DEMO-FLOW-{datetime.now().strftime('%H%M%S')}"
     print(f"Документ: {doc_id}")
     print(f"Портал: {BASE}")
-    print("Сценарій: кадри → погодження(юр+бух) → підпис(директор) → публікація")
+    print("Сценарій: кадри → погодження(юр+бух) → печатка+директор → публікація")
+
+    # Визначити CN печатки з PORTAL_SEAL_P12 (для підписанта-печатки у черзі).
+    # Без PORTAL_SEAL_P12 демо печатки пропускається — лише КЕП директора.
+    import os
+    seal_p12 = os.environ.get("PORTAL_SEAL_P12")
+    seal_pass = os.environ.get("PORTAL_SEAL_PASSWORD", "")
+    seal_cn = ""
+    if seal_p12 and args.use_server_seal:
+        try:
+            sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+            from dilovod4.infrastructure.uapki import UapkiClient
+            DATA = Path(__file__).resolve().parent.parent / "external" / "UAPKI" / "library" / "test" / "data"
+            with UapkiClient() as cli:
+                cli.init(str(DATA / "certs"), str(DATA / "crls"), offline=True)
+                cli.open_pkcs12(seal_p12, seal_pass)
+                cli.select_key(cli.list_keys()[0]["id"])
+                cert_id = cli.call("SELECT_KEY", {"id": cli.list_keys()[0]["id"]}).get("certId")
+                if cert_id:
+                    info = cli.call("CERT_INFO", {"bytes": cert_id})
+                    seal_cn = info.get("subjectCN", "")
+            print(f"CN печатки (PORTAL_SEAL_P12): {seal_cn}")
+        except Exception as e:  # noqa: BLE001
+            print(f"[WARN] не вдалося визначити CN печатки: {e}")
+    if not seal_cn:
+        # дефолт для тестового ключа ДІЯ
+        seal_cn = "ДП ДІЯ (Тестування)"
+        print(f"CN печатки (дефолт): {seal_cn}")
 
     # ── 1. CLERK створює наказ ──────────────────────────────────────────
     banner("1️⃣  CLERK (Іваненко О.Г., кадри) створює наказ")
@@ -144,10 +172,17 @@ def main() -> int:
             {"order_index": 0, "full_name": "Бойко Андрій Вікторович", "position": "Начальник юридичного відділу"},
             {"order_index": 1, "full_name": "Бондаренко Наталія Петрівна", "position": "Головний бухгалтер"},
         ],
-        # підписант: директор (КЕП особи)
-        "signers": [
-            {"order_index": 0, "full_name": "Кравченко Олександр Михайлович", "position": "Генеральний директор", "signer_type": "person"},
-        ],
+        # підписанти (черга). З --use-server-seal: спершу ПЕЧАТКА юрособи
+        # (CN збігається з PORTAL_SEAL_P12), потім ДИРЕКТОР (КЕП). Без печатки —
+        # лише директор (інакше печатка застрягне, директор не стане активним).
+        "signers": (
+            [
+                {"order_index": 0, "full_name": seal_cn, "position": "Юрособа", "signer_type": "seal"},
+                {"order_index": 1, "full_name": "Кравченко Олександр Михайлович", "position": "Генеральний директор", "signer_type": "person"},
+            ] if args.use_server_seal else [
+                {"order_index": 0, "full_name": "Кравченко Олександр Михайлович", "position": "Генеральний директор", "signer_type": "person"},
+            ]
+        ),
         "retention_years": 75,  # кадрові документи — тривалий строк
     }
     st, d = _req("POST", "/documents", token=tok, body=body)
@@ -200,12 +235,25 @@ def main() -> int:
         print("\n  [--skip-sign] зупиняємось тут. Документ у черзі підписання.")
         return 0
 
-    # 3a. директор підписує (КЕП — потрібен сертифікат)
+    tok_admin = login("admin@dilovod.local", "admin")
+
+    # 3a. ПЕЧАТКА юрособи (перший підписант, index 0) — через server-seal.
+    #     CN підписанта-печатки має збігатися з organization_cert_cn автора
+    #     печатки (див. _is_active_signer). Admin — службова заміна, пропускає.
+    if args.use_server_seal:
+        print(f"\n  → активний підписант #0: ПЕЧАТКА юрособи ({seal_cn})")
+        st, d = _req("POST", f"/documents/{doc_id}/server-seal", token=tok_admin)
+        print(f"    server-seal: {st} — {d.get('status', d) if isinstance(d, dict) else d}")
+        if st != 200:
+            print(f"    [деталь] {d}")
+        doc_state(tok_admin, doc_id)
+
+    # 3b. ДИРЕКТОР підписує КЕП (другий підписант, index 1).
     tok_s = login(SIGNER, PASS)
-    print(f"\n  → активний підписант: {who(tok_s)}")
+    order = 1 if args.use_server_seal else 0
+    print(f"\n  → активний підписант #{order}: {who(tok_s)}")
     print("    Підпис КЕП вимагає сертифіката (EUSign/UAPKI).")
     print("    Для демо-пропуску підписуємо admin-ом (службова заміна).")
-    tok_admin = login("admin@dilovod.local", "admin")
     # отримаємо маніфест (бінарний контент, не JSON)
     try:
         req = urllib.request.Request(f"{BASE}/documents/{doc_id}/manifest",
@@ -222,7 +270,6 @@ def main() -> int:
         # підпишемо маніфест реальним КНЕДП-ключем через UAPKI, якщо є
         try:
             import base64
-            from pathlib import Path
             sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
             from dilovod4.infrastructure.uapki import UapkiClient, UapkiError
             DATA = Path(__file__).resolve().parent.parent / "external" / "UAPKI" / "library" / "test" / "data"
@@ -234,17 +281,11 @@ def main() -> int:
                                      detached=True, include_cert=True, ignore_cert_status=True)
                 sig_b64 = sig["bytes"]
             st, d = _req("POST", f"/documents/{doc_id}/sign", token=tok_admin,
-                         body={"signer_order_index": 0, "signature_b64": sig_b64})
+                         body={"signer_order_index": order, "signature_b64": sig_b64})
             print(f"    підписано КЕП (ДІЯ): {st} — {d.get('status', d)}")
         except Exception as e:  # noqa: BLE001
             print(f"    підпис КЕП пропущено: {e}")
             print("    (libuapki/ключ недоступні — використайте --skip-sign)")
-
-    # 3b. серверна печатка (опц.)
-    if args.use_server_seal:
-        print("\n  → накладаємо серверну печатку юрособи")
-        st, d = _req("POST", f"/documents/{doc_id}/server-seal", token=tok_admin)
-        print(f"    server-seal: {st} — {d.get('status', d) if isinstance(d, dict) else d}")
 
     doc_state(tok_s, doc_id)
 
