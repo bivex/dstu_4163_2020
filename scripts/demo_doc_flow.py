@@ -172,13 +172,14 @@ def main() -> int:
             {"order_index": 0, "full_name": "Бойко Андрій Вікторович", "position": "Начальник юридичного відділу"},
             {"order_index": 1, "full_name": "Бондаренко Наталія Петрівна", "position": "Головний бухгалтер"},
         ],
-        # підписанти (черга). З --use-server-seal: спершу ПЕЧАТКА юрособи
-        # (CN збігається з PORTAL_SEAL_P12), потім ДИРЕКТОР (КЕП). Без печатки —
-        # лише директор (інакше печатка застрягне, директор не стане активним).
+        # підписанти (черга). Правильна діловая черговість для наказу:
+        # спершу посадова особа підписує КЕПом за ПІБ (директор), ПОТІМ юрособа
+        # накладає електронну печатку як фінальне завірення організації.
+        # Без --use-server-seal створюється лише директор.
         "signers": (
             [
-                {"order_index": 0, "full_name": seal_cn, "position": "Юрособа", "signer_type": "seal"},
-                {"order_index": 1, "full_name": "Кравченко Олександр Михайлович", "position": "Генеральний директор", "signer_type": "person"},
+                {"order_index": 0, "full_name": "Кравченко Олександр Михайлович", "position": "Генеральний директор", "signer_type": "person"},
+                {"order_index": 1, "full_name": seal_cn, "position": "Юрособа", "signer_type": "seal"},
             ] if args.use_server_seal else [
                 {"order_index": 0, "full_name": "Кравченко Олександр Михайлович", "position": "Генеральний директор", "signer_type": "person"},
             ]
@@ -237,21 +238,11 @@ def main() -> int:
 
     tok_admin = login("admin@dilovod.local", "admin")
 
-    # 3a. ПЕЧАТКА юрособи (перший підписант, index 0) — через server-seal.
-    #     CN підписанта-печатки має збігатися з organization_cert_cn автора
-    #     печатки (див. _is_active_signer). Admin — службова заміна, пропускає.
-    if args.use_server_seal:
-        print(f"\n  → активний підписант #0: ПЕЧАТКА юрособи ({seal_cn})")
-        st, d = _req("POST", f"/documents/{doc_id}/server-seal", token=tok_admin)
-        print(f"    server-seal: {st} — {d.get('status', d) if isinstance(d, dict) else d}")
-        if st != 200:
-            print(f"    [деталь] {d}")
-        doc_state(tok_admin, doc_id)
-
-    # 3b. ДИРЕКТОР підписує КЕП (другий підписант, index 1).
+    # 3a. ДИРЕКТОР підписує КЕП (перший підписант, index 0) — за ПІБ.
+    #     Це правильна діловая черговість: посадова особа підписує від свого імені,
+    #     потім юрособа накладає печатку.
     tok_s = login(SIGNER, PASS)
-    order = 1 if args.use_server_seal else 0
-    print(f"\n  → активний підписант #{order}: {who(tok_s)}")
+    print(f"\n  → активний підписант #0: {who(tok_s)} (КЕП за ПІБ)")
     print("    Підпис КЕП вимагає сертифіката (EUSign/UAPKI).")
     print("    Для демо-пропуску підписуємо admin-ом (службова заміна).")
     # отримаємо маніфест (бінарний контент, не JSON)
@@ -281,13 +272,24 @@ def main() -> int:
                                      detached=True, include_cert=True, ignore_cert_status=True)
                 sig_b64 = sig["bytes"]
             st, d = _req("POST", f"/documents/{doc_id}/sign", token=tok_admin,
-                         body={"signer_order_index": order, "signature_b64": sig_b64})
+                         body={"signer_order_index": 0, "signature_b64": sig_b64})
             print(f"    підписано КЕП (ДІЯ): {st} — {d.get('status', d)}")
         except Exception as e:  # noqa: BLE001
             print(f"    підпис КЕП пропущено: {e}")
             print("    (libuapki/ключ недоступні — використайте --skip-sign)")
 
     doc_state(tok_s, doc_id)
+
+    # 3b. ПЕЧАТКА юрособи (другий підписант, index 1) — фінальне завірення
+    #     організації через server-seal. CN підписанта-печатки має збігатися з
+    #     organization_cert_cn автора печатки. Admin — службова заміна, пропускає.
+    if args.use_server_seal:
+        print(f"\n  → активний підписант #1: ПЕЧАТКА юрособи ({seal_cn}) — фінальне завірення")
+        st, d = _req("POST", f"/documents/{doc_id}/server-seal", token=tok_admin)
+        print(f"    server-seal: {st} — {d.get('status', d) if isinstance(d, dict) else d}")
+        if st != 200:
+            print(f"    [деталь] {d}")
+        doc_state(tok_admin, doc_id)
 
     # ── 4. PUBLISH ──────────────────────────────────────────────────────
     _, d = _req("GET", f"/documents/{doc_id}", token=tok_s)
