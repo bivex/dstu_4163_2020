@@ -37,7 +37,16 @@ python scripts/gen_test_certs.py --out samples/test_certs/
 # пароль PKCS#12: testpassword
 ```
 Сертифікати — криптографічно валідні ECDSA P-256 з українськими QC-розширеннями
-(сумісні з EUSign/openssl/UAPKI). Генератор: `dilovod4.infrastructure.test_cert_factory`.
+(сумісні з openssl/UAPKI). Генератор: `dilovod4.infrastructure.test_cert_factory`.
+
+⚠ **Формат PBES2/AES-256** — придатний лише для **серверного** підпису (UAPKI
+приймає будь-який .p12) та openssl. **EUSign WASM (клієнтський UI) відкриває лише
+ГОСТ-контейнери** (DSTU Gost 34311 MAC) — помилка 24 на PBES2. Для клієнтського
+UI-тесту використовуйте готовий ГОСТ `samples/test_certs/client_diia.p12`
+(пароль `testpassword`) — копію тестового контейнера ДІЯ. Деталі:
+`samples/test_certs/README.md`. Генератор ГОСТ-сертифікатів потребував би міні-CA
+над UAPKI (cryptography не парсить DSTU SPKI) — не реалізовано.
+
 
 ### Серверний підпис печаткою юрособи
 
