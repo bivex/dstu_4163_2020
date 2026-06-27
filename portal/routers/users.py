@@ -18,6 +18,7 @@ class UserSchema(BaseModel):
     kep_subject_cn: str | None = None
     kep_serial_number: str | None = None
     kep_certificate_serial: str | None = None
+    organization_cert_cn: str | None = None
 
     class Config:
         from_attributes = True
@@ -33,6 +34,7 @@ def _user_to_dict(u: User) -> dict:
         "kep_subject_cn": u.kep_subject_cn,
         "kep_serial_number": u.kep_serial_number,
         "kep_certificate_serial": u.kep_certificate_serial,
+        "organization_cert_cn": u.organization_cert_cn,
     }
 
 

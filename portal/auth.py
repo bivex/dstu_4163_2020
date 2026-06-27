@@ -19,6 +19,10 @@ def _make_token(user: User) -> str:
         "position": user.position,
         # роль у токен — фронт одразу знає права без додаткового запиту
         "role": user.role,
+        # КЕП особи (kep_subject_cn) та печатка юрособи (organization_cert_cn) —
+        # щоб _is_active_signer перевіряв право підпису без додаткового запиту БД.
+        "kep_subject_cn": user.kep_subject_cn,
+        "organization_cert_cn": user.organization_cert_cn,
         "exp": dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=_JWT_TTL_HOURS),
     }
     return jwt.encode(payload, _JWT_SECRET, algorithm=_JWT_ALGO)

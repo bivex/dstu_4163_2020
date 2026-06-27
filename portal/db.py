@@ -243,6 +243,14 @@ class Signer(Base):
     signed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # підпис CMS/p7s цього підписувача (для збирання ASiC-E)
     signature: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    # тип підписанта: "person" (КЕП особи) або "seal" (електронна печатка
+    # юрособи/ФОП). Дефолт "person" — зворотна сумісність; "seal" виставляється
+    # автоматично, коли прийнятий CMS несе eSeal-сертифікат (QC type eseal).
+    signer_type: Mapped[str] = mapped_column(String(16), default="person")
+    # дані печатки (eSeal): організація та ідентифікатор (ЄДРПОУ/РНОКПП) з
+    # сертифіката. Для person-підписанта лишається порожнім.
+    organization: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    identifier: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     document: Mapped[Document] = relationship(back_populates="signers")
 
@@ -357,6 +365,10 @@ class User(Base):
     kep_serial_number: Mapped[str | None] = mapped_column(String(256), unique=True, index=True, nullable=True)
     kep_certificate_serial: Mapped[str | None] = mapped_column(String(256), index=True, nullable=True)
     kep_subject_cn: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    # CN сертифіката ЕЛЕКТРОННОЇ ПЕЧАТКИ юрособи, прив'язаного в кабінеті (окремо
+    # від kep_* — КЕП особи). Використовується _is_active_signer: печатку може
+    # накласти лише користувач, чия organization_cert_cn збігається з CN печатки.
+    organization_cert_cn: Mapped[str | None] = mapped_column(String(256), nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     @staticmethod
@@ -432,6 +444,27 @@ def init_db() -> None:
                 conn.execute(
                     text("ALTER TABLE users ADD COLUMN role VARCHAR(32) NOT NULL DEFAULT 'clerk'")
                 )
+            # CN сертифіката електронної печатки юрособи (окремо від КЕП особи)
+            if "organization_cert_cn" not in u_cols:
+                conn.execute(
+                    text("ALTER TABLE users ADD COLUMN organization_cert_cn VARCHAR(256)")
+                )
+
+    if "signers" in insp.get_table_names():
+        s_cols = {c["name"] for c in insp.get_columns("signers")}
+        with engine.begin() as conn:
+            # тип підписанта: person (КЕП) | seal (електронна печатка юрособи)
+            if "signer_type" not in s_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE signers ADD COLUMN signer_type VARCHAR(16) DEFAULT 'person'"
+                    )
+                )
+            # дані печатки (eSeal): організація та ідентифікатор
+            if "organization" not in s_cols:
+                conn.execute(text("ALTER TABLE signers ADD COLUMN organization VARCHAR(256)"))
+            if "identifier" not in s_cols:
+                conn.execute(text("ALTER TABLE signers ADD COLUMN identifier VARCHAR(128)"))
 
     if "documents" in insp.get_table_names():
         cols = {c["name"] for c in insp.get_columns("documents")}

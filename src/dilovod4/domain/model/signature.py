@@ -33,6 +33,15 @@ class ElectronicSignatureMark:
     # лише у сертифікатах із даними про звʼязок особи з юрособою (сертифікат
     # працівника). Якщо задано — друкується у відмітці; інакше не виводиться.
     signer_position: str = ""
+    # Тип відмітки: "esign" (КЕП особи) чи "eseal" (електронна печатка юрособи/
+    # ФОП, Art.18). Визначає вигляд відмітки в документі та QR-пейлоад. Дефолт
+    # "esign" — зворотна сумісність (існуючі КЕП-відмітки).
+    kind: str = "esign"
+    # Організація (O RDN) — лише для eSeal: назва юрособи/ФОП-підприємця.
+    organization: str = ""
+    # Ідентифікатор: РНОКПП (для eSign, фізособа) або organizationIdentifier
+    # (NTRUA-ЄДРПОУ, для eSeal). Береться з сертифіката, не від користувача.
+    identifier: str = ""
 
     def __post_init__(self) -> None:
         if not self.signer.strip():
@@ -51,6 +60,12 @@ class ElectronicSignatureMark:
 
     @property
     def signature_kind(self) -> str:
+        if self.kind == "eseal":
+            return (
+                "Кваліфікована електронна печатка"
+                if self.is_qualified
+                else "Удосконалена електронна печатка"
+            )
         return (
             "Кваліфікований електронний підпис"
             if self.is_qualified

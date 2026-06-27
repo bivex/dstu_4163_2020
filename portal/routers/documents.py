@@ -6,7 +6,14 @@ import zipfile
 import json
 from fastapi import APIRouter, Body, Depends, HTTPException, File, Form, UploadFile, Response
 from portal.db import (
-    Document, DocStatus, SessionLocal, Signer, SignerStatus, Approver, ApproverStatus, UserRole
+    Document,
+    DocStatus,
+    SessionLocal,
+    Signer,
+    SignerStatus,
+    Approver,
+    ApproverStatus,
+    UserRole,
 )
 from portal.auth import _current_user, _require_role
 from portal import domain_bridge as bridge
@@ -42,6 +49,7 @@ def create_document(payload: dict = Body(...), current_user: dict = Depends(_cur
                         position=str(s.get("position", "")),
                         order_index=int(s.get("order_index", 0)),
                         status=SignerStatus.WAITING,
+                        signer_type=str(s.get("signer_type", "person")),
                     )
                 )
             for i, a in enumerate(payload.get("approvers", [])):
@@ -51,7 +59,7 @@ def create_document(payload: dict = Body(...), current_user: dict = Depends(_cur
                         user_id=int(a["user_id"]) if a.get("user_id") else None,
                         full_name=str(a.get("full_name", "")),
                         position=str(a.get("position", "")),
-                        status=ApproverStatus.WAITING
+                        status=ApproverStatus.WAITING,
                     )
                 )
             _audit(session, existing, "updated")
@@ -77,6 +85,9 @@ def create_document(payload: dict = Body(...), current_user: dict = Depends(_cur
                     full_name=str(s["full_name"]),
                     position=str(s.get("position", "")),
                     status=SignerStatus.WAITING,
+                    # тип підписанта: person (КЕП особи) | seal (електронна печатка
+                    # юрособи). Дефолт person — зворотна сумісність.
+                    signer_type=str(s.get("signer_type", "person")),
                 )
             )
         for i, a in enumerate(payload.get("approvers", [])):
@@ -86,12 +97,17 @@ def create_document(payload: dict = Body(...), current_user: dict = Depends(_cur
                     user_id=int(a["user_id"]) if a.get("user_id") else None,
                     full_name=str(a.get("full_name", "")),
                     position=str(a.get("position", "")),
-                    status=ApproverStatus.WAITING
+                    status=ApproverStatus.WAITING,
                 )
             )
         session.add(doc)
         session.flush()
-        _audit(session, doc, "created", detail=f"signers={len(doc.signers)} approvers={len(doc.approvers)}")
+        _audit(
+            session,
+            doc,
+            "created",
+            detail=f"signers={len(doc.signers)} approvers={len(doc.approvers)}",
+        )
         session.commit()
         return _doc_to_dict(doc)
 
@@ -103,6 +119,7 @@ async def ingest_scan(
     title: str = Form(""),
     signers: str = Form(""),
     retention_years: int = Form(5),
+    scan_date: str | None = Form(None),
     current_user: dict = Depends(_current_user),
 ) -> dict:
     from portal import scan_ingest
@@ -111,13 +128,10 @@ async def ingest_scan(
     if not scan_ingest.is_supported(file.content_type or "", file.filename or ""):
         raise HTTPException(
             415,
-            "непідтримуваний тип скану — приймаються PDF або зображення "
-            "(JPEG/PNG/TIFF/BMP/WEBP)",
+            "непідтримуваний тип скану — приймаються PDF або зображення (JPEG/PNG/TIFF/BMP/WEBP)",
         )
     try:
-        pdf_bytes = scan_ingest.normalize_to_pdf(
-            data, file.content_type or "", file.filename or ""
-        )
+        pdf_bytes = scan_ingest.normalize_to_pdf(data, file.content_type or "", file.filename or "")
     except scan_ingest.ScanError as exc:
         raise HTTPException(422, str(exc))
 
@@ -126,11 +140,13 @@ async def ingest_scan(
         if not line:
             continue
         parts = [p.strip() for p in line.split("|", 1)]
-        parsed_signers.append({
-            "full_name": parts[0],
-            "position": parts[1] if len(parts) > 1 else "",
-            "order_index": i,
-        })
+        parsed_signers.append(
+            {
+                "full_name": parts[0],
+                "position": parts[1] if len(parts) > 1 else "",
+                "order_index": i,
+            }
+        )
 
     with SessionLocal() as session:
         existing = session.query(Document).filter_by(doc_id=doc_id).first()
@@ -143,20 +159,31 @@ async def ingest_scan(
         doc.is_scanned = True
         doc.rendered = pdf_bytes
         doc.rendered_marked = None
-        doc.content_json = bridge.content_to_json({
-            "doc_id": doc_id, "title": doc.title, "fmt": "pdf",
-            "is_scanned": True, "doc_type": "Скан-копія",
-        })
+        doc.content_json = bridge.content_to_json(
+            {
+                "doc_id": doc_id,
+                "title": doc.title,
+                "fmt": "pdf",
+                "is_scanned": True,
+                "doc_type": "Скан-копія",
+            }
+        )
         if doc.retention_until is None:
             doc.retention_until = dt.datetime.now(dt.timezone.utc) + dt.timedelta(
                 days=365 * retention_years
             )
+        if scan_date:
+            manual_dt = dt.datetime.fromisoformat(scan_date).replace(tzinfo=dt.timezone.utc)
+            if manual_dt > dt.datetime.now(dt.timezone.utc):
+                raise HTTPException(422, "дата скану не може бути в майбутньому")
+            doc.created_at = manual_dt
         try:
             from dilovod4.infrastructure.pdfa_inspector import inspect_pdfa
+
             chk = inspect_pdfa(pdf_bytes, require_xmp=False)
             doc.conformance_json = json.dumps(
-                {"conforms": chk.conforms, "findings": list(chk.findings),
-                 "scanned": True}, ensure_ascii=False
+                {"conforms": chk.conforms, "findings": list(chk.findings), "scanned": True},
+                ensure_ascii=False,
             )
         except Exception:
             pass
@@ -164,15 +191,23 @@ async def ingest_scan(
             session.delete(s)
         session.flush()
         for s in parsed_signers:
-            doc.signers.append(Signer(
-                order_index=s["order_index"], full_name=s["full_name"],
-                position=s["position"], status=SignerStatus.WAITING,
-            ))
+            doc.signers.append(
+                Signer(
+                    order_index=s["order_index"],
+                    full_name=s["full_name"],
+                    position=s["position"],
+                    status=SignerStatus.WAITING,
+                )
+            )
         if doc.id is None:
             session.add(doc)
         session.flush()
-        _audit(session, doc, "scanned",
-               detail=f"file={file.filename} size={len(data)} signers={len(parsed_signers)}")
+        _audit(
+            session,
+            doc,
+            "scanned",
+            detail=f"file={file.filename} size={len(data)} signers={len(parsed_signers)}",
+        )
         session.commit()
         return _doc_to_dict(doc)
 
@@ -293,26 +328,31 @@ def import_documents_json(
                 )
 
                 for s in item.get("signers", []):
-                    doc.signers.append(Signer(
-                        order_index=int(s.get("order_index", 0)),
-                        full_name=str(s.get("full_name", "")),
-                        position=str(s.get("position", "")),
-                        status=SignerStatus.WAITING,
-                    ))
+                    doc.signers.append(
+                        Signer(
+                            order_index=int(s.get("order_index", 0)),
+                            full_name=str(s.get("full_name", "")),
+                            position=str(s.get("position", "")),
+                            status=SignerStatus.WAITING,
+                        )
+                    )
 
                 for i, a in enumerate(item.get("approvers", [])):
-                    doc.approvers.append(Approver(
-                        order_index=int(a.get("order_index", i)),
-                        user_id=int(a["user_id"]) if a.get("user_id") else None,
-                        full_name=str(a.get("full_name", "")),
-                        position=str(a.get("position", "")),
-                        status=ApproverStatus.WAITING,
-                    ))
+                    doc.approvers.append(
+                        Approver(
+                            order_index=int(a.get("order_index", i)),
+                            user_id=int(a["user_id"]) if a.get("user_id") else None,
+                            full_name=str(a.get("full_name", "")),
+                            position=str(a.get("position", "")),
+                            status=ApproverStatus.WAITING,
+                        )
+                    )
 
                 session.add(doc)
                 session.flush()
                 _audit(
-                    session, doc,
+                    session,
+                    doc,
                     "imported",
                     actor=current_user.get("name", ""),
                     detail=f"відновлено з бекапу: {doc.title}",
@@ -368,7 +408,7 @@ def edit_document(
                         user_id=int(a["user_id"]) if a.get("user_id") else None,
                         full_name=str(a.get("full_name", "")),
                         position=str(a.get("position", "")),
-                        status=ApproverStatus.WAITING
+                        status=ApproverStatus.WAITING,
                     )
                 )
         merged = bridge.content_from_json(doc.content_json)
@@ -380,9 +420,7 @@ def edit_document(
 
 
 @router.post("/documents/{doc_id}/generate")
-def generate_document(
-    doc_id: str, current_user: dict = Depends(_current_user)
-) -> dict:
+def generate_document(doc_id: str, current_user: dict = Depends(_current_user)) -> dict:
     with SessionLocal() as session:
         doc = _load(session, doc_id)
         # критично для криптоцілості: генерація переписує doc.rendered, digest якого
@@ -401,9 +439,8 @@ def generate_document(
             raise HTTPException(400, "найменування організації (org_name) не може бути порожнім")
         if not str(payload.get("date_text", "")).strip():
             from portal import registry
-            payload["date_text"] = registry.format_ua_date(
-                dt.datetime.now(dt.timezone.utc).date()
-            )
+
+            payload["date_text"] = registry.format_ua_date(dt.datetime.now(dt.timezone.utc).date())
         with tempfile.NamedTemporaryFile(suffix=f".{doc.fmt}", delete=False) as tmp:
             dest = tmp.name
         try:
@@ -415,8 +452,12 @@ def generate_document(
             for p in (dest, dest + f".{doc.fmt}"):
                 if os.path.exists(p):
                     os.remove(p)
-        _audit(session, doc, "generated",
-               detail=f"conforms={out['report'] and out['report']['conforms']}")
+        _audit(
+            session,
+            doc,
+            "generated",
+            detail=f"conforms={out['report'] and out['report']['conforms']}",
+        )
         session.commit()
         return {"doc_id": doc_id, "report": out["report"], "pdfa": out.get("pdfa")}
 
@@ -428,8 +469,10 @@ def download_document(doc_id: str) -> Response:
         body = doc.rendered_marked or doc.rendered
         if not body:
             raise HTTPException(404, "документ ще не згенеровано")
-        media = "application/pdf" if doc.fmt == "pdf" else (
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        media = (
+            "application/pdf"
+            if doc.fmt == "pdf"
+            else ("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
         )
         suffix = "-signed" if doc.rendered_marked else ""
         return Response(
@@ -448,7 +491,7 @@ def export_archive(
     """Експортувати архів документів (ZIP) за вказаний період або за весь час."""
     with SessionLocal() as session:
         query = session.query(Document)
-        
+
         now = dt.datetime.now(dt.timezone.utc)
         if days is not None:
             start_dt = now - dt.timedelta(days=days)
@@ -456,13 +499,17 @@ def export_archive(
         else:
             if start_date:
                 try:
-                    start_dt = dt.datetime.combine(dt.date.fromisoformat(start_date), dt.time.min).replace(tzinfo=dt.timezone.utc)
+                    start_dt = dt.datetime.combine(
+                        dt.date.fromisoformat(start_date), dt.time.min
+                    ).replace(tzinfo=dt.timezone.utc)
                     query = query.filter(Document.created_at >= start_dt)
                 except ValueError:
                     raise HTTPException(400, "Невірний формат start_date (очікується YYYY-MM-DD)")
             if end_date:
                 try:
-                    end_dt = dt.datetime.combine(dt.date.fromisoformat(end_date), dt.time.max).replace(tzinfo=dt.timezone.utc)
+                    end_dt = dt.datetime.combine(
+                        dt.date.fromisoformat(end_date), dt.time.max
+                    ).replace(tzinfo=dt.timezone.utc)
                     query = query.filter(Document.created_at <= end_dt)
                 except ValueError:
                     raise HTTPException(400, "Невірний формат end_date (очікується YYYY-MM-DD)")

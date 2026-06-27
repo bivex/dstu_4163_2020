@@ -389,19 +389,29 @@ class _Layout:
             self._wrapped(f"Зауваження: {visa.remark}", size=self.body_pt)
 
     def _draw_e_signature_mark(self, mark) -> None:
-        """Відмітка про електронний підпис, побудована за даними сертифіката.
+        """Відмітка про електронний підпис/печатку за даними сертифіката.
 
         Стик §4.4(22) ДСТУ ↔ Art.18/24 Закону 2155-VIII. Якщо сертифікат
         нечинний (Art.24) — відмітка позначається як НЕДІЙСНА. Довгі рядки
         (серійник, видавець) переносяться у межах рамки.
+
+        Для mark.kind=='eseal' (електронна печатка юрособи) — інший вигляд:
+        замість «Підписувач: ПІБ» друкуємо «Власник печатки: <назва юрособи>»
+        та ідентифікатор (ЄДРПОУ/РНОКПП) з сертифіката; посада не виводиться.
         """
-        raw_lines = [
-            (mark.signature_kind, _FONT_BOLD),
-            (f"Підписувач: {mark.signer}", _FONT_REGULAR),
-        ]
-        # посада — лише якщо присутня у сертифікаті (сертифікат працівника)
-        if mark.signer_position.strip():
-            raw_lines.append((f"Посада: {mark.signer_position}", _FONT_REGULAR))
+        is_seal = getattr(mark, "kind", "esign") == "eseal"
+        raw_lines = [(mark.signature_kind, _FONT_BOLD)]
+        if is_seal:
+            org = getattr(mark, "organization", "") or mark.signer
+            raw_lines.append((f"Власник печатки: {org}", _FONT_REGULAR))
+            identifier = getattr(mark, "identifier", "")
+            if identifier:
+                raw_lines.append((f"Ідентифікатор: {identifier}", _FONT_REGULAR))
+        else:
+            raw_lines.append((f"Підписувач: {mark.signer}", _FONT_REGULAR))
+            # посада — лише якщо присутня у сертифікаті (сертифікат працівника)
+            if mark.signer_position.strip():
+                raw_lines.append((f"Посада: {mark.signer_position}", _FONT_REGULAR))
         raw_lines += [
             (f"Сертифікат: {mark.certificate_serial}", _FONT_REGULAR),
             (f"Видавець: {mark.issuer}", _FONT_REGULAR),

@@ -95,6 +95,10 @@ def _mark_from_dict(d: dict[str, Any]) -> ElectronicSignatureMark:
         is_qualified=bool(d.get("is_qualified", True)),
         status=CertificateStatus(d.get("status", "Active")),
         signer_position=str(d.get("signer_position", "")),
+        # тип відмітки (esign|eseal) та дані печатки (для eSeal). Дефолт esign.
+        kind=str(d.get("kind", d.get("cert_type", "esign"))) if d.get("kind") or d.get("cert_type") else "esign",
+        organization=str(d.get("organization", "")),
+        identifier=str(d.get("identifier", "")),
     )
 
 
@@ -285,14 +289,99 @@ def _rdn(dn: str, key: str) -> str:
     return m.group(1).strip() if m else ""
 
 
-def cert_info_from_cms(sig_bytes: bytes) -> dict[str, str]:
-    """Витягти дані сертифіката підписанта з CMS/p7s (DSTU4145) через openssl.
+# OID QC-розширень (ETSI EN 319 412-5) — дублюються з test_cert_factory, щоб
+# domain_bridge не залежав від інфраструктурного генератора в runtime.
+_OID_QC_STATEMENTS_EXT = "1.3.6.1.5.5.7.1.3"
+_OID_QC_TYPE_ESIGN = b"\x06\x07\x04\x00\x8e\x46\x01\x05\x01"  # 0.4.0.1862.1.5.1
+_OID_QC_TYPE_ESEAL = b"\x06\x07\x04\x00\x8e\x46\x01\x05\x03"  # 0.4.0.1862.1.5.3
 
-    Дані беруться із САМОГО підпису (не довіряємо клієнту): ПІБ підписувача
-    (subject CN), видавець (issuer CN), серійний номер сертифіката, строк дії.
-    Повертає {} якщо розбір не вдався (підпис лишиться без розшифрованих даних).
+
+def _detect_cert_type(qc_ext_bytes: bytes) -> str:
+    """Визначити тип сертифіката (esign|eseal) за сирими байтами qcStatements.
+
+    Якщо extension відсутній — esign (КЕП особи; історичний дефолт парсера).
     """
-    import re
+    if _OID_QC_TYPE_ESEAL in qc_ext_bytes:
+        return "eseal"
+    return "esign"
+
+
+def _parse_leaf_cert_fields(cert) -> dict[str, str]:
+    """Витягти поля сертифіката через cryptography.x509 (повний розбір QC).
+
+    ``cert`` — cryptography.x509.Certificate. Повертає словник з: signer (CN),
+    organization (O), identifier (serialNumber для особи / organizationIdentifier
+    для печатки), issuer (CN), certificate_serial, valid_from/to (DD.MM.YYYY),
+    cert_type (esign|eseal), subject_dn/issuer_dn (RFC4514, для аудиту).
+    """
+    from cryptography.x509.oid import NameOID, ObjectIdentifier
+
+    def _attr(name_oid) -> str:
+        vals = cert.subject.get_attributes_for_oid(name_oid)
+        return vals[0].value if vals else ""
+
+    def _issuer_attr(name_oid) -> str:
+        vals = cert.issuer.get_attributes_for_oid(name_oid)
+        return vals[0].value if vals else ""
+
+    OID_ORG_ID = ObjectIdentifier("2.5.4.97")  # organizationIdentifier
+    cn = _attr(NameOID.COMMON_NAME)
+    org = _attr(NameOID.ORGANIZATION_NAME)
+    serial_attr = _attr(NameOID.SERIAL_NUMBER)
+    org_id = _attr(OID_ORG_ID)
+
+    # QC type → cert_type
+    cert_type = "esign"
+    try:
+        qc_ext = cert.extensions.get_extension_for_oid(
+            ObjectIdentifier(_OID_QC_STATEMENTS_EXT)
+        )
+        # UnrecognizedExtension.value — сирі байти qcStatements
+        qc_bytes = qc_ext.value.value  # type: ignore[union-attr]
+        cert_type = _detect_cert_type(qc_bytes)
+    except Exception:  # noqa: BLE001 — QC може бути відсутнім
+        pass
+
+    # ідентифікатор: для печатки — organizationIdentifier, для особи — РНОКПП
+    identifier = org_id if cert_type == "eseal" else serial_attr
+
+    # дата у форматі DD.MM.YYYY (стиль §5.10)
+    def _fmt_date(d) -> str:
+        try:
+            return d.strftime("%d.%m.%Y")
+        except Exception:  # noqa: BLE001
+            return str(d)
+
+    return {
+        "signer": cn or org,
+        "organization": org,
+        "identifier": identifier,
+        "serialNumber": serial_attr,  # зворотна сумісність (РНОКПП)
+        "organizationIdentifier": org_id,
+        "issuer": _issuer_attr(NameOID.COMMON_NAME) or _issuer_attr(NameOID.ORGANIZATION_NAME),
+        "certificate_serial": format(cert.serial_number, "X"),
+        "valid_from": _fmt_date(getattr(cert, "not_valid_before_utc", None) or cert.not_valid_before),
+        "valid_to": _fmt_date(getattr(cert, "not_valid_after_utc", None) or cert.not_valid_after),
+        "cert_type": cert_type,
+        "subject_dn": cert.subject.rfc4514_string(),
+        "issuer_dn": cert.issuer.rfc4514_string(),
+    }
+
+
+def cert_info_from_cms(sig_bytes: bytes) -> dict[str, str]:
+    """Витягти дані сертифіката підписанта з CMS/p7s (DSTU4145 / eSeal / eSign).
+
+    Дані беруться із САМОГО підпису (не довіряємо клієнту):
+    - ПІБ підписувача або назва юрособи (subject CN),
+    - організація (O) та ідентифікатор (РНОКПП / organizationIdentifier=NTRUA-ЄДРПОУ),
+    - видавець (issuer CN), серійний номер сертифіката, строк дії,
+    - ``cert_type`` ("esign" | "eseal") — за QC statements (ETSI EN 319 412-5).
+
+    Сертифікат витягується з контейнера ``openssl pkcs7 -print_certs`` (працює з
+    DSTU-підписами, які cryptography не декодує), далі поля парсяться надійно через
+    ``cryptography.x509`` (включно з QC extensions). Повертає {} якщо розбір
+    невдалий — підпис лишиться без розшифрованих даних (зворотна сумісність).
+    """
     import subprocess
     import tempfile
 
@@ -301,43 +390,64 @@ def cert_info_from_cms(sig_bytes: bytes) -> dict[str, str]:
         tmp.write(sig_bytes)
         path = tmp.name
     try:
-        # subject / issuer
-        certs = subprocess.run(
-            ["openssl", "pkcs7", "-inform", "DER", "-in", path, "-print_certs", "-noout"],
-            capture_output=True, text=True, timeout=10,
-        ).stdout
-        subj = next((ln for ln in certs.splitlines() if ln.startswith("subject=")), "")
-        iss = next((ln for ln in certs.splitlines() if ln.startswith("issuer=")), "")
-        if subj:
-            info["signer"] = _rdn(subj, "CN")
-            info["serialNumber"] = _rdn(subj, "serialNumber")
-        if iss:
-            info["issuer"] = _rdn(iss, "CN")
-        # серійник + строк дії — з x509-текстового дампу сертифіката
-        x509 = subprocess.run(
+        # openssl витягує leaf-сертифікат з CMS у PEM (працює з DSTU/EUSign-підписами)
+        pem = subprocess.run(
             ["openssl", "pkcs7", "-inform", "DER", "-in", path, "-print_certs"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, timeout=10,
         ).stdout
-        det = subprocess.run(
-            ["openssl", "x509", "-noout", "-serial", "-dates"],
-            input=x509, capture_output=True, text=True, timeout=10,
-        ).stdout
-        ser = re.search(r"serial=([0-9A-Fa-f]+)", det)
-        nb = re.search(r"notBefore=(.+)", det)
-        na = re.search(r"notAfter=(.+)", det)
-        if ser:
-            info["certificate_serial"] = ser.group(1)
-        if nb:
-            info["valid_from"] = nb.group(1).strip()
-        if na:
-            info["valid_to"] = na.group(1).strip()
+        if not pem.strip():
+            return info
+        # розбір через cryptography: QC extensions + повний subject/issuer
+        try:
+            from cryptography import x509 as _x509
+
+            cert = _x509.load_pem_x509_certificate(pem)
+            return _parse_leaf_cert_fields(cert)
+        except Exception:  # noqa: BLE001 — fallback на старий regex-розбір
+            return _cert_info_regex_fallback(pem)
     except Exception:  # noqa: BLE001 — розбір best-effort
-        pass
+        return info
     finally:
         import os as _os
 
         if _os.path.exists(path):
             _os.remove(path)
+
+
+def _cert_info_regex_fallback(pem: bytes) -> dict[str, str]:
+    """Старий regex-розбір (openssl subject/issuer text) — запасний шлях.
+
+    Використовується лише якщо cryptography не зміг розібрати витягнутий сертифікат
+    (напр., DSTU SubjectPublicKeyInfo). Не визначає cert_type — повертає esign.
+    """
+    import subprocess
+
+    info: dict[str, str] = {}
+    text = pem.decode("utf-8", "replace")
+    det = subprocess.run(
+        ["openssl", "x509", "-noout", "-subject", "-issuer", "-serial", "-dates"],
+        input=pem, capture_output=True, text=True, timeout=10,
+    ).stdout
+    import re
+
+    subj = next((ln for ln in det.splitlines() if ln.startswith("subject=")), "")
+    iss = next((ln for ln in det.splitlines() if ln.startswith("issuer=")), "")
+    if subj:
+        info["signer"] = _rdn(subj, "CN")
+        info["serialNumber"] = _rdn(subj, "serialNumber")
+    if iss:
+        info["issuer"] = _rdn(iss, "CN")
+    ser = re.search(r"serial=([0-9A-Fa-f]+)", det)
+    nb = re.search(r"notBefore=(.+)", det)
+    na = re.search(r"notAfter=(.+)", det)
+    if ser:
+        info["certificate_serial"] = ser.group(1)
+    if nb:
+        info["valid_from"] = nb.group(1).strip()
+    if na:
+        info["valid_to"] = na.group(1).strip()
+    info["cert_type"] = "esign"  # дефолт: КЕП особи
+    del text
     return info
 
 

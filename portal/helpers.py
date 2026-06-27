@@ -40,7 +40,7 @@ def _assert_editable(doc: Document, current_user: dict | None) -> None:
 
 
 def _payload_with_signatures(doc: Document) -> dict:
-    """Payload документа з реальними КЕП-відмітками із doc.signers (підписані)."""
+    """Payload документа з реальними КЕП/печатка-відмітками із doc.signers."""
     payload = bridge.content_from_json(doc.content_json)
     payload["e_signatures"] = [
         {
@@ -53,6 +53,11 @@ def _payload_with_signatures(doc: Document) -> dict:
             "timestamp": s.signed_at.isoformat(timespec="seconds") if s.signed_at else "",
             "status": "Active",
             "is_qualified": True,
+            # тип відмітки (esign|eseal) + дані печатки. kind виводиться з
+            # signer_type: seal → eseal, інакше esign (зворотна сумісність).
+            "kind": "eseal" if s.signer_type == "seal" else "esign",
+            "organization": s.organization or "",
+            "identifier": s.identifier or "",
         }
         for s in doc.signers
         if s.status == SignerStatus.SIGNED
@@ -85,6 +90,9 @@ def _doc_to_dict(doc: Document, brief: bool = False) -> dict:
                 "status": s.status.value,
                 "certificate_serial": s.certificate_serial,
                 "signed_at": s.signed_at.isoformat() if s.signed_at else None,
+                "signer_type": s.signer_type,
+                "organization": s.organization,
+                "identifier": s.identifier,
             }
             for s in doc.signers
         ],

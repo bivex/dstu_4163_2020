@@ -24,12 +24,13 @@ QR_PAYLOAD_PREFIX = "DSTU4163"
 
 
 def build_signature_qr_payload(mark: ElectronicSignatureMark) -> str:
-    """Зібрати компактний ASCII-рядок навантаження QR з даних підпису.
+    """Зібрати компактний ASCII-рядок навантаження QR з даних підпису/печатки.
 
     Позиційні поля (§5.10: дані про КЕП/печатку + позначка часу):
       [0] DSTU4163 — маркер схеми
       [1] версія схеми
-      [2] тип підпису: QES (кваліфікований) / AES (удосконалений)
+      [2] тип відмітки: QES (КЕП особи) / AES (удосконалений) /
+          QESL (кваліфікована печатка юрособи) / AESL (удосконалена печатка)
       [3] серійний номер сертифіката
       [4] чинний від
       [5] чинний до
@@ -39,7 +40,10 @@ def build_signature_qr_payload(mark: ElectronicSignatureMark) -> str:
     Підписувач та видавець навмисно НЕ кодуються (вони у видимій відмітці) —
     це тримає QR у читабельній щільності за фіксованих 21 мм.
     """
-    typ = "QES" if mark.is_qualified else "AES"
+    if mark.kind == "eseal":
+        typ = "QESL" if mark.is_qualified else "AESL"
+    else:
+        typ = "QES" if mark.is_qualified else "AES"
     status = "V" if mark.certificate_valid else "X"
     fields = [
         QR_PAYLOAD_PREFIX,

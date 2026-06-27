@@ -152,6 +152,44 @@ def test_invalid_certificate_marked_as_invalid(tmp_path):
     assert "НЕДІЙСНИЙ" in text
 
 
+def test_e_seal_mark_rendered_for_organization(tmp_path):
+    """eSeal (електронна печатка юрособи): відмітка показує власника печатки та
+    ідентифікатор (ЄДРПОУ), а не ПІБ особи чи посаду."""
+    pypdf = pytest.importorskip("pypdf")
+    dest = str(tmp_path / "eseal.pdf")
+    doc = conformant_document(is_electronic=True)
+    mark = ElectronicSignatureMark(
+        signer="ТОВ РОГА І КОПИТА",
+        certificate_serial="DEADBEEF1234",
+        issuer="КНЕДП Тест",
+        valid_from="01.01.2026",
+        valid_to="01.01.2028",
+        timestamp="27.06.2026 12:00:00 EET",
+        kind="eseal",
+        organization="ТОВ РОГА І КОПИТА",
+        identifier="NTRUA-43213421",
+    )
+    content = DocumentContent(
+        org_name="ТОВ РОГА І КОПИТА",
+        doc_type="Наказ",
+        date_text="27.06.2026",
+        reg_index="01",
+        title="Про тест печатки",
+        body=("Текст наказу.",),
+        signature_position="Директор",
+        signature_name="І. ПРІЗВИЩЕ",
+        e_signatures=(mark,),
+    )
+    _writer().write(doc, content, dest)
+    text = pypdf.PdfReader(dest).pages[0].extract_text() or ""
+    assert "Кваліфікована електронна печатка" in text
+    assert "Власник печатки: ТОВ РОГА І КОПИТА" in text
+    assert "NTRUA-43213421" in text
+    # для печатки не виводимо ПІБ особи/посаду
+    assert "Підписувач:" not in text
+    assert "Посада:" not in text
+
+
 def test_paper_doc_keeps_handwritten_signature(tmp_path):
     pypdf = pytest.importorskip("pypdf")
     dest = str(tmp_path / "paper.pdf")
