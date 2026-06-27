@@ -106,20 +106,40 @@ def doc_state(token: str, doc_id: str) -> None:
             print(f"       • {s.get('full_name'):<32} {s.get('status')}{extra}")
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description="Демо руху документа між користувачами.")
-    ap.add_argument("--skip-sign", action="store_true", help="без підписів (зупинитись на черзі)")
-    ap.add_argument("--use-server-seal", action="store_true",
-                    help="накласти серверну печатку (PORTAL_SEAL_P12)")
-    args = ap.parse_args()
+def sign_with_kep(doc_id: str, tok_admin: str, order: int, who_label: str) -> None:
+    """Підписати маніфест документа КНЕДП-ключем через UAPKI (admin-заміна)."""
+    print(f"\n  → активний підписант #{order}: {who_label} (КЕП за ПІБ)")
+    print("    Підпис КЕП вимагає сертифіката (EUSign/UAPKI).")
+    print("    Для демо-пропуску підписуємо admin-ом (службова заміна).")
+    try:
+        req = urllib.request.Request(f"{BASE}/documents/{doc_id}/manifest",
+                                     headers={"Authorization": f"Bearer {tok_admin}"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            manifest = r.read()
+    except urllib.error.HTTPError as e:
+        print(f"    маніфест: {e.code} — підпис пропускаємо")
+        return
+    try:
+        import base64
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+        from dilovod4.infrastructure.uapki import UapkiClient
+        DATA = Path(__file__).resolve().parent.parent / "external" / "UAPKI" / "library" / "test" / "data"
+        with UapkiClient() as cli:
+            cli.init(str(DATA / "certs"), str(DATA / "crls"), offline=True)
+            cli.open_pkcs12(str(DATA / "test-diia.p12"), "testpassword")
+            cli.select_key(cli.list_keys()[0]["id"])
+            sig = cli.sign_bytes(manifest, signature_format="CAdES-BES",
+                                 detached=True, include_cert=True, ignore_cert_status=True)
+            sig_b64 = sig["bytes"]
+        st, d = _req("POST", f"/documents/{doc_id}/sign", token=tok_admin,
+                     body={"signer_order_index": order, "signature_b64": sig_b64})
+        print(f"    підписано КЕП (ДІЯ): {st} — {d.get('status', d)}")
+    except Exception as e:  # noqa: BLE001
+        print(f"    підпис КЕП пропущено: {e}")
 
-    doc_id = f"DEMO-FLOW-{datetime.now().strftime('%H%M%S')}"
-    print(f"Документ: {doc_id}")
-    print(f"Портал: {BASE}")
-    print("Сценарій: кадри → погодження(юр+бух) → печатка+директор → публікація")
 
-    # Визначити CN печатки з PORTAL_SEAL_P12 (для підписанта-печатки у черзі).
-    # Без PORTAL_SEAL_P12 демо печатки пропускається — лише КЕП директора.
+def resolve_seal_cn(args) -> str:
+    """CN печатки з PORTAL_SEAL_P12 (або дефолт для тестового ключа ДІЯ)."""
     import os
     seal_p12 = os.environ.get("PORTAL_SEAL_P12")
     seal_pass = os.environ.get("PORTAL_SEAL_PASSWORD", "")
@@ -132,18 +152,41 @@ def main() -> int:
             with UapkiClient() as cli:
                 cli.init(str(DATA / "certs"), str(DATA / "crls"), offline=True)
                 cli.open_pkcs12(seal_p12, seal_pass)
-                cli.select_key(cli.list_keys()[0]["id"])
-                cert_id = cli.call("SELECT_KEY", {"id": cli.list_keys()[0]["id"]}).get("certId")
+                keys = cli.list_keys()
+                cli.select_key(keys[0]["id"])
+                cert_id = cli.call("SELECT_KEY", {"id": keys[0]["id"]}).get("certId")
                 if cert_id:
-                    info = cli.call("CERT_INFO", {"bytes": cert_id})
-                    seal_cn = info.get("subjectCN", "")
+                    seal_cn = cli.call("CERT_INFO", {"bytes": cert_id}).get("subjectCN", "")
             print(f"CN печатки (PORTAL_SEAL_P12): {seal_cn}")
         except Exception as e:  # noqa: BLE001
             print(f"[WARN] не вдалося визначити CN печатки: {e}")
     if not seal_cn:
-        # дефолт для тестового ключа ДІЯ
         seal_cn = "ДП ДІЯ (Тестування)"
         print(f"CN печатки (дефолт): {seal_cn}")
+    return seal_cn
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Демо руху документа між користувачами.")
+    ap.add_argument("--scenario", choices=["hr", "finance"], default="hr",
+                    help="hr=наказ (директор), finance=рахунок (бухгалтер) [за замовч. hr]")
+    ap.add_argument("--skip-sign", action="store_true", help="без підписів (зупинитись на черзі)")
+    ap.add_argument("--use-server-seal", action="store_true",
+                    help="накласти серверну печатку (PORTAL_SEAL_P12)")
+    args = ap.parse_args()
+
+    seal_cn = resolve_seal_cn(args)
+
+    if args.scenario == "finance":
+        return demo_finance_doc(args, seal_cn)
+    return demo_hr_order(args, seal_cn)
+
+def demo_hr_order(args, seal_cn: str) -> int:
+    """Сценарій HR: клерк створює наказ → погодження(юр+бух) → директор КЕП → печатка."""
+    doc_id = f"DEMO-HR-{datetime.now().strftime('%H%M%S')}"
+    print(f"Документ: {doc_id}")
+    print(f"Портал: {BASE}")
+    print("Сценарій: кадри → погодження(юр+бух) → директор КЕП → печатка юрособи")
 
     # ── 1. CLERK створює наказ ──────────────────────────────────────────
     banner("1️⃣  CLERK (Іваненко О.Г., кадри) створює наказ")
@@ -166,16 +209,12 @@ def main() -> int:
         ],
         "signature_position": "Генеральний директор",
         "signature_name": "О.М. Кравченко",
-        # погоджувачі (послідовно): юр, потім бух
         "approval_type": "sequential",
         "approvers": [
             {"order_index": 0, "full_name": "Бойко Андрій Вікторович", "position": "Начальник юридичного відділу"},
             {"order_index": 1, "full_name": "Бондаренко Наталія Петрівна", "position": "Головний бухгалтер"},
         ],
-        # підписанти (черга). Правильна діловая черговість для наказу:
-        # спершу посадова особа підписує КЕПом за ПІБ (директор), ПОТІМ юрособа
-        # накладає електронну печатку як фінальне завірення організації.
-        # Без --use-server-seal створюється лише директор.
+        # черга: директор КЕП (за ПІБ) → печатка юрособи (фінальне завірення)
         "signers": (
             [
                 {"order_index": 0, "full_name": "Кравченко Олександр Михайлович", "position": "Генеральний директор", "signer_type": "person"},
@@ -184,27 +223,23 @@ def main() -> int:
                 {"order_index": 0, "full_name": "Кравченко Олександр Михайлович", "position": "Генеральний директор", "signer_type": "person"},
             ]
         ),
-        "retention_years": 75,  # кадрові документи — тривалий строк
+        "retention_years": 75,
     }
     st, d = _req("POST", "/documents", token=tok, body=body)
     print(f"  створено: {st}")
     if st != 200:
         print(f"  [detail] {d}", file=sys.stderr)
         return 1
-
-    # згенерувати PDF
     st, _ = _req("POST", f"/documents/{doc_id}/generate", token=tok)
     print(f"  PDF згенеровано: {st}")
     doc_state(tok, doc_id)
 
-    # ── 2. APPROVAL (послідовне) ────────────────────────────────────────
+    # ── 2. APPROVAL ─────────────────────────────────────────────────────
     banner("2️⃣  ПОГОДЖЕННЯ — подача + дві згоди по черзі")
-    # 2a. clerk подає на погодження
     st, _ = _req("POST", f"/documents/{doc_id}/approval/submit", token=tok)
     print(f"  {who(tok)} подав на погодження: {st}")
     doc_state(tok, doc_id)
 
-    # 2b. перший погоджувач (Бойко, юр)
     tok_a1 = login(APPR1, PASS)
     print(f"\n  → активний погоджувач: {who(tok_a1)}")
     st, d = _req("POST", f"/documents/{doc_id}/approval/action", token=tok_a1,
@@ -212,7 +247,6 @@ def main() -> int:
     print(f"    погодив: {st} — {d.get('status', d)}")
     doc_state(tok_a1, doc_id)
 
-    # 2c. другий погоджувач (Бондаренко, бух)
     tok_a2 = login(APPR2, PASS)
     print(f"\n  → активний погоджувач: {who(tok_a2)}")
     st, d = _req("POST", f"/documents/{doc_id}/approval/action", token=tok_a2,
@@ -220,84 +254,142 @@ def main() -> int:
     print(f"    погодив: {st} — {d.get('status', d)}")
     doc_state(tok_a2, doc_id)
 
-    # після погодження — документ переходить у чергу підписання автоматично
-    # (або треба submit). Перевіримо статус:
     _, d = _req("GET", f"/documents/{doc_id}", token=tok_a2)
     if d.get("status") == "draft":
-        # подаємо у чергу підписів
         st, _ = _req("POST", f"/documents/{doc_id}/submit", token=tok_a1)
         print(f"\n  {who(tok_a1)} подав у чергу підписання: {st}")
 
     # ── 3. SIGNING ──────────────────────────────────────────────────────
     banner("3️⃣  ПІДПИСАННЯ — черга")
     doc_state(tok_a2, doc_id)
-
     if args.skip_sign:
-        print("\n  [--skip-sign] зупиняємось тут. Документ у черзі підписання.")
+        print("\n  [--skip-sign] зупиняємось тут.")
         return 0
 
     tok_admin = login("admin@dilovod.local", "admin")
-
-    # 3a. ДИРЕКТОР підписує КЕП (перший підписант, index 0) — за ПІБ.
-    #     Це правильна діловая черговість: посадова особа підписує від свого імені,
-    #     потім юрособа накладає печатку.
+    # 3a. директор КЕП (index 0)
     tok_s = login(SIGNER, PASS)
-    print(f"\n  → активний підписант #0: {who(tok_s)} (КЕП за ПІБ)")
-    print("    Підпис КЕП вимагає сертифіката (EUSign/UAPKI).")
-    print("    Для демо-пропуску підписуємо admin-ом (службова заміна).")
-    # отримаємо маніфест (бінарний контент, не JSON)
-    try:
-        req = urllib.request.Request(f"{BASE}/documents/{doc_id}/manifest",
-                                     headers={"Authorization": f"Bearer {tok_admin}"})
-        with urllib.request.urlopen(req, timeout=30) as r:
-            manifest = r.read()
-        st = 200
-    except urllib.error.HTTPError as e:
-        st, manifest = e.code, None
-        print(f"    маніфест: {st} — підпис пропускаємо")
-    if st != 200 or not manifest:
-        print(f"    маніфест недоступний ({st}) — підпис пропускаємо")
-    else:
-        # підпишемо маніфест реальним КНЕДП-ключем через UAPKI, якщо є
-        try:
-            import base64
-            sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-            from dilovod4.infrastructure.uapki import UapkiClient, UapkiError
-            DATA = Path(__file__).resolve().parent.parent / "external" / "UAPKI" / "library" / "test" / "data"
-            with UapkiClient() as cli:
-                cli.init(str(DATA / "certs"), str(DATA / "crls"), offline=True)
-                cli.open_pkcs12(str(DATA / "test-diia.p12"), "testpassword")
-                cli.select_key(cli.list_keys()[0]["id"])
-                sig = cli.sign_bytes(manifest, signature_format="CAdES-BES",
-                                     detached=True, include_cert=True, ignore_cert_status=True)
-                sig_b64 = sig["bytes"]
-            st, d = _req("POST", f"/documents/{doc_id}/sign", token=tok_admin,
-                         body={"signer_order_index": 0, "signature_b64": sig_b64})
-            print(f"    підписано КЕП (ДІЯ): {st} — {d.get('status', d)}")
-        except Exception as e:  # noqa: BLE001
-            print(f"    підпис КЕП пропущено: {e}")
-            print("    (libuapki/ключ недоступні — використайте --skip-sign)")
-
+    sign_with_kep(doc_id, tok_admin, 0, who(tok_s))
     doc_state(tok_s, doc_id)
-
-    # 3b. ПЕЧАТКА юрособи (другий підписант, index 1) — фінальне завірення
-    #     організації через server-seal. CN підписанта-печатки має збігатися з
-    #     organization_cert_cn автора печатки. Admin — службова заміна, пропускає.
+    # 3b. печатка юрособи (index 1) — фінальне завірення
     if args.use_server_seal:
         print(f"\n  → активний підписант #1: ПЕЧАТКА юрособи ({seal_cn}) — фінальне завірення")
         st, d = _req("POST", f"/documents/{doc_id}/server-seal", token=tok_admin)
         print(f"    server-seal: {st} — {d.get('status', d) if isinstance(d, dict) else d}")
-        if st != 200:
-            print(f"    [деталь] {d}")
         doc_state(tok_admin, doc_id)
 
-    # ── 4. PUBLISH ──────────────────────────────────────────────────────
-    _, d = _req("GET", f"/documents/{doc_id}", token=tok_s)
+    return _publish_and_summary(doc_id, tok_s, tok_admin)
+
+
+def demo_finance_doc(args, seal_cn: str) -> int:
+    """Сценарій Finance: бухгалтер створює рахунок → погоджування(юр)
+    → БУХГАЛТЕР підписує КЕП → печатка юрособи.
+
+    Бухгалтер тут — ГОЛОВНИЙ підписант (не лише погоджувач, як в HR-сценарії),
+    бо фінансові документи (рахунки, акти, податкові накладні) підписує
+    посадова особа, відповідальна за фінанси — головбух."""
+    doc_id = f"DEMO-FIN-{datetime.now().strftime('%H%M%S')}"
+    print(f"Документ: {doc_id}")
+    print(f"Портал: {BASE}")
+    print("Сценарій: бухгалтер створює рахунок → погодження(юр) → БУХГАЛТЕР КЕП → печатка")
+
+    # ── 1. БУХГАЛТЕР створює рахунок-фактуру ─────────────────────────────
+    banner("1️⃣  БУХГАЛТЕР (Бондаренко Н.П., головбух) створює рахунок")
+    tok = login(APPR2, PASS)  # бухгалтер створює
+    print(f"  увійшов: {who(tok)}")
+    body = {
+        "doc_id": doc_id,
+        "org_name": "ТОВ Рога і Копита",
+        "doc_type": "Рахунок-фактура",
+        "title": "Рахунок №2026/В-318 за послуги",
+        "reg_index": "В-318",
+        "date_text": "27.06.2026",
+        "fmt": "pdf",
+        "is_electronic": True,
+        "body": [
+            "Рахунок на оплату:",
+            "Послуга: постачання канцтоварів — 50 одиниць",
+            "Сума: 12 000,00 грн (з ПДВ 20%)",
+            "ПДВ: 2 000,00 грн",
+            "Разом до сплати: 12 000,00 грн",
+            "Платник: ТОВ «Замовник», ЄДРПОУ 31234567",
+        ],
+        "signature_position": "Головний бухгалтер",
+        "signature_name": "Н.П. Бондаренко",
+        # лише юр погоджує (директору не потрібне погодження рахунку)
+        "approval_type": "sequential",
+        "approvers": [
+            {"order_index": 0, "full_name": "Бойко Андрій Вікторович", "position": "Начальник юридичного відділу"},
+        ],
+        # черга підписів: БУХГАЛТЕР КЕП (за ПІБ) → печатка юрособи.
+        # Бухгалтер — головний підписант фінансового документа.
+        "signers": (
+            [
+                {"order_index": 0, "full_name": "Бондаренко Наталія Петрівна", "position": "Головний бухгалтер", "signer_type": "person"},
+                {"order_index": 1, "full_name": seal_cn, "position": "Юрособа", "signer_type": "seal"},
+            ] if args.use_server_seal else [
+                {"order_index": 0, "full_name": "Бондаренко Наталія Петрівна", "position": "Головний бухгалтер", "signer_type": "person"},
+            ]
+        ),
+        "retention_years": 3,  # фінансові — 1095 днів (3 роки) за податковим кодексом
+    }
+    st, d = _req("POST", "/documents", token=tok, body=body)
+    print(f"  створено: {st}")
+    if st != 200:
+        print(f"  [detail] {d}", file=sys.stderr)
+        return 1
+    st, _ = _req("POST", f"/documents/{doc_id}/generate", token=tok)
+    print(f"  PDF згенеровано: {st}")
+    doc_state(tok, doc_id)
+
+    # ── 2. APPROVAL (юр) ────────────────────────────────────────────────
+    banner("2️⃣  ПОГОДЖЕННЯ — юрист перевіряє договірні умови")
+    st, _ = _req("POST", f"/documents/{doc_id}/approval/submit", token=tok)
+    print(f"  {who(tok)} подав на погодження: {st}")
+    doc_state(tok, doc_id)
+
+    tok_jur = login(APPR1, PASS)
+    print(f"\n  → активний погоджувач: {who(tok_jur)}")
+    st, d = _req("POST", f"/documents/{doc_id}/approval/action", token=tok_jur,
+                 body={"action": "approve", "comment": "Реквізити платника коректні"})
+    print(f"    погодив: {st} — {d.get('status', d)}")
+    doc_state(tok_jur, doc_id)
+
+    _, d = _req("GET", f"/documents/{doc_id}", token=tok_jur)
+    if d.get("status") == "draft":
+        st, _ = _req("POST", f"/documents/{doc_id}/submit", token=tok)
+        print(f"\n  {who(tok)} подав у чергу підписання: {st}")
+
+    # ── 3. SIGNING ──────────────────────────────────────────────────────
+    banner("3️⃣  ПІДПИСАННЯ — БУХГАЛТЕР головний підписант")
+    doc_state(tok_jur, doc_id)
+    if args.skip_sign:
+        print("\n  [--skip-sign] зупиняємось тут.")
+        return 0
+
+    tok_admin = login("admin@dilovod.local", "admin")
+    # 3a. БУХГАЛТЕР підписує КЕП (index 0) — фінансовий документ підписує головбух
+    tok_buh = login(APPR2, PASS)
+    sign_with_kep(doc_id, tok_admin, 0, f"{who(tok_buh)} — фінансовий підпис")
+    doc_state(tok_buh, doc_id)
+    # 3b. печатка юрособи (index 1) — фінальне завірення
+    if args.use_server_seal:
+        print(f"\n  → активний підписант #1: ПЕЧАТКА юрособи ({seal_cn}) — фінальне завірення")
+        st, d = _req("POST", f"/documents/{doc_id}/server-seal", token=tok_admin)
+        print(f"    server-seal: {st} — {d.get('status', d) if isinstance(d, dict) else d}")
+        doc_state(tok_admin, doc_id)
+
+    return _publish_and_summary(doc_id, tok_buh, tok_admin)
+
+
+def _publish_and_summary(doc_id: str, tok_pub: str, tok_admin: str) -> int:
+    """Публікація + підсумковий аудит (спільне для обох сценаріїв)."""
+    _, d = _req("GET", f"/documents/{doc_id}", token=tok_pub)
     if d.get("status") == "signed":
         banner("4️⃣  ПУБЛІКАЦІЯ")
-        st, d = _req("POST", f"/documents/{doc_id}/publish", token=tok_s)
-        print(f"  {who(tok_s)} оприлюднив: {st} — {d.get('status', d) if isinstance(d, dict) else d}")
-        doc_state(tok_s, doc_id)
+        st, d = _req("POST", f"/documents/{doc_id}/publish", token=tok_pub)
+        print(f"  {who(tok_pub)} оприлюднив: {st} — {d.get('status', d) if isinstance(d, dict) else d}")
+        doc_state(tok_pub, doc_id)
 
     banner("✓ ДЕМО ЗАВЕРШЕНО")
     _, d = _req("GET", f"/documents/{doc_id}", token=tok_admin)
