@@ -345,8 +345,13 @@ class User(Base):
     position: Mapped[str] = mapped_column(String(256), default="")
     # роль для контролю доступу (див. UserRole). Окремо від position: position —
     # вільний текст для відображення (PDF, листи погодження); role — enum для gate-ів.
+    # values_callable — критично: код (auth, bootstrap) присвоює .value ('admin',
+    # 'clerk'), а SQLAlchemy Enum за замов. зберігає/читає NAME ('ADMIN'). Без
+    # values_callable запуск з наявної БД (де role='clerk') дає LookupError.
     role: Mapped[str] = mapped_column(
-        Enum(UserRole, native_enum=False), default=UserRole.CLERK.value, nullable=False
+        Enum(UserRole, native_enum=False,
+             values_callable=lambda x: [e.value for e in x]),
+        default=UserRole.CLERK.value, nullable=False
     )
     password_hash: Mapped[str] = mapped_column(String(128))
     kep_serial_number: Mapped[str | None] = mapped_column(String(256), unique=True, index=True, nullable=True)
