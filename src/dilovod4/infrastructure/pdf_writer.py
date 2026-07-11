@@ -468,9 +468,9 @@ class _Layout:
             self.c.drawString(self.left + pad, ty, text)
             ty -= line_h
 
-        # QR-код підписувача — праворуч від рамки, вирівняний по її верху.
+        # QR-код підписувача — праворуч від рамки, центрований по її висоті.
         # Подорожує разом із відміткою, тож масштабується на багатьох підписантів.
-        self._draw_mark_qr(mark, top)
+        self._draw_mark_qr(mark, top, box_h)
         self.y = bottom - line_h
 
     def _wrap_to_width(self, text: str, font: str, size: float, avail_pt: float) -> list[str]:
@@ -505,8 +505,8 @@ class _Layout:
             out.append(line)
         return out or [""]
 
-    def _draw_mark_qr(self, mark, box_top: float) -> None:
-        """QR-код 21×21 мм праворуч від КЕП-відмітки, вирівняний по верху рамки.
+    def _draw_mark_qr(self, mark, box_top: float, box_h: float) -> None:
+        """QR-код 21×21 мм праворуч від КЕП-відмітки, центрований по вертикалі.
 
         Кодує дані КЕП/печатки + кваліфіковану позначку часу (§5.10/§5.31).
         Розташований поряд із відміткою свого підписувача, тож при багатьох
@@ -526,7 +526,7 @@ class _Layout:
         x = self.left + box_w + gap
         # не виходити за праве поле; якщо тісно — притиснути до правого краю
         x = min(x, self.page_w - self.right_margin - side)
-        y = box_top - side
+        y = box_top - (box_h + side) / 2
         self.c.setFillColorRGB(1, 1, 1)
         self.c.rect(x - mm, y - mm, side + 2 * mm, side + 2 * mm, stroke=0, fill=1)
         self.c.setFillColorRGB(0, 0, 0)
