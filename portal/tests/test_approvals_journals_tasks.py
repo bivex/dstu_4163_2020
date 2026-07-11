@@ -55,7 +55,7 @@ def _doc_payload(doc_id: str = "AJ-001", signers: int = 1) -> dict:
     ]
     return {
         "doc_id": doc_id,
-        "org_name": "ДЕРЖАВНЕ ПІДПРИЄМСТВО «УКРНДНЦ»",
+        "org_name": "ДЕРЖАВНЕ ПІДПРИЄМСТВО «ДІЛОВОД»",
         "doc_type": "Наказ",
         "title": "Про затвердження положення",
         "date_text": "15 червня 2026 р.",

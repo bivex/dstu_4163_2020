@@ -258,6 +258,24 @@ class _Layout:
                 font=_FONT_BOLD,
             )
 
+        # 01 Державний Герб України
+        if (
+            self.doc.symbols
+            and self.doc.symbols.coat_of_arms_height_mm > 0
+            and self.doc.symbols.coat_of_arms_width_mm > 0
+        ):
+            w = self.doc.symbols.coat_of_arms_width_mm * mm
+            h = self.doc.symbols.coat_of_arms_height_mm * mm
+            x = self.page_w / 2
+            # Зберігаємо графічний стан canvas
+            self.c.saveState()
+            try:
+                self._draw_coat_of_arms(x, self.y - h, w, h)
+            finally:
+                self.c.restoreState()
+            self.y -= h
+            self._gap(0.6)
+
         # 04 найменування юридичної особи — центрований, напівжирний, з перенесенням
         self._wrapped(self.content.org_name, align=_ALIGN_CENTER, font=_FONT_BOLD)
 
@@ -515,3 +533,29 @@ class _Layout:
         self.c.drawImage(
             ImageReader(buf), x, y, width=side, height=side, preserveAspectRatio=True, mask="auto"
         )
+
+    def _draw_coat_of_arms(self, x_center: float, y_bottom: float, w: float, h: float) -> None:
+        from svglib.svglib import svg2rlg
+        from pathlib import Path
+
+        svg_path = Path(__file__).parent / "data" / "coat_of_arms.svg"
+        if not svg_path.is_file():
+            return
+
+        drawing = svg2rlg(str(svg_path))
+        if drawing is None:
+            return
+
+        orig_w = drawing.width
+        orig_h = drawing.height
+
+        scale_x = w / orig_w
+        scale_y = h / orig_h
+
+        drawing.scale(scale_x, scale_y)
+        drawing.width = w
+        drawing.height = h
+
+        # Малюємо герб від y_bottom (нижній лівий кут обмежувального боксу)
+        x = x_center - w / 2
+        drawing.drawOn(self.c, x, y_bottom)

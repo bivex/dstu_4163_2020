@@ -71,7 +71,7 @@ def _doc_payload(
     ][:signers]
     payload = {
         "doc_id": doc_id,
-        "org_name": "ДЕРЖАВНЕ ПІДПРИЄМСТВО «УКРНДНЦ»",
+        "org_name": "ДЕРЖАВНЕ ПІДПРИЄМСТВО «ДІЛОВОД»",
         "doc_type": doc_type,
         "title": "Про затвердження положення",
         "date_text": "",

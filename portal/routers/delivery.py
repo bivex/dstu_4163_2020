@@ -67,7 +67,7 @@ def get_document_delivery(doc_id: str) -> dict:
             recipient_type = cp.subject_type
 
         # Default sender info (our organization)
-        sender_name = "ДЕРЖАВНЕ ПІДПРИЄМСТВО «УКРНДНЦ»"
+        sender_name = "ДЕРЖАВНЕ ПІДПРИЄМСТВО «ДІЛОВОД»"
         sender_address = "м. Київ, вул. Святошинська, 2"
         sender_phone = "+380444523307"
         sender_code = "12345678"

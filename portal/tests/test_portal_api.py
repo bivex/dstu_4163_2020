@@ -58,7 +58,7 @@ def _doc_payload(doc_id: str = "T-001", signers: int = 2) -> dict:
     ][:signers]
     return {
         "doc_id": doc_id,
-        "org_name": "ДЕРЖАВНЕ ПІДПРИЄМСТВО «УКРНДНЦ»",
+        "org_name": "ДЕРЖАВНЕ ПІДПРИЄМСТВО «ДІЛОВОД»",
         "doc_type": "Наказ",
         "title": "Про затвердження річної звітності",
         "reg_index": "050-фін",
@@ -1102,8 +1102,8 @@ def test_delivery_f107_pdf(client):
     assert "sender" in data
     assert "recipient" in data
     assert "items" in data
-    assert data["sender"]["name"] == "ДЕРЖАВНЕ ПІДПРИЄМСТВО «УКРНДНЦ»"
-    assert "УКРНДНЦ" in data["recipient"]["name"]
+    assert data["sender"]["name"] == "ДЕРЖАВНЕ ПІДПРИЄМСТВО «ДІЛОВОД»"
+    assert "ДІЛОВОД" in data["recipient"]["name"]
     assert len(data["items"]) == 1
     assert "Наказ № 050-фін" in data["items"][0]["name"]
 
