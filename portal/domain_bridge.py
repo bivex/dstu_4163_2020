@@ -49,11 +49,19 @@ from dilovod4.infrastructure.rule_set_provider import DefaultRuleSetProvider  # 
 _RULE_SET = DefaultRuleSetProvider()
 
 
-def _conformant_document(doc_id: str, is_electronic: bool) -> Document:
+def _get_addressee_count(payload: dict[str, Any]) -> int:
+    addrs = payload.get("addressees", [])
+    if not isinstance(addrs, (list, tuple)):
+        return 1 if addrs else 0
+    return len(addrs)
+
+
+def _conformant_document(doc_id: str, is_electronic: bool, addressee_count: int = 0) -> Document:
     """Повністю конформний за ДСТУ 4163:2020 Document (загальний бланк, A4)."""
+    is_letter = addressee_count > 0
     return Document(
         doc_id=doc_id,
-        is_letter=False,
+        is_letter=is_letter,
         is_electronic=is_electronic,
         requisites=RequisiteSet(True, True, True, True, True, True,
                                 not is_electronic, is_electronic, False),
@@ -74,7 +82,7 @@ def _conformant_document(doc_id: str, is_electronic: bool) -> Document:
         ),
         page_numbering=PageNumbering(2, False, True, False),
         storage_term=StorageTerm.PERMANENT,
-        addressee_count=0, appendix_count=0,
+        addressee_count=addressee_count, appendix_count=0,
         blank=BlankSpec(BlankType.GENERAL, 4, 0),
         date=DateSpec(DateStyle.VERBAL_NUMERIC, False),
         symbols=SymbolDimensions(
@@ -136,6 +144,17 @@ def build_content(payload: dict[str, Any], *, with_marks: bool = False) -> Docum
     title = str(payload.get("title", ""))
     if title.strip().lower() == doc_type.strip().lower():
         title = ""
+    addrs = payload.get("addressees", [])
+    if not isinstance(addrs, (list, tuple)):
+        if addrs:
+            addrs = [str(addrs)]
+        else:
+            addrs = []
+    
+    addressee = payload.get("addressee", "")
+    if addressee and not addrs:
+        addrs = [addressee]
+
     return DocumentContent(
         org_name=_subject_name(payload),
         doc_type=doc_type,
@@ -146,6 +165,7 @@ def build_content(payload: dict[str, Any], *, with_marks: bool = False) -> Docum
         signature_position=str(payload.get("signature_position", "")),
         signature_name=str(payload.get("signature_name", "")),
         e_signatures=e_sigs,
+        addressees=tuple(str(a) for a in addrs),
     )
 
 
@@ -159,7 +179,7 @@ def generate(payload: dict[str, Any], fmt: str, dest_path: str) -> dict[str, Any
     документа, а сам згенерований файл лишається чистим.
     """
     is_electronic = bool(payload.get("is_electronic", True))
-    doc = _conformant_document(str(payload["doc_id"]), is_electronic)
+    doc = _conformant_document(str(payload["doc_id"]), is_electronic, addressee_count=_get_addressee_count(payload))
     clean_content = build_content(payload, with_marks=False)
 
     writer = _writer_for(fmt, pagination_barcode=bool(payload.get("pagination_barcode", False)))
@@ -195,7 +215,7 @@ def render_marked(payload: dict[str, Any], fmt: str, dest_path: str) -> str:
     (ПІБ, серійник, видавець, чинність, час). Повертає шлях до файлу.
     """
     is_electronic = bool(payload.get("is_electronic", True))
-    doc = _conformant_document(str(payload["doc_id"]), is_electronic)
+    doc = _conformant_document(str(payload["doc_id"]), is_electronic, addressee_count=_get_addressee_count(payload))
     marked_content = build_content(payload, with_marks=True)
     writer = _writer_for(fmt, pagination_barcode=bool(payload.get("pagination_barcode", False)))
     return writer.write(doc, marked_content, dest_path)
@@ -214,7 +234,7 @@ def _writer_for(fmt: str, *, pagination_barcode: bool = False):
 def validate(payload: dict[str, Any]) -> dict[str, Any]:
     """Перевірити документ за ДСТУ 4163 + content-aware правилами (ст.7/21)."""
     is_electronic = bool(payload.get("is_electronic", True))
-    doc = _conformant_document(str(payload["doc_id"]), is_electronic)
+    doc = _conformant_document(str(payload["doc_id"]), is_electronic, addressee_count=_get_addressee_count(payload))
     content = build_content(payload, with_marks=True)
     report = ValidateDocument(rule_set=_RULE_SET).execute(doc, content)
     return _report_to_dict(report) or {}
