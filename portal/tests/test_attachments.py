@@ -562,5 +562,236 @@ def test_merged_pdf_complaint_genitive(client):
 
 
 
+# ─── EDGE CASES: pagination & formats ────────────────────────────────────────
+
+def _make_pdf(n_pages: int) -> bytes:
+    """Generate a real multi-page PDF with distinct content per page."""
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.lib.pagesizes import A4
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=A4)
+    for i in range(1, n_pages + 1):
+        c.drawString(72, 700, f"Edge case page {i} of {n_pages}")
+        c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+def _make_png(width: int = 100, height: int = 100, rgba: bool = False) -> bytes:
+    """Generate a minimal PNG in memory."""
+    from PIL import Image
+    mode = "RGBA" if rgba else "RGB"
+    img = Image.new(mode, (width, height), color=(200, 100, 50, 128) if rgba else (200, 100, 50))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _merged_pages(client, doc_id: str):
+    """Return list of PdfReader pages from the merged PDF endpoint."""
+    from pypdf import PdfReader
+    res = client.get(f"/documents/{doc_id}/merged-pdf")
+    assert res.status_code == 200, res.text
+    return PdfReader(io.BytesIO(res.content)).pages
+
+
+# 17. Single-page attachment — Аркуш 1 з 1, no off-by-one
+def test_edge_single_page_attachment(client):
+    client.post("/documents", json=_doc_payload("E-001"))
+    client.post("/documents/E-001/generate")
+    client.post("/documents/E-001/attachments",
+                files={"file": ("single.pdf", _make_pdf(1), "application/pdf")})
+    pages = _merged_pages(client, "E-001")
+    assert len(pages) == 2  # 1 main + 1 attachment
+    txt = pages[1].extract_text()
+    assert "Аркуш 1 з 1" in txt
+    assert "Аркуш 2" not in txt
+
+
+# 18. Large page count (20 pages) — watermarks go all the way to Аркуш 20 з 20
+def test_edge_large_page_count(client):
+    client.post("/documents", json=_doc_payload("E-002"))
+    client.post("/documents/E-002/generate")
+    client.post("/documents/E-002/attachments",
+                files={"file": ("big.pdf", _make_pdf(20), "application/pdf")})
+    pages = _merged_pages(client, "E-002")
+    assert len(pages) == 21  # 1 main + 20 att
+    assert "Аркуш 1 з 20" in pages[1].extract_text()
+    assert "Аркуш 10 з 20" in pages[10].extract_text()
+    assert "Аркуш 20 з 20" in pages[20].extract_text()
+
+
+# 19. Multiple PDF attachments — each is independently numbered
+def test_edge_multiple_pdf_attachments_independent_numbering(client):
+    client.post("/documents", json=_doc_payload("E-003"))
+    client.post("/documents/E-003/generate")
+    client.post("/documents/E-003/attachments",
+                files={"file": ("att1.pdf", _make_pdf(3), "application/pdf")})
+    client.post("/documents/E-003/attachments",
+                files={"file": ("att2.pdf", _make_pdf(2), "application/pdf")})
+    pages = _merged_pages(client, "E-003")
+    # 1 main + 3 (att1) + 2 (att2) = 6
+    assert len(pages) == 6
+    # Attachment 1 pages
+    assert "Додаток 1" in pages[1].extract_text()
+    assert "Аркуш 1 з 3" in pages[1].extract_text()
+    assert "Аркуш 3 з 3" in pages[3].extract_text()
+    # Attachment 2 pages — counter resets to 1
+    assert "Додаток 2" in pages[4].extract_text()
+    assert "Аркуш 1 з 2" in pages[4].extract_text()
+    assert "Аркуш 2 з 2" in pages[5].extract_text()
+    # No cross-contamination: att2 pages must NOT say "Аркуш 4"
+    assert "Аркуш 4" not in pages[4].extract_text()
+
+
+# 20. PNG attachment (opaque) — renders as one page with Аркуш 1 з 1
+def test_edge_png_attachment_single_page(client):
+    client.post("/documents", json=_doc_payload("E-004"))
+    client.post("/documents/E-004/generate")
+    client.post("/documents/E-004/attachments",
+                files={"file": ("img.png", _make_png(), "image/png")})
+    pages = _merged_pages(client, "E-004")
+    assert len(pages) == 2
+    txt = pages[1].extract_text()
+    assert "Додаток 1" in txt
+    assert "Аркуш 1 з 1" in txt
+
+
+# 21. RGBA/transparent PNG — must not produce a black-background page
+def test_edge_rgba_png_no_black_background(client):
+    """
+    When a transparent PNG is merged, the background should be white, not black.
+    We verify the PDF was produced (no 500 error) and has correct pagination.
+    """
+    client.post("/documents", json=_doc_payload("E-005"))
+    client.post("/documents/E-005/generate")
+    client.post("/documents/E-005/attachments",
+                files={"file": ("alpha.png", _make_png(rgba=True), "image/png")})
+    pages = _merged_pages(client, "E-005")
+    assert len(pages) == 2
+    assert "Аркуш 1 з 1" in pages[1].extract_text()
+
+
+# 22. XLSX placeholder — generates a single placeholder page, not skipped
+def test_edge_xlsx_generates_placeholder_page(client):
+    client.post("/documents", json=_doc_payload("E-006"))
+    client.post("/documents/E-006/generate")
+    client.post("/documents/E-006/attachments",
+                files={"file": ("report.xlsx", b"mock xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    pages = _merged_pages(client, "E-006")
+    # Should be 2: main + placeholder for xlsx
+    assert len(pages) == 2
+    txt = pages[1].extract_text()
+    assert "report.xlsx" in txt
+
+
+# 23. Mixed formats: PDF(2) + PNG + XLSX + PDF(1) — correct total page count and numbering
+def test_edge_mixed_formats_total_pages(client):
+    client.post("/documents", json=_doc_payload("E-007"))
+    client.post("/documents/E-007/generate")
+    client.post("/documents/E-007/attachments",
+                files={"file": ("a.pdf", _make_pdf(2), "application/pdf")})
+    client.post("/documents/E-007/attachments",
+                files={"file": ("b.png", _make_png(), "image/png")})
+    client.post("/documents/E-007/attachments",
+                files={"file": ("c.xlsx", b"mock", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    client.post("/documents/E-007/attachments",
+                files={"file": ("d.pdf", _make_pdf(1), "application/pdf")})
+    pages = _merged_pages(client, "E-007")
+    # 1 main + 2 (a.pdf) + 1 (b.png) + 1 (c.xlsx placeholder) + 1 (d.pdf) = 6
+    assert len(pages) == 6
+    # Dodatok indices
+    assert "Додаток 1" in pages[1].extract_text()  # a.pdf page 1
+    assert "Додаток 1" in pages[2].extract_text()  # a.pdf page 2
+    assert "Додаток 2" in pages[3].extract_text()  # b.png
+    assert "Додаток 3" in pages[4].extract_text()  # c.xlsx placeholder
+    assert "Додаток 4" in pages[5].extract_text()  # d.pdf
+
+
+# 24. Corrupt / zero-byte PDF attachment — skipped gracefully, no 500
+def test_edge_corrupt_pdf_skipped_gracefully(client):
+    client.post("/documents", json=_doc_payload("E-008"))
+    client.post("/documents/E-008/generate")
+    client.post("/documents/E-008/attachments",
+                files={"file": ("corrupt.pdf", b"THIS IS NOT A PDF", "application/pdf")})
+    # Should still return 200 with just the main document
+    res = client.get("/documents/E-008/merged-pdf")
+    assert res.status_code == 200
+    from pypdf import PdfReader
+    pages = PdfReader(io.BytesIO(res.content)).pages
+    assert len(pages) == 1  # Only main document, corrupt attachment skipped
+
+
+# 25. No attachments at all — returns just the main document PDF
+def test_edge_no_attachments_returns_main_only(client):
+    client.post("/documents", json=_doc_payload("E-009"))
+    client.post("/documents/E-009/generate")
+    pages = _merged_pages(client, "E-009")
+    assert len(pages) == 1
+
+
+# 26. Watermark does not bleed into main document first page
+def test_edge_watermark_not_on_main_document_page(client):
+    client.post("/documents", json=_doc_payload("E-010"))
+    client.post("/documents/E-010/generate")
+    client.post("/documents/E-010/attachments",
+                files={"file": ("att.pdf", _make_pdf(2), "application/pdf")})
+    pages = _merged_pages(client, "E-010")
+    main_txt = pages[0].extract_text()
+    assert "Додаток" not in main_txt
+    assert "Аркуш" not in main_txt
+
+
+# 27. Genitive case mapping — all known doc types produce correct preposition form
+def test_edge_genitive_case_all_doc_types(client):
+    cases = [
+        ("Наказ",         "до наказу"),
+        ("Лист",          "до листа"),
+        ("Протокол",      "до протоколу"),
+        ("Рішення",       "до рішення"),
+        ("Розпорядження", "до розпорядження"),
+        ("Договір",       "до договору"),
+        ("Акт",           "до акта"),
+        ("Скарга",        "до скарги"),
+    ]
+    for i, (doc_type, expected_phrase) in enumerate(cases):
+        doc_id = f"E-GT-{i:02d}"
+        payload = _doc_payload(doc_id)
+        payload["doc_type"] = doc_type
+        client.post("/documents", json=payload)
+        client.post(f"/documents/{doc_id}/generate")
+        client.post(f"/documents/{doc_id}/attachments",
+                    files={"file": ("a.pdf", _make_pdf(1), "application/pdf")})
+        pages = _merged_pages(client, doc_id)
+        att_txt = pages[1].extract_text()
+        assert expected_phrase in att_txt, \
+            f"Expected '{expected_phrase}' for doc_type='{doc_type}', got: {att_txt!r}"
+
+
+# 28. Attachment order_index gaps (after deletion) — numbering is based on sorted order_index
+def test_edge_attachment_order_after_deletion(client):
+    """
+    Upload 3 attachments (idx 0,1,2), delete idx=1.
+    Merged PDF should have idx 0 as Додаток 1 and idx 2 as Додаток 2.
+    """
+    client.post("/documents", json=_doc_payload("E-011"))
+    client.post("/documents/E-011/generate")
+    r0 = client.post("/documents/E-011/attachments",
+                     files={"file": ("first.pdf", _make_pdf(1), "application/pdf")})
+    r1 = client.post("/documents/E-011/attachments",
+                     files={"file": ("middle.pdf", _make_pdf(1), "application/pdf")})
+    r2 = client.post("/documents/E-011/attachments",
+                     files={"file": ("last.pdf", _make_pdf(1), "application/pdf")})
+    mid_id = r1.json()["id"]
+    client.delete(f"/documents/E-011/attachments/{mid_id}")
+
+    pages = _merged_pages(client, "E-011")
+    # 1 main + 2 remaining attachments
+    assert len(pages) == 3
+    p1_txt = pages[1].extract_text()
+    p2_txt = pages[2].extract_text()
+    # Both should be labelled as Додаток 1 and Додаток 2 sequentially
+    assert "Додаток 1" in p1_txt
+    assert "Додаток 2" in p2_txt
 
 
