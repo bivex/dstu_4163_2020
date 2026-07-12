@@ -56,7 +56,7 @@ def _get_addressee_count(payload: dict[str, Any]) -> int:
     return len(addrs)
 
 
-def _conformant_document(doc_id: str, is_electronic: bool, addressee_count: int = 0) -> Document:
+def _conformant_document(doc_id: str, is_electronic: bool, addressee_count: int = 0, appendix_count: int = 0) -> Document:
     """Повністю конформний за ДСТУ 4163:2020 Document (загальний бланк, A4)."""
     is_letter = addressee_count > 0
     return Document(
@@ -82,7 +82,7 @@ def _conformant_document(doc_id: str, is_electronic: bool, addressee_count: int 
         ),
         page_numbering=PageNumbering(2, False, True, False),
         storage_term=StorageTerm.PERMANENT,
-        addressee_count=addressee_count, appendix_count=0,
+        addressee_count=addressee_count, appendix_count=appendix_count,
         blank=BlankSpec(BlankType.GENERAL, 4, 0),
         date=DateSpec(DateStyle.VERBAL_NUMERIC, False),
         symbols=SymbolDimensions(
@@ -180,7 +180,12 @@ def generate(payload: dict[str, Any], fmt: str, dest_path: str) -> dict[str, Any
     документа, а сам згенерований файл лишається чистим.
     """
     is_electronic = bool(payload.get("is_electronic", True))
-    doc = _conformant_document(str(payload["doc_id"]), is_electronic, addressee_count=_get_addressee_count(payload))
+    doc = _conformant_document(
+        str(payload["doc_id"]),
+        is_electronic,
+        addressee_count=_get_addressee_count(payload),
+        appendix_count=int(payload.get("_attachment_count", 0)),
+    )
     clean_content = build_content(payload, with_marks=False)
 
     writer = _writer_for(fmt, pagination_barcode=bool(payload.get("pagination_barcode", False)))
@@ -216,7 +221,12 @@ def render_marked(payload: dict[str, Any], fmt: str, dest_path: str) -> str:
     (ПІБ, серійник, видавець, чинність, час). Повертає шлях до файлу.
     """
     is_electronic = bool(payload.get("is_electronic", True))
-    doc = _conformant_document(str(payload["doc_id"]), is_electronic, addressee_count=_get_addressee_count(payload))
+    doc = _conformant_document(
+        str(payload["doc_id"]),
+        is_electronic,
+        addressee_count=_get_addressee_count(payload),
+        appendix_count=int(payload.get("_attachment_count", 0)),
+    )
     marked_content = build_content(payload, with_marks=True)
     writer = _writer_for(fmt, pagination_barcode=bool(payload.get("pagination_barcode", False)))
     return writer.write(doc, marked_content, dest_path)
@@ -235,7 +245,12 @@ def _writer_for(fmt: str, *, pagination_barcode: bool = False):
 def validate(payload: dict[str, Any]) -> dict[str, Any]:
     """Перевірити документ за ДСТУ 4163 + content-aware правилами (ст.7/21)."""
     is_electronic = bool(payload.get("is_electronic", True))
-    doc = _conformant_document(str(payload["doc_id"]), is_electronic, addressee_count=_get_addressee_count(payload))
+    doc = _conformant_document(
+        str(payload["doc_id"]),
+        is_electronic,
+        addressee_count=_get_addressee_count(payload),
+        appendix_count=int(payload.get("_attachment_count", 0)),
+    )
     content = build_content(payload, with_marks=True)
     report = ValidateDocument(rule_set=_RULE_SET).execute(doc, content)
     return _report_to_dict(report) or {}
@@ -271,8 +286,34 @@ def content_from_json(s: str) -> dict[str, Any]:
     return json.loads(s)
 
 
+def _data_files(
+    doc_id: str,
+    fmt: str,
+    rendered: bytes,
+    attachments: list[tuple[str, bytes]],
+) -> list[tuple[str, bytes]]:
+    """Детермінований список data_files для ASiC-E — ЄДИНЕ місце його побудови.
+
+    Спершу основний документ (імʼя ``{doc_id}.{fmt}``), потім додатки в отриманому
+    порядку. ``attachments`` має бути відсортований викликівником за order_index —
+    порядок тут == порядок <asic:DataObjectReference> у маніфесті XML == частина
+    підписаного digest. Будь-який зсув ламає верифікацію підпису.
+
+    Кожен кортеж — (stored_filename, blob). stored_filename — точне імʼя всередині
+    ZIP, заморожене при завантаженні; ніколи не перераховується.
+    """
+    files = [(f"{doc_id}.{fmt}", rendered)]
+    files.extend(attachments)
+    return files
+
+
 def build_asice(
-    doc_id: str, fmt: str, rendered: bytes, signatures: list[tuple[str, bytes]], dest_path: str
+    doc_id: str,
+    fmt: str,
+    rendered: bytes,
+    attachments: list[tuple[str, bytes]],
+    signatures: list[tuple[str, bytes]],
+    dest_path: str,
 ) -> str:
     """Зібрати ASiC-E контейнер: документ + detached-CAdES підписи над манІфестами.
 
@@ -284,12 +325,18 @@ def build_asice(
     """
     from dilovod4.infrastructure.asic import AsicSignature, build_asic_e
 
-    data_files = [(f"{doc_id}.{fmt}", rendered)]
+    data_files = _data_files(doc_id, fmt, rendered, attachments)
     sigs = [AsicSignature(cms=cms, label=label) for label, cms in signatures]
     return build_asic_e(data_files, sigs, dest_path)
 
 
-def manifest_for_signer(doc_id: str, fmt: str, rendered: bytes, order_index: int) -> bytes:
+def manifest_for_signer(
+    doc_id: str,
+    fmt: str,
+    rendered: bytes,
+    attachments: list[tuple[str, bytes]],
+    order_index: int,
+) -> bytes:
     """Точні байти ASiCManifest, які підписант №order_index має підписати detached.
 
     order_index 0-based (як у черзі) → signatureNNN з NNN=order_index+1.
@@ -298,7 +345,7 @@ def manifest_for_signer(doc_id: str, fmt: str, rendered: bytes, order_index: int
     """
     from dilovod4.infrastructure.asic import manifest_for
 
-    data_files = [(f"{doc_id}.{fmt}", rendered)]
+    data_files = _data_files(doc_id, fmt, rendered, attachments)
     return manifest_for(order_index + 1, data_files)
 
 

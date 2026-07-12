@@ -24,6 +24,7 @@ from sqlalchemy import (
     LargeBinary,
     String,
     Text,
+    UniqueConstraint,
     create_engine,
 )
 from sqlalchemy.orm import (
@@ -184,6 +185,13 @@ class Document(Base):
     events: Mapped[list["AuditEvent"]] = relationship(
         back_populates="document", cascade="all, delete-orphan", order_by="AuditEvent.created_at"
     )
+    # додатки (скани/PDF/зображення/офісні) — пакуються у спільний ASiC-E контейнер
+    # і підписуються єдиним КЕП разом з основним документом. Порядок order_index
+    # детермінує послідовність <asic:DataObjectReference> у маніфесті (частина
+    # підписаного digest) — перенумерація/переorder після підпису ламає підпис.
+    attachments: Mapped[list["Attachment"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan", order_by="Attachment.order_index"
+    )
     folder: Mapped["Folder | None"] = relationship(back_populates="documents")
 
     @property
@@ -201,6 +209,34 @@ class Document(Base):
             if a.status in (ApproverStatus.INVITED, ApproverStatus.WAITING):
                 return a
         return None
+
+
+class Attachment(Base):
+    """Додаток до документа (скан/PDF/зображення/офісний файл).
+
+    Server-owned blob (inline LargeBinary, як Document.rendered/.asice). Входить
+    у спільний ASiC-E контейнер підпису. ``stored_filename`` — точне імʼя всередині
+    ZIP, заморожене при завантаженні; унікальне в межах документа (вкл. основний
+    файл ``{doc_id}.{fmt}``). ``order_index`` задає порядок у маніфесті ASiC.
+    """
+    __tablename__ = "attachments"
+    __table_args__ = (
+        UniqueConstraint("document_id", "stored_filename", name="uq_attachment_doc_filename"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    order_index: Mapped[int] = mapped_column(Integer, default=0)
+    original_filename: Mapped[str] = mapped_column(String(256), default="")
+    stored_filename: Mapped[str] = mapped_column(String(256))
+    mime: Mapped[str] = mapped_column(String(128), default="application/octet-stream")
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    blob: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    document: Mapped["Document"] = relationship(back_populates="attachments")
 
 
 class Folder(Base):

@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .db import init_db
-from .routers import auth, documents, signing, folders, registry, counterparties, delivery, journals, approvals, resolutions, tasks, users, processes
+from .routers import auth, documents, signing, folders, registry, counterparties, delivery, journals, approvals, resolutions, tasks, users, processes, attachments
 
 _cas_cache: dict = {"body": None, "ts": 0.0}
 
@@ -77,6 +77,7 @@ def health() -> dict:
 # Реєстрація модульних роутерів
 app.include_router(auth.router)
 app.include_router(documents.router)
+app.include_router(attachments.router)
 app.include_router(signing.router)
 app.include_router(folders.router)
 app.include_router(registry.router)

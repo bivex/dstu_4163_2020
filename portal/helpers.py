@@ -62,6 +62,7 @@ def _payload_with_signatures(doc: Document) -> dict:
         for s in doc.signers
         if s.status == SignerStatus.SIGNED
     ]
+    payload["_attachment_count"] = len(doc.attachments)
     return payload
 
 
@@ -121,6 +122,18 @@ def _doc_to_dict(doc: Document, brief: bool = False) -> dict:
                 "approved_at": a.approved_at.isoformat() if a.approved_at else None,
             }
             for a in doc.approvers
+        ],
+        "attachments": [
+            {
+                "id": att.id,
+                "order_index": att.order_index,
+                "original_filename": att.original_filename,
+                "stored_filename": att.stored_filename,
+                "mime": att.mime,
+                "size": att.size,
+                "created_at": att.created_at.isoformat() if att.created_at else None,
+            }
+            for att in doc.attachments
         ],
     }
     if not brief:
@@ -234,10 +247,11 @@ def _assemble_asice(session, doc: Document) -> None:
     ]
     if not sigs:
         return
+    atts = [(a.stored_filename, a.blob) for a in doc.attachments]
     with tempfile.NamedTemporaryFile(suffix=".asice", delete=False) as tmp:
         dest = tmp.name
     try:
-        bridge.build_asice(doc.doc_id, doc.fmt, doc.rendered, sigs, dest)
+        bridge.build_asice(doc.doc_id, doc.fmt, doc.rendered, atts, sigs, dest)
         with open(dest, "rb") as fh:
             doc.asice = fh.read()
         _audit(session, doc, "asice_built", detail=f"signatures={len(sigs)}")

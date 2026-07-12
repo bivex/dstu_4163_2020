@@ -111,8 +111,9 @@ def signing_manifest(
         nxt = doc.next_signer
         if nxt is None:
             raise HTTPException(409, "немає активного підписанта")
+        atts = [(a.stored_filename, a.blob) for a in doc.attachments]
         manifest = bridge.manifest_for_signer(
-            doc.doc_id, doc.fmt, doc.rendered, nxt.order_index
+            doc.doc_id, doc.fmt, doc.rendered, atts, nxt.order_index
         )
         return Response(content=manifest, media_type="application/xml")
 
@@ -305,9 +306,10 @@ def server_seal_document(
         if not doc.rendered:
             raise HTTPException(409, "спершу згенеруйте документ (/generate)")
 
+        atts = [(a.stored_filename, a.blob) for a in doc.attachments]
         # ТОЙ ЖЕ маніфест, що й клієнтський підпис — digest співпадає, ASiC збереться
         manifest = bridge.manifest_for_signer(
-            doc.doc_id, doc.fmt, doc.rendered, nxt.order_index
+            doc.doc_id, doc.fmt, doc.rendered, atts, nxt.order_index
         )
 
         try:
