@@ -79,7 +79,7 @@ def generate_multipage_pdf(title: str, pages: int) -> bytes:
         can.save()
         return out.getvalue()
     except Exception as e:
-        print(f"Error generating multipage: {e}")
+        print("Error generating multipage: " + str(e))
         return b""
 
 instrukciya_3pages = generate_multipage_pdf("Інструкція з діловодства", 3)
