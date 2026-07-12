@@ -101,7 +101,7 @@ def finalize_and_sign(session, doc, payload):
                 os.remove(p)
 
     # 2. Attach mock signatures
-    fake_sig = base64.b64decode("MDCCAfgCAQExCzAJBgUrDgMCGgUAMAsGCSqGSIb3DQEHATFCBEEwPTAOBgNVHQ8BAf8EBAMCB4AwHQYDVR0OBBYEFBXeMockBytes" + "0" * 500)
+    fake_sig = b"\x30\x82\x02\x00" + b"\x00" * 600
     for s in doc.signers:
         s.status = SignerStatus.SIGNED
         s.signature = fake_sig
