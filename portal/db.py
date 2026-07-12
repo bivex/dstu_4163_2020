@@ -369,6 +369,11 @@ class User(Base):
     # від kep_* — КЕП особи). Використовується _is_active_signer: печатку може
     # накласти лише користувач, чия organization_cert_cn збігається з CN печатки.
     organization_cert_cn: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    # контакти фізособи-заявника: підставляються у блок «від кого» заяви/скарги
+    # (Закон «Про звернення громадян» №393/96-ВР, ст. 5). Окремо від email — email
+    # це логін, phone/address — публічні реквізити у документах.
+    phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    address: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     @staticmethod
@@ -449,6 +454,11 @@ def init_db() -> None:
                 conn.execute(
                     text("ALTER TABLE users ADD COLUMN organization_cert_cn VARCHAR(256)")
                 )
+            # контакти фізособи-заявника для блоку «від кого» у заявах/скаргах
+            if "phone" not in u_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN phone VARCHAR(64)"))
+            if "address" not in u_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN address TEXT"))
 
     if "signers" in insp.get_table_names():
         s_cols = {c["name"] for c in insp.get_columns("signers")}
