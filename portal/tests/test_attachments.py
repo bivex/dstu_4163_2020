@@ -444,3 +444,35 @@ def test_merged_pdf_generation(client):
     assert len(merged_reader.pages) > 1
 
 
+# 14. test that delivery items list contains attachments with correct page counts
+def test_delivery_items_contain_attachments(client):
+    client.post("/documents", json=_doc_payload("T-001"))
+    # Generate main doc
+    client.post("/documents/T-001/generate")
+
+    # Add a PDF attachment
+    nakaz_path = Path(__file__).resolve().parents[2] / "samples" / "pdf" / "nakaz.pdf"
+    if nakaz_path.exists():
+        att_bytes = nakaz_path.read_bytes()
+    else:
+        att_bytes = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [ 3 0 R ] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [ 0 0 595.27 841.89 ] >>\nendobj\nxref\n0 4\n0000000000 65535 f\n0000000009 00000 n\n0000000056 00000 n\n0000000111 00000 n\ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n180\n%%EOF\n"
+
+    client.post(
+        "/documents/T-001/attachments",
+        files={"file": ("manual_instruction.pdf", att_bytes, "application/pdf")}
+    )
+
+    # Fetch delivery details
+    res = client.get("/documents/T-001/delivery")
+    assert res.status_code == 200
+    data = res.json()
+    items = data["items"]
+    # There should be 2 items: main document and 1 attachment
+    assert len(items) == 2
+    assert items[0]["name"] == "Наказ № 050-фін від 14 червня 2026 року «Про затвердження річної звітності»"
+    assert items[0]["quantity"] == 1  # 1 page main doc
+    assert items[1]["name"] == "Додаток 1: manual_instruction.pdf"
+    assert items[1]["quantity"] == 1
+
+
+

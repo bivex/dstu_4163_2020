@@ -72,16 +72,48 @@ def get_document_delivery(doc_id: str) -> dict:
         sender_phone = "+380444523307"
         sender_code = "12345678"
 
+        # Calculate main document pages
+        doc_pages = 1
+        if doc and doc.rendered:
+            try:
+                from pypdf import PdfReader
+                import io
+                reader = PdfReader(io.BytesIO(doc.rendered))
+                doc_pages = len(reader.pages)
+            except Exception:
+                pass
+
         # Default list of items in the envelope (the document itself)
         item_text = f"{doc_type} № {doc_num} від {doc_date} «{doc_title}»"
 
         items = [
             {
                 "name": item_text,
-                "quantity": 1,
+                "quantity": doc_pages,
                 "declared_value": 1.0
             }
         ]
+
+        # Add attachments with their actual page count
+        if doc:
+            attachments = sorted(doc.attachments, key=lambda a: a.order_index)
+            for idx, att in enumerate(attachments, start=1):
+                att_pages = 1
+                ext = att.stored_filename.split('.')[-1].lower() if '.' in att.stored_filename else ''
+                if ext == 'pdf' and att.blob:
+                    try:
+                        from pypdf import PdfReader
+                        import io
+                        reader = PdfReader(io.BytesIO(att.blob))
+                        att_pages = len(reader.pages)
+                    except Exception:
+                        pass
+                
+                items.append({
+                    "name": f"Додаток {idx}: {att.original_filename or att.stored_filename}",
+                    "quantity": att_pages,
+                    "declared_value": 1.0
+                })
 
         return {
             "sender": {
