@@ -173,8 +173,9 @@ with SessionLocal() as session:
     ))
 
     # Згенеруємо PDF, підпишемо та створимо ASiC-E
-    finalize_and_sign(session, doc, payload)
     session.add(doc)
+    session.flush()
+    finalize_and_sign(session, doc, payload)
 
     # 2. Оновимо NAKAZ-SEED-01
     doc_id = "NAKAZ-SEED-01"
@@ -236,8 +237,9 @@ with SessionLocal() as session:
     ))
 
     # Згенеруємо PDF, підпишемо та створимо ASiC-E
-    finalize_and_sign(session, doc, payload)
     session.add(doc)
+    session.flush()
+    finalize_and_sign(session, doc, payload)
 
     # 3. Оновимо LIST-SEED-02
     doc_id = "LIST-SEED-02"
@@ -299,8 +301,9 @@ with SessionLocal() as session:
     ))
 
     # Згенеруємо PDF, підпишемо та створимо ASiC-E
-    finalize_and_sign(session, doc, payload)
     session.add(doc)
+    session.flush()
+    finalize_and_sign(session, doc, payload)
 
     session.commit()
     print("Database seeded with real signed PDF blobs successfully.")
