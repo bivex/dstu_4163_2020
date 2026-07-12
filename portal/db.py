@@ -658,6 +658,8 @@ def _seed_default_admin() -> None:
             position="Адміністратор",
             role=UserRole.ADMIN.value,
             password_hash=User.hash_password(default_pass),
+            phone="+38 050 123 45 67",
+            address="вул. Садова, 5, кв. 12, м. Київ, 01001",
         )
         session.add(user)
         session.commit()

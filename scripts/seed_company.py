@@ -136,16 +136,24 @@ def main() -> int:
             if args.dry_run:
                 continue
             user = session.query(db.User).filter_by(email=email).first()
+            user_phone = f"+38050{random.randint(1000000, 9999999)}"
+            user_address = f"вул. Шевченка, {random.randint(1, 150)}, м. Київ, 0{random.randint(1000, 9999)}"
             if user:
                 user.name = name
                 user.position = position
                 user.role = role
                 user.password_hash = db.User.hash_password(args.password)
+                if not user.phone:
+                    user.phone = user_phone
+                if not user.address:
+                    user.address = user_address
                 updated += 1
             else:
                 session.add(db.User(
                     email=email, name=name, position=position, role=role,
                     password_hash=db.User.hash_password(args.password),
+                    phone=user_phone,
+                    address=user_address,
                 ))
                 created += 1
         if not args.dry_run:
