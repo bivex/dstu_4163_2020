@@ -305,6 +305,80 @@ with SessionLocal() as session:
     session.flush()
     finalize_and_sign(session, doc, payload)
 
+    # 4. Оновимо SKARGA-SEED-03
+    doc_id = "SKARGA-SEED-03"
+    existing = session.query(Document).filter_by(doc_id=doc_id).first()
+    if existing:
+        session.delete(existing)
+        session.flush()
+
+    payload = {{
+        "doc_id": doc_id,
+        "org_name": "НАЦІОНАЛЬНЕ АГЕНТСТВО З ПИТАНЬ ЗАПОБІГАННЯ КОРУПЦІКИ",
+        "doc_type": "Скарга",
+        "title": "Скарга на бездіяльність щодо невнесення відомостей до ЄРДР",
+        "reg_index": "С-082/1",
+        "date_text": "12 липня 2026 року",
+        "fmt": "pdf",
+        "is_electronic": True,
+        "body": [
+            "12 липня 2026 року мною було подано заяву про вчинення кримінального правопорушення.",
+            "Уповноваженими особами у встановлений законом 24-годинний строк відомості до ЄРДР внесені не були.",
+            "У зв'язку з викладеним, керуючись вимогами діючого законодавства, ПРОШУ:",
+            "1. Зобов'язати уповноважених осіб внести відомості про правопорушення до ЄРДР.",
+            "2. До матеріалів цієї скарги додаю копію заяви та підтвердження її отримання."
+        ],
+        "signature_position": "Провідний юрисконсульт",
+        "signature_name": "К. ШЕВЧЕНКО",
+        "signers": [
+            {{"order_index": 0, "full_name": "Шевченко Катерина Петрівна", "position": "Провідний юрисконсульт", "signer_type": "person"}}
+        ],
+        "retention_years": 5,
+        "_attachment_count": 2
+    }}
+    doc = Document(
+        doc_id=doc_id,
+        title=payload["title"],
+        fmt=payload["fmt"],
+        status=DocStatus.DRAFT,
+        content_json=bridge.content_to_json(payload),
+        retention_until=dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=365 * 5),
+    )
+    doc.signers.append(
+        Signer(
+            order_index=0,
+            full_name="Шевченко Катерина Петрівна",
+            position="Провідний юрисконсульт",
+            status=SignerStatus.WAITING,
+            signer_type="person"
+        )
+    )
+    # Generate 2-page PDF for attachment 1
+    kopiya_zayavy = generate_multipage_pdf("Копія заяви", 2)
+    doc.attachments.append(Attachment(
+        order_index=0,
+        original_filename="kopiya_zayavy.pdf",
+        stored_filename="kopiya_zayavy.pdf",
+        mime="application/pdf",
+        size=len(kopiya_zayavy),
+        blob=kopiya_zayavy
+    ))
+    # Generate 1-page PDF for attachment 2
+    dokaz_dostavky = generate_multipage_pdf("Доказ доставки", 1)
+    doc.attachments.append(Attachment(
+        order_index=1,
+        original_filename="dokaz_dostavky.pdf",
+        stored_filename="dokaz_dostavky.pdf",
+        mime="application/pdf",
+        size=len(dokaz_dostavky),
+        blob=dokaz_dostavky
+    ))
+
+    # Згенеруємо PDF, підпишемо та створимо ASiC-E
+    session.add(doc)
+    session.flush()
+    finalize_and_sign(session, doc, payload)
+
     session.commit()
     print("Database seeded with real signed PDF blobs successfully.")
 """
