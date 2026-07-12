@@ -413,3 +413,34 @@ def test_unicode_sanitization_edge_cases(client):
     # Should strip path traversal/forbidden chars and preserve Ukrainian characters
     assert stored_name == "звіт новий файл.pdf"
 
+
+# 13. test merged PDF generation with attachments
+def test_merged_pdf_generation(client):
+    client.post("/documents", json=_doc_payload("T-001"))
+    # Generate main document PDF
+    client.post("/documents/T-001/generate")
+
+    # Add a PDF attachment
+    nakaz_path = Path(__file__).resolve().parents[2] / "samples" / "pdf" / "nakaz.pdf"
+    if nakaz_path.exists():
+        att_bytes = nakaz_path.read_bytes()
+    else:
+        att_bytes = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [ 3 0 R ] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [ 0 0 595.27 841.89 ] >>\nendobj\nxref\n0 4\n0000000000 65535 f\n0000000009 00000 n\n0000000056 00000 n\n0000000111 00000 n\ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n180\n%%EOF\n"
+
+    client.post(
+        "/documents/T-001/attachments",
+        files={"file": ("att.pdf", att_bytes, "application/pdf")}
+    )
+
+    # Trigger merged PDF
+    res = client.get("/documents/T-001/merged-pdf")
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "application/pdf"
+    
+    # Read the merged PDF and verify page count
+    from pypdf import PdfReader
+    merged_reader = PdfReader(io.BytesIO(res.content))
+    # Main document + attachment pages
+    assert len(merged_reader.pages) > 1
+
+

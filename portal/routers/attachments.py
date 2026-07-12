@@ -181,3 +181,164 @@ def delete_attachment(
         session.commit()
 
         return {"ok": True}
+
+
+@router.get("/documents/{doc_id}/merged-pdf")
+def get_merged_pdf(
+    doc_id: str,
+    current_user: dict = Depends(_current_user),
+):
+    from pypdf import PdfReader, PdfWriter
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.utils import ImageReader
+    import io
+    import json
+    from portal import domain_bridge as bridge
+
+    with SessionLocal() as session:
+        doc = _load(session, doc_id)
+        if not doc.rendered:
+            raise HTTPException(409, "Спершу згенеруйте PDF документа")
+
+        # Parse document metadata
+        try:
+            payload = bridge.content_from_json(doc.content_json)
+        except Exception:
+            payload = {}
+        doc_type = payload.get("doc_type", "")
+        reg_index = payload.get("reg_index", "")
+
+        writer = PdfWriter()
+
+        # Add main document pages
+        try:
+            main_reader = PdfReader(io.BytesIO(doc.rendered))
+            for page in main_reader.pages:
+                writer.add_page(page)
+        except Exception as e:
+            raise HTTPException(500, f"Помилка читання головного документа: {e}")
+
+        # Setup font for watermark (Cyrillic support)
+        try:
+            from src.dilovod4.infrastructure.fonts import resolve_times_new_roman
+            from reportlab.pdfbase import pdfmetrics
+            from reportlab.pdfbase.ttfonts import TTFont
+            fonts = resolve_times_new_roman()
+            FONT_REGULAR = "Merged-Font-Regular"
+            FONT_BOLD = "Merged-Font-Bold"
+            pdfmetrics.registerFont(TTFont(FONT_REGULAR, fonts.regular))
+            pdfmetrics.registerFont(TTFont(FONT_BOLD, fonts.bold))
+        except Exception:
+            FONT_REGULAR = "Helvetica"
+            FONT_BOLD = "Helvetica-Bold"
+
+        # Process attachments sorted by order_index
+        attachments = sorted(doc.attachments, key=lambda a: a.order_index)
+        
+        for idx, att in enumerate(attachments, start=1):
+            ext = att.stored_filename.split('.')[-1].lower() if '.' in att.stored_filename else ''
+            
+            # Determine pages to merge
+            pages_to_add = []
+            
+            if ext == 'pdf':
+                try:
+                    att_reader = PdfReader(io.BytesIO(att.blob))
+                    pages_to_add = list(att_reader.pages)
+                except Exception as e:
+                    print(f"Skipping corrupt PDF attachment {att.stored_filename}: {e}")
+                    continue
+            elif ext in ['png', 'jpg', 'jpeg', 'bmp', 'webp']:
+                try:
+                    # Convert image to PDF page
+                    img_packet = io.BytesIO()
+                    can = canvas.Canvas(img_packet, pagesize=A4)
+                    img = ImageReader(io.BytesIO(att.blob))
+                    img_w, img_h = img.getSize()
+                    
+                    # Scale to fit A4 page
+                    max_w, max_h = 535, 781  # Margins 30pt
+                    ratio = min(max_w / img_w, max_h / img_h)
+                    new_w = img_w * ratio
+                    new_h = img_h * ratio
+                    
+                    x = (595.27 - new_w) / 2
+                    y = (841.89 - new_h) / 2
+                    
+                    can.drawImage(img, x, y, width=new_w, height=new_h)
+                    can.save()
+                    img_packet.seek(0)
+                    
+                    img_reader = PdfReader(img_packet)
+                    pages_to_add = list(img_reader.pages)
+                except Exception as e:
+                    print(f"Skipping corrupt image attachment {att.stored_filename}: {e}")
+                    continue
+            else:
+                # Placeholder page for non-visual files (.docx, .xlsx)
+                try:
+                    placeholder_packet = io.BytesIO()
+                    can = canvas.Canvas(placeholder_packet, pagesize=A4)
+                    can.setFont(FONT_REGULAR, 12)
+                    can.drawString(100, 500, f"Додаток {idx}: {att.original_filename}")
+                    can.setFont(FONT_REGULAR, 10)
+                    can.drawString(100, 480, "(Вміст файлу не підтримує прямий перегляд у PDF)")
+                    can.drawString(100, 460, "Ви можете завантажити оригінал з картки документа.")
+                    can.save()
+                    placeholder_packet.seek(0)
+                    
+                    placeholder_reader = PdfReader(placeholder_packet)
+                    pages_to_add = list(placeholder_reader.pages)
+                except Exception as e:
+                    print(f"Skipping placeholder generation for {att.stored_filename}: {e}")
+                    continue
+
+            total_pages = len(pages_to_add)
+            for page_num, page in enumerate(pages_to_add, start=1):
+                # Generate watermark page
+                try:
+                    watermark_packet = io.BytesIO()
+                    can = canvas.Canvas(watermark_packet, pagesize=A4)
+                    
+                    # Watermark text lines
+                    text_lines = [f"Додаток {idx}"]
+                    if doc_type and reg_index:
+                        text_lines.append(f"до {doc_type.lower()} № {reg_index}")
+                    text_lines.append(f"Аркуш {page_num} з {total_pages}")
+                    
+                    y_pos = 810
+                    can.setFont(FONT_REGULAR, 9)
+                    for line in text_lines:
+                        can.drawRightString(565, y_pos, line)
+                        y_pos -= 11
+                    can.save()
+                    watermark_packet.seek(0)
+                    
+                    watermark = PdfReader(watermark_packet).pages[0]
+                    # Merge watermark onto the target page
+                    page.merge_page(watermark)
+                except Exception as e:
+                    print(f"Watermark merging failed: {e}")
+                
+                writer.add_page(page)
+
+        # Output the merged PDF
+        output_stream = io.BytesIO()
+        writer.write(output_stream)
+        merged_bytes = output_stream.getvalue()
+
+        # Filename
+        orig_name = f"{doc_id}_merged.pdf"
+        encoded_filename = quote(orig_name)
+        content_disposition = f"attachment; filename=\"{orig_name}\"; filename*=UTF-8''{encoded_filename}"
+
+        return Response(
+            content=merged_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": content_disposition,
+                "Access-Control-Expose-Headers": "Content-Disposition",
+            },
+        )
+
