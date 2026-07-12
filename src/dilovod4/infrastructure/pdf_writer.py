@@ -258,9 +258,14 @@ class _Layout:
                 font=_FONT_BOLD,
             )
 
-        # 01 Державний Герб України
+        # 01 Державний Герб України — лише для державних органів/підприємств
+        is_state_org = any(
+            word in self.content.org_name.upper()
+            for word in ["ДЕРЖАВН", "МІНІСТЕРСТВ", "НАЦІОНАЛЬН", "ПРОКУР", "СЛУЖБ"]
+        )
         if (
-            self.doc.symbols
+            is_state_org
+            and self.doc.symbols
             and self.doc.symbols.coat_of_arms_height_mm > 0
             and self.doc.symbols.coat_of_arms_width_mm > 0
         ):
