@@ -284,17 +284,6 @@ class _Layout:
         # 04 найменування юридичної особи — центрований, напівжирний, з перенесенням
         self._wrapped(self.content.org_name, align=_ALIGN_CENTER, font=_FONT_BOLD)
 
-        # Контактні дані відправника (адреса, тел., e-mail) — для фізосіб-заявників.
-        # Виводяться дрібнішим шрифтом (8pt) по центру, під org_name.
-        if self.content.sender_contacts.strip():
-            for contact_line in self.content.sender_contacts.split("\n"):
-                if contact_line.strip():
-                    self._wrapped(
-                        contact_line.strip(),
-                        align=_ALIGN_CENTER,
-                        size=8,
-                    )
-            self._gap(0.3)
 
         # реквізит 15 — гриф обмеження доступу (ст.21 З-ну 2657-XII), праворуч угорі
         if self.content.access_restriction is not None:
@@ -332,6 +321,28 @@ class _Layout:
                         part,
                         indent_mm=self.doc.left_indents.addressee_mm,
                         first_indent_mm=self.doc.left_indents.addressee_mm,
+                    )
+
+        # Контактні дані відправника-фізособи — праворуч, під адресатом.
+        # Формат: «від [ПІБ],» (береться з org_name) + рядки адреси/тел./email.
+        # Відповідає практиці держорганів (Закон №393/96-ВР, ст.5).
+        if self.content.sender_contacts.strip():
+            self._gap(0.3)
+            # Рядок «від [ПІБ],» — береться з org_name, прибираємо префікс «Гр. »
+            sender_name = self.content.org_name.removeprefix("Гр. ").strip()
+            self._wrapped(
+                f"від {sender_name},",
+                indent_mm=self.doc.left_indents.addressee_mm,
+                first_indent_mm=self.doc.left_indents.addressee_mm,
+                size=9,
+            )
+            for contact_line in self.content.sender_contacts.split("\n"):
+                if contact_line.strip():
+                    self._wrapped(
+                        contact_line.strip(),
+                        indent_mm=self.doc.left_indents.addressee_mm,
+                        first_indent_mm=self.doc.left_indents.addressee_mm,
+                        size=9,
                     )
 
         # 19 заголовок до тексту — центрований, напівжирний
