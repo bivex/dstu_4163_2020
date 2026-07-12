@@ -19,6 +19,8 @@ class UserSchema(BaseModel):
     kep_serial_number: str | None = None
     kep_certificate_serial: str | None = None
     organization_cert_cn: str | None = None
+    phone: str | None = None
+    address: str | None = None
 
     class Config:
         from_attributes = True
@@ -35,6 +37,8 @@ def _user_to_dict(u: User) -> dict:
         "kep_serial_number": u.kep_serial_number,
         "kep_certificate_serial": u.kep_certificate_serial,
         "organization_cert_cn": u.organization_cert_cn,
+        "phone": u.phone,
+        "address": u.address,
     }
 
 
@@ -79,6 +83,8 @@ def create_user(payload: dict = Body(...), current_user: dict = Depends(_current
             position=position,
             role=role,
             password_hash=User.hash_password(password),
+            phone=str(payload.get("phone", "")).strip() or None,
+            address=str(payload.get("address", "")).strip() or None,
         )
         session.add(u)
         session.commit()
@@ -110,6 +116,12 @@ def update_user(user_id: int, payload: dict = Body(...), current_user: dict = De
 
         if "position" in payload:
             u.position = str(payload["position"]).strip()
+
+        if "phone" in payload:
+            u.phone = str(payload["phone"]).strip() or None
+
+        if "address" in payload:
+            u.address = str(payload["address"]).strip() or None
 
         # Зміну ролі дозволено лише admin. Це єдиний привілейований запис —
         # інакше будь-хто підніме себе до admin.
