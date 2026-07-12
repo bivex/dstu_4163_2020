@@ -528,5 +528,39 @@ def test_merged_pdf_multipage_watermarks(client):
     assert "Аркуш 2 з 2" in p3_txt
 
 
+# 16. test merged PDF with complaint document to verify genitive case (до скарги)
+def test_merged_pdf_complaint_genitive(client):
+    payload = _doc_payload("T-CMP")
+    payload["doc_type"] = "Скарга"
+    client.post("/documents", json=payload)
+    client.post("/documents/T-CMP/generate")
+
+    # Generate 1-page PDF
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import A4
+    out = io.BytesIO()
+    can = canvas.Canvas(out, pagesize=A4)
+    can.drawString(100, 500, "Evidence content")
+    can.showPage()
+    can.save()
+    att_bytes = out.getvalue()
+
+    client.post(
+        "/documents/T-CMP/attachments",
+        files={"file": ("evidence.pdf", att_bytes, "application/pdf")}
+    )
+
+    res = client.get("/documents/T-CMP/merged-pdf")
+    assert res.status_code == 200
+    
+    from pypdf import PdfReader
+    reader = PdfReader(io.BytesIO(res.content))
+    p2_txt = reader.pages[1].extract_text()
+    
+    # Verify the genitive case watermark
+    assert "до скарги № 050-фін" in p2_txt
+
+
+
 
 
