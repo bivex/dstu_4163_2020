@@ -284,6 +284,18 @@ class _Layout:
         # 04 найменування юридичної особи — центрований, напівжирний, з перенесенням
         self._wrapped(self.content.org_name, align=_ALIGN_CENTER, font=_FONT_BOLD)
 
+        # Контактні дані відправника (адреса, тел., e-mail) — для фізосіб-заявників.
+        # Виводяться дрібнішим шрифтом (8pt) по центру, під org_name.
+        if self.content.sender_contacts.strip():
+            for contact_line in self.content.sender_contacts.split("\n"):
+                if contact_line.strip():
+                    self._wrapped(
+                        contact_line.strip(),
+                        align=_ALIGN_CENTER,
+                        size=8,
+                    )
+            self._gap(0.3)
+
         # реквізит 15 — гриф обмеження доступу (ст.21 З-ну 2657-XII), праворуч угорі
         if self.content.access_restriction is not None:
             self._line(

@@ -166,6 +166,7 @@ def build_content(payload: dict[str, Any], *, with_marks: bool = False) -> Docum
         signature_name=str(payload.get("signature_name", "")),
         e_signatures=e_sigs,
         addressees=tuple(str(a) for a in addrs),
+        sender_contacts=str(payload.get("sender_contacts", "")),
     )
 
 
