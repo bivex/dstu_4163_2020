@@ -43,23 +43,48 @@ nakaz_bytes = base64.b64decode("{nakaz_b64}")
 lyst_bytes = base64.b64decode("{lyst_b64}")
 schema_bytes = base64.b64decode("{schema_b64}")
 
-def multiply_pdf_pages(pdf_bytes: bytes, pages: int) -> bytes:
+def generate_multipage_pdf(title: str, pages: int) -> bytes:
     try:
-        from pypdf import PdfReader, PdfWriter
-        reader = PdfReader(io.BytesIO(pdf_bytes))
-        writer = PdfWriter()
-        orig_page = reader.pages[0]
-        for _ in range(pages):
-            writer.add_page(orig_page)
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from dilovod4.infrastructure.fonts import resolve_times_new_roman
+        
+        fonts = resolve_times_new_roman()
+        FONT_REGULAR = "Temp-Font-Regular"
+        pdfmetrics.registerFont(TTFont(FONT_REGULAR, fonts.regular))
+        
         out = io.BytesIO()
-        writer.write(out)
+        can = canvas.Canvas(out, pagesize=A4)
+        for p in range(1, pages + 1):
+            can.setFont(FONT_REGULAR, 12)
+            can.drawCentredString(297, 800, "ПРОЕКТ")
+            can.drawCentredString(297, 780, "ДЕРЖАВНЕ ПІДПРИЄМСТВО «УКРНДНЦ»")
+            can.drawCentredString(297, 760, f"ІНСТРУКЦІЯ ({title})")
+            can.drawCentredString(297, 740, "10 червня 2026 року № 009-пр")
+            can.drawCentredString(297, 720, "з діловодства та документообігу")
+            
+            can.drawString(54, 650, f"Це тестова сторінка {p} з {pages} додатка.")
+            can.drawString(54, 630, "1. Ця Інструкція визначає порядок роботи з документами відповідно до ДСТУ 4163:2020.")
+            can.drawString(54, 610, "2. Документи оформлюють на бланках установленого зразка з дотриманням вимог.")
+            can.drawString(54, 590, "3. Контроль за дотриманням Інструкції покладається на канцелярію.")
+            
+            can.drawString(54, 450, "Начальник канцелярії Л. МЕЛЬНИК")
+            can.drawString(54, 420, "Розробник проєкту, провідний документознавець К. ШЕВЧЕНКО 10 червня 2026 року")
+            can.drawString(54, 390, "Начальник юридичного відділу О. КОВАЛЬ 11 червня 2026 року")
+            can.drawString(54, 360, "Зауваження: зауважень немає")
+            
+            can.showPage()
+        can.save()
         return out.getvalue()
-    except Exception:
-        return pdf_bytes
+    except Exception as e:
+        print(f"Error generating multipage: {e}")
+        return b""
 
-instrukciya_3pages = multiply_pdf_pages(instrukciya_bytes, 3)
-nakaz_2pages = multiply_pdf_pages(nakaz_bytes, 2)
-lyst_4pages = multiply_pdf_pages(lyst_bytes, 4)
+instrukciya_3pages = generate_multipage_pdf("Інструкція з діловодства", 3)
+nakaz_2pages = generate_multipage_pdf("Специфікація", 2)
+lyst_4pages = generate_multipage_pdf("Технічні вимоги", 4)
 
 with SessionLocal() as session:
     # 1. Оновимо NAKAZ-UKRNDNC-014
