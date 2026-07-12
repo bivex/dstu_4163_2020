@@ -186,6 +186,7 @@ def delete_attachment(
 @router.get("/documents/{doc_id}/merged-pdf")
 def get_merged_pdf(
     doc_id: str,
+    visa: bool = False,
     current_user: dict = Depends(_current_user),
 ):
     from pypdf import PdfReader, PdfWriter
@@ -303,7 +304,7 @@ def get_merged_pdf(
             pkt.seek(0)
             return PdfReader(pkt).pages[0]
 
-        visa = _visa_lines(doc)
+        visa = _visa_lines(doc) if visa else []
 
         # Add main document pages (штамп-віза на кожній сторінці, якщо є погоджені)
         try:

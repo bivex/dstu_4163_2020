@@ -861,15 +861,24 @@ def test_merged_pdf_includes_visa_on_every_page(client):
     )
     assert res.status_code == 200
 
-    # 4. Get merged PDF
-    res = client.get("/documents/V-001/merged-pdf")
+    # 4. Get merged PDF (default, visa should be disabled)
+    res_default = client.get("/documents/V-001/merged-pdf")
+    assert res_default.status_code == 200
+    assert res_default.headers["content-type"] == "application/pdf"
+    
+    from pypdf import PdfReader
+    reader_default = PdfReader(io.BytesIO(res_default.content))
+    assert len(reader_default.pages) == 3
+    for idx, page in enumerate(reader_default.pages):
+        assert "ВІЗА:" not in page.extract_text(), f"Page {idx} should not contain 'ВІЗА:' by default"
+
+    # Get merged PDF with visa=true
+    res = client.get("/documents/V-001/merged-pdf?visa=true")
     assert res.status_code == 200
     assert res.headers["content-type"] == "application/pdf"
 
     # 5. Extract text from pages to verify visa is present on every page
-    from pypdf import PdfReader
     reader = PdfReader(io.BytesIO(res.content))
-    # Total pages: 1 (main) + 2 (attachment) = 3 pages
     assert len(reader.pages) == 3
 
     # Calculate expected date string in Kyiv timezone
@@ -964,7 +973,7 @@ def test_merged_pdf_visa_pagesize_and_rotation(client):
     client.post("/documents/V-003/approval/submit")
     client.post("/documents/V-003/approval/action", json={"action": "approve"})
 
-    res = client.get("/documents/V-003/merged-pdf")
+    res = client.get("/documents/V-003/merged-pdf?visa=true")
     assert res.status_code == 200
 
     from pypdf import PdfReader
