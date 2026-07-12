@@ -116,6 +116,10 @@ def main():
         session.commit()
         session.refresh(admin)
 
+        # Also save a copy as a PNG file in the repository root
+        output_file = project_root / "admin_facsimile.png"
+        output_file.write_bytes(facsimile_bytes)
+
         print("--------------------------------------------------")
         print(f"Facsimile signature successfully assigned to user:")
         print(f"  ID:       {admin.id}")
@@ -123,6 +127,7 @@ def main():
         print(f"  Email:    {admin.email}")
         print(f"  Role:     {admin.role}")
         print(f"  Has Facs: {admin.facsimile_blob is not None}")
+        print(f"  Saved to: {output_file}")
         print("--------------------------------------------------")
 
 if __name__ == "__main__":
