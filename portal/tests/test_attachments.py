@@ -31,12 +31,24 @@ def _doc_payload(doc_id: str = "T-001", signers: int = 2) -> dict:
         "signature_position": "Директор",
         "signature_name": "О. ПЕТРЕНКО",
         "e_signatures": [
-            {"signer": "ПЕТРЕНКО Олександр", "certificate_serial": "58E2D9",
-             "issuer": "КН ЕДП Дія", "valid_from": "01.01.2026", "valid_to": "01.01.2028",
-             "timestamp": "14.06.2026 09:00", "signer_position": "Директор"},
-            {"signer": "ТКАЧЕНКО Наталія", "certificate_serial": "A1B2C3",
-             "issuer": "КН ЕДП Дія", "valid_from": "01.01.2026", "valid_to": "01.01.2028",
-             "timestamp": "14.06.2026 09:05", "signer_position": "Головний бухгалтер"},
+            {
+                "signer": "ПЕТРЕНКО Олександр",
+                "certificate_serial": "58E2D9",
+                "issuer": "КН ЕДП Дія",
+                "valid_from": "01.01.2026",
+                "valid_to": "01.01.2028",
+                "timestamp": "14.06.2026 09:00",
+                "signer_position": "Директор",
+            },
+            {
+                "signer": "ТКАЧЕНКО Наталія",
+                "certificate_serial": "A1B2C3",
+                "issuer": "КН ЕДП Дія",
+                "valid_from": "01.01.2026",
+                "valid_to": "01.01.2028",
+                "timestamp": "14.06.2026 09:05",
+                "signer_position": "Головний бухгалтер",
+            },
         ][:signers],
         "signers": sg,
         "retention_years": 5,
@@ -51,17 +63,25 @@ def _fake_cms() -> str:
 def _clerk_headers() -> dict:
     import jwt
     import datetime as _dt
+
     payload = {
-        "sub": "777", "email": "clerk@org.local", "name": "КЛЕРК Тестовий",
-        "role": "clerk", "position": "Інспектор",
+        "sub": "777",
+        "email": "clerk@org.local",
+        "name": "КЛЕРК Тестовий",
+        "role": "clerk",
+        "position": "Інспектор",
         "exp": _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=24),
     }
-    return {"Authorization": "Bearer " + jwt.encode(payload, "dilovod-dev-secret-change-in-prod", algorithm="HS256")}
+    return {
+        "Authorization": "Bearer "
+        + jwt.encode(payload, "dilovod-dev-secret-change-in-prod", algorithm="HS256")
+    }
 
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     import importlib
+
     db_file = tmp_path / "portal_test.db"
     monkeypatch.setenv("PORTAL_DATABASE_URL", f"sqlite:///{db_file}")
 
@@ -74,8 +94,11 @@ def client(tmp_path, monkeypatch):
 
     auth = importlib.import_module("portal.auth")
     main.app.dependency_overrides[auth._current_user] = lambda: {
-        "sub": "1", "email": "admin@dilovod.local", "name": "Адміністратор",
-        "role": "admin", "position": "Адміністратор",
+        "sub": "1",
+        "email": "admin@dilovod.local",
+        "name": "Адміністратор",
+        "role": "admin",
+        "position": "Адміністратор",
     }
 
     with TestClient(main.app) as c:
@@ -85,6 +108,7 @@ def client(tmp_path, monkeypatch):
 @pytest.fixture()
 def no_override_client(client):
     import importlib
+
     main = importlib.import_module("portal.main")
     saved = dict(main.app.dependency_overrides)
     main.app.dependency_overrides.clear()
@@ -101,7 +125,7 @@ def test_upload_list_download_roundtrip(client):
     # Upload attachment
     res = client.post(
         "/documents/T-001/attachments",
-        files={"file": ("report.pdf", pdf_content, "application/pdf")}
+        files={"file": ("report.pdf", pdf_content, "application/pdf")},
     )
     assert res.status_code == 200
     att = res.json()
@@ -134,7 +158,7 @@ def test_filename_uniqueness(client):
     # First upload
     res1 = client.post(
         "/documents/T-001/attachments",
-        files={"file": ("report.pdf", pdf_content, "application/pdf")}
+        files={"file": ("report.pdf", pdf_content, "application/pdf")},
     )
     assert res1.status_code == 200
     assert res1.json()["stored_filename"] == "report.pdf"
@@ -142,7 +166,7 @@ def test_filename_uniqueness(client):
     # Second upload with same name
     res2 = client.post(
         "/documents/T-001/attachments",
-        files={"file": ("report.pdf", pdf_content, "application/pdf")}
+        files={"file": ("report.pdf", pdf_content, "application/pdf")},
     )
     assert res2.status_code == 200
     assert res2.json()["stored_filename"] == "report-1.pdf"
@@ -150,10 +174,12 @@ def test_filename_uniqueness(client):
     # Uploading {doc_id}.{fmt} which is reserved
     res3 = client.post(
         "/documents/T-001/attachments",
-        files={"file": ("T-001.pdf", pdf_content, "application/pdf")}
+        files={"file": ("T-001.pdf", pdf_content, "application/pdf")},
     )
     assert res3.status_code == 200
-    assert res3.json()["stored_filename"] == "T-001-1.pdf"  # Collides with reserved main document name
+    assert (
+        res3.json()["stored_filename"] == "T-001-1.pdf"
+    )  # Collides with reserved main document name
 
 
 # 3. office file is accepted (.docx) -> 200.
@@ -163,7 +189,13 @@ def test_office_file_accepted(client):
 
     res = client.post(
         "/documents/T-001/attachments",
-        files={"file": ("document.docx", docx_content, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}
+        files={
+            "file": (
+                "document.docx",
+                docx_content,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
     )
     assert res.status_code == 200
     assert res.json()["stored_filename"] == "document.docx"
@@ -176,7 +208,7 @@ def test_limits_and_validation(client):
     # 415: Unknown extension
     res = client.post(
         "/documents/T-001/attachments",
-        files={"file": ("malicious.exe", b"exe content", "application/octet-stream")}
+        files={"file": ("malicious.exe", b"exe content", "application/octet-stream")},
     )
     assert res.status_code == 415
 
@@ -184,7 +216,7 @@ def test_limits_and_validation(client):
     large_content = b"x" * (25 * 1024 * 1024 + 1)
     res = client.post(
         "/documents/T-001/attachments",
-        files={"file": ("large.pdf", large_content, "application/pdf")}
+        files={"file": ("large.pdf", large_content, "application/pdf")},
     )
     assert res.status_code == 413
 
@@ -195,7 +227,7 @@ def test_mutability_lock_after_submit(no_override_client):
     no_override_client.post(
         "/documents/T-001/attachments",
         files={"file": ("draft.pdf", b"%PDF-1.4 file", "application/pdf")},
-        headers=headers
+        headers=headers,
     )
     res = no_override_client.get("/documents/T-001/attachments", headers=headers)
     assert res.status_code == 200
@@ -209,14 +241,13 @@ def test_mutability_lock_after_submit(no_override_client):
     res_upload = no_override_client.post(
         "/documents/T-001/attachments",
         files={"file": ("another.pdf", b"%PDF-1.4", "application/pdf")},
-        headers=headers
+        headers=headers,
     )
     assert res_upload.status_code == 409
 
     # Attempt to delete attachment
     res_delete = no_override_client.delete(
-        f"/documents/T-001/attachments/{att_id}",
-        headers=headers
+        f"/documents/T-001/attachments/{att_id}", headers=headers
     )
     assert res_delete.status_code == 409
 
@@ -229,13 +260,21 @@ def test_asice_contains_attachments_with_digest(client):
     # Add 2 attachments
     pdf1 = b"%PDF-1.4 scan1"
     pdf2 = b"%PDF-1.4 scan2"
-    client.post("/documents/T-001/attachments", files={"file": ("scan1.pdf", pdf1, "application/pdf")})
-    client.post("/documents/T-001/attachments", files={"file": ("scan2.pdf", pdf2, "application/pdf")})
+    client.post(
+        "/documents/T-001/attachments", files={"file": ("scan1.pdf", pdf1, "application/pdf")}
+    )
+    client.post(
+        "/documents/T-001/attachments", files={"file": ("scan2.pdf", pdf2, "application/pdf")}
+    )
 
     # Submit and sign
     client.post("/documents/T-001/submit")
-    client.post("/documents/T-001/sign", json={"signer_order_index": 0, "signature_b64": _fake_cms()})
-    client.post("/documents/T-001/sign", json={"signer_order_index": 1, "signature_b64": _fake_cms()})
+    client.post(
+        "/documents/T-001/sign", json={"signer_order_index": 0, "signature_b64": _fake_cms()}
+    )
+    client.post(
+        "/documents/T-001/sign", json={"signer_order_index": 1, "signature_b64": _fake_cms()}
+    )
 
     # Download ASiC-E
     res = client.get("/documents/T-001/download/asice")
@@ -253,7 +292,7 @@ def test_asice_contains_attachments_with_digest(client):
         manifest_xml = zf.read("META-INF/ASiCManifest001.xml")
         root = ET.fromstring(manifest_xml)
         namespaces = {"asic": "http://uri.etsi.org/02918/v1.2.1#"}
-        
+
         # Verify references
         refs = root.findall(".//asic:DataObjectReference", namespaces)
         # Should have 3 references: T-001.pdf, scan1.pdf, scan2.pdf
@@ -270,8 +309,14 @@ def test_manifest_byte_identity(client):
     client.post("/documents/T-001/generate")
 
     # Add attachments
-    client.post("/documents/T-001/attachments", files={"file": ("scan1.pdf", b"%PDF-1.4 scan1", "application/pdf")})
-    client.post("/documents/T-001/attachments", files={"file": ("scan2.pdf", b"%PDF-1.4 scan2", "application/pdf")})
+    client.post(
+        "/documents/T-001/attachments",
+        files={"file": ("scan1.pdf", b"%PDF-1.4 scan1", "application/pdf")},
+    )
+    client.post(
+        "/documents/T-001/attachments",
+        files={"file": ("scan2.pdf", b"%PDF-1.4 scan2", "application/pdf")},
+    )
 
     client.post("/documents/T-001/submit")
 
@@ -281,8 +326,12 @@ def test_manifest_byte_identity(client):
     before_manifest_bytes = res_manifest.content
 
     # Sign and build asice
-    client.post("/documents/T-001/sign", json={"signer_order_index": 0, "signature_b64": _fake_cms()})
-    client.post("/documents/T-001/sign", json={"signer_order_index": 1, "signature_b64": _fake_cms()})
+    client.post(
+        "/documents/T-001/sign", json={"signer_order_index": 0, "signature_b64": _fake_cms()}
+    )
+    client.post(
+        "/documents/T-001/sign", json={"signer_order_index": 1, "signature_b64": _fake_cms()}
+    )
 
     # Download ASiC-E and extract manifest
     res_asice = client.get("/documents/T-001/download/asice")
@@ -292,7 +341,7 @@ def test_manifest_byte_identity(client):
         # Note: signature001.p7s corresponds to the first signer (index 0).
         # Its manifest is ASiCManifest001.xml (since manifest_for calls index + 1).
         zf_manifest_bytes = zf.read("META-INF/ASiCManifest001.xml")
-        
+
     assert before_manifest_bytes == zf_manifest_bytes
 
 
@@ -305,7 +354,7 @@ def test_appendix_count_rule(client):
     for i in range(11):
         client.post(
             "/documents/T-001/attachments",
-            files={"file": (f"scan-{i}.pdf", b"%PDF-1.4", "application/pdf")}
+            files={"file": (f"scan-{i}.pdf", b"%PDF-1.4", "application/pdf")},
         )
 
     # Validate
@@ -317,7 +366,7 @@ def test_appendix_count_rule(client):
     findings = []
     for r in report["results"]:
         findings.extend(r["findings"])
-    
+
     # Let's search if any finding mentiones "додат"
     has_finding = any("додат" in f["message"].lower() for f in findings)
     assert has_finding, f"Expected finding for 11 attachments, got: {findings}"
@@ -328,7 +377,7 @@ def test_cascade_deletion(client):
     client.post("/documents", json=_doc_payload("T-001"))
     client.post(
         "/documents/T-001/attachments",
-        files={"file": ("scan1.pdf", b"%PDF-1.4", "application/pdf")}
+        files={"file": ("scan1.pdf", b"%PDF-1.4", "application/pdf")},
     )
 
     # Verify attachment is there
@@ -349,7 +398,7 @@ def test_admin_can_modify_locked_attachments(client):
     client.post("/documents", json=_doc_payload("T-001"))
     client.post(
         "/documents/T-001/attachments",
-        files={"file": ("draft.pdf", b"%PDF-1.4 file", "application/pdf")}
+        files={"file": ("draft.pdf", b"%PDF-1.4 file", "application/pdf")},
     )
     res = client.get("/documents/T-001/attachments")
     att_id = res.json()[0]["id"]
@@ -361,7 +410,7 @@ def test_admin_can_modify_locked_attachments(client):
     # Admin user CAN upload new attachment even when locked
     res_upload = client.post(
         "/documents/T-001/attachments",
-        files={"file": ("another.pdf", b"%PDF-1.4", "application/pdf")}
+        files={"file": ("another.pdf", b"%PDF-1.4", "application/pdf")},
     )
     assert res_upload.status_code == 200
 
@@ -375,9 +424,18 @@ def test_attachment_deletion_order_index_gaps(client):
     client.post("/documents", json=_doc_payload("T-001"))
 
     # Upload 3 attachments
-    att1 = client.post("/documents/T-001/attachments", files={"file": ("first.pdf", b"%PDF-1.4", "application/pdf")}).json()
-    att2 = client.post("/documents/T-001/attachments", files={"file": ("second.pdf", b"%PDF-1.4", "application/pdf")}).json()
-    att3 = client.post("/documents/T-001/attachments", files={"file": ("third.pdf", b"%PDF-1.4", "application/pdf")}).json()
+    att1 = client.post(
+        "/documents/T-001/attachments",
+        files={"file": ("first.pdf", b"%PDF-1.4", "application/pdf")},
+    ).json()
+    att2 = client.post(
+        "/documents/T-001/attachments",
+        files={"file": ("second.pdf", b"%PDF-1.4", "application/pdf")},
+    ).json()
+    att3 = client.post(
+        "/documents/T-001/attachments",
+        files={"file": ("third.pdf", b"%PDF-1.4", "application/pdf")},
+    ).json()
 
     assert att1["order_index"] == 0
     assert att2["order_index"] == 1
@@ -394,7 +452,10 @@ def test_attachment_deletion_order_index_gaps(client):
     assert lst[1]["order_index"] == 2
 
     # Upload fourth attachment, order_index should be max(0, 2) + 1 = 3
-    att4 = client.post("/documents/T-001/attachments", files={"file": ("fourth.pdf", b"%PDF-1.4", "application/pdf")}).json()
+    att4 = client.post(
+        "/documents/T-001/attachments",
+        files={"file": ("fourth.pdf", b"%PDF-1.4", "application/pdf")},
+    ).json()
     assert att4["order_index"] == 3
 
 
@@ -405,8 +466,7 @@ def test_unicode_sanitization_edge_cases(client):
     # Filename with path traversal, forbidden symbols, and Ukrainian/Cyrillic unicode
     weird_name = "../../../каталог/звіт: новий* файл?.pdf"
     res = client.post(
-        "/documents/T-001/attachments",
-        files={"file": (weird_name, b"%PDF-1.4", "application/pdf")}
+        "/documents/T-001/attachments", files={"file": (weird_name, b"%PDF-1.4", "application/pdf")}
     )
     assert res.status_code == 200
     stored_name = res.json()["stored_filename"]
@@ -428,17 +488,17 @@ def test_merged_pdf_generation(client):
         att_bytes = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [ 3 0 R ] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [ 0 0 595.27 841.89 ] >>\nendobj\nxref\n0 4\n0000000000 65535 f\n0000000009 00000 n\n0000000056 00000 n\n0000000111 00000 n\ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n180\n%%EOF\n"
 
     client.post(
-        "/documents/T-001/attachments",
-        files={"file": ("att.pdf", att_bytes, "application/pdf")}
+        "/documents/T-001/attachments", files={"file": ("att.pdf", att_bytes, "application/pdf")}
     )
 
     # Trigger merged PDF
     res = client.get("/documents/T-001/merged-pdf")
     assert res.status_code == 200
     assert res.headers["content-type"] == "application/pdf"
-    
+
     # Read the merged PDF and verify page count
     from pypdf import PdfReader
+
     merged_reader = PdfReader(io.BytesIO(res.content))
     # Main document + attachment pages
     assert len(merged_reader.pages) > 1
@@ -459,7 +519,7 @@ def test_delivery_items_contain_attachments(client):
 
     client.post(
         "/documents/T-001/attachments",
-        files={"file": ("manual_instruction.pdf", att_bytes, "application/pdf")}
+        files={"file": ("manual_instruction.pdf", att_bytes, "application/pdf")},
     )
 
     # Fetch delivery details
@@ -469,7 +529,10 @@ def test_delivery_items_contain_attachments(client):
     items = data["items"]
     # There should be 2 items: main document and 1 attachment
     assert len(items) == 2
-    assert items[0]["name"] == "Наказ № 050-фін від 14 червня 2026 року «Про затвердження річної звітності»"
+    assert (
+        items[0]["name"]
+        == "Наказ № 050-фін від 14 червня 2026 року «Про затвердження річної звітності»"
+    )
     assert items[0]["quantity"] == 1  # 1 page main doc
     assert items[1]["name"] == "Додаток 1: manual_instruction.pdf"
     assert items[1]["quantity"] == 1
@@ -483,6 +546,7 @@ def test_merged_pdf_multipage_watermarks(client):
     # Generate a real 2-page PDF
     from reportlab.pdfgen import canvas
     from reportlab.lib.pagesizes import A4
+
     out = io.BytesIO()
     can = canvas.Canvas(out, pagesize=A4)
     # Page 1
@@ -497,14 +561,15 @@ def test_merged_pdf_multipage_watermarks(client):
     # Upload attachment
     client.post(
         "/documents/T-001/attachments",
-        files={"file": ("multipage.pdf", att_bytes, "application/pdf")}
+        files={"file": ("multipage.pdf", att_bytes, "application/pdf")},
     )
 
     # Fetch merged PDF
     res = client.get("/documents/T-001/merged-pdf")
     assert res.status_code == 200
-    
+
     from pypdf import PdfReader
+
     reader = PdfReader(io.BytesIO(res.content))
     # Total pages: 1 (main) + 2 (attachment) = 3 pages
     assert len(reader.pages) == 3
@@ -538,6 +603,7 @@ def test_merged_pdf_complaint_genitive(client):
     # Generate 1-page PDF
     from reportlab.pdfgen import canvas
     from reportlab.lib.pagesizes import A4
+
     out = io.BytesIO()
     can = canvas.Canvas(out, pagesize=A4)
     can.drawString(100, 500, "Evidence content")
@@ -547,27 +613,29 @@ def test_merged_pdf_complaint_genitive(client):
 
     client.post(
         "/documents/T-CMP/attachments",
-        files={"file": ("evidence.pdf", att_bytes, "application/pdf")}
+        files={"file": ("evidence.pdf", att_bytes, "application/pdf")},
     )
 
     res = client.get("/documents/T-CMP/merged-pdf")
     assert res.status_code == 200
-    
+
     from pypdf import PdfReader
+
     reader = PdfReader(io.BytesIO(res.content))
     p2_txt = reader.pages[1].extract_text()
-    
+
     # Verify the genitive case watermark
     assert "до скарги № 050-фін" in p2_txt
 
 
-
 # ─── EDGE CASES: pagination & formats ────────────────────────────────────────
+
 
 def _make_pdf(n_pages: int) -> bytes:
     """Generate a real multi-page PDF with distinct content per page."""
     from reportlab.pdfgen import canvas as rl_canvas
     from reportlab.lib.pagesizes import A4
+
     buf = io.BytesIO()
     c = rl_canvas.Canvas(buf, pagesize=A4)
     for i in range(1, n_pages + 1):
@@ -580,6 +648,7 @@ def _make_pdf(n_pages: int) -> bytes:
 def _make_png(width: int = 100, height: int = 100, rgba: bool = False) -> bytes:
     """Generate a minimal PNG in memory."""
     from PIL import Image
+
     mode = "RGBA" if rgba else "RGB"
     img = Image.new(mode, (width, height), color=(200, 100, 50, 128) if rgba else (200, 100, 50))
     buf = io.BytesIO()
@@ -590,6 +659,7 @@ def _make_png(width: int = 100, height: int = 100, rgba: bool = False) -> bytes:
 def _merged_pages(client, doc_id: str):
     """Return list of PdfReader pages from the merged PDF endpoint."""
     from pypdf import PdfReader
+
     res = client.get(f"/documents/{doc_id}/merged-pdf")
     assert res.status_code == 200, res.text
     return PdfReader(io.BytesIO(res.content)).pages
@@ -599,8 +669,10 @@ def _merged_pages(client, doc_id: str):
 def test_edge_single_page_attachment(client):
     client.post("/documents", json=_doc_payload("E-001"))
     client.post("/documents/E-001/generate")
-    client.post("/documents/E-001/attachments",
-                files={"file": ("single.pdf", _make_pdf(1), "application/pdf")})
+    client.post(
+        "/documents/E-001/attachments",
+        files={"file": ("single.pdf", _make_pdf(1), "application/pdf")},
+    )
     pages = _merged_pages(client, "E-001")
     assert len(pages) == 2  # 1 main + 1 attachment
     txt = pages[1].extract_text()
@@ -612,8 +684,10 @@ def test_edge_single_page_attachment(client):
 def test_edge_large_page_count(client):
     client.post("/documents", json=_doc_payload("E-002"))
     client.post("/documents/E-002/generate")
-    client.post("/documents/E-002/attachments",
-                files={"file": ("big.pdf", _make_pdf(20), "application/pdf")})
+    client.post(
+        "/documents/E-002/attachments",
+        files={"file": ("big.pdf", _make_pdf(20), "application/pdf")},
+    )
     pages = _merged_pages(client, "E-002")
     assert len(pages) == 21  # 1 main + 20 att
     assert "Аркуш 1 з 20" in pages[1].extract_text()
@@ -625,10 +699,14 @@ def test_edge_large_page_count(client):
 def test_edge_multiple_pdf_attachments_independent_numbering(client):
     client.post("/documents", json=_doc_payload("E-003"))
     client.post("/documents/E-003/generate")
-    client.post("/documents/E-003/attachments",
-                files={"file": ("att1.pdf", _make_pdf(3), "application/pdf")})
-    client.post("/documents/E-003/attachments",
-                files={"file": ("att2.pdf", _make_pdf(2), "application/pdf")})
+    client.post(
+        "/documents/E-003/attachments",
+        files={"file": ("att1.pdf", _make_pdf(3), "application/pdf")},
+    )
+    client.post(
+        "/documents/E-003/attachments",
+        files={"file": ("att2.pdf", _make_pdf(2), "application/pdf")},
+    )
     pages = _merged_pages(client, "E-003")
     # 1 main + 3 (att1) + 2 (att2) = 6
     assert len(pages) == 6
@@ -648,8 +726,9 @@ def test_edge_multiple_pdf_attachments_independent_numbering(client):
 def test_edge_png_attachment_single_page(client):
     client.post("/documents", json=_doc_payload("E-004"))
     client.post("/documents/E-004/generate")
-    client.post("/documents/E-004/attachments",
-                files={"file": ("img.png", _make_png(), "image/png")})
+    client.post(
+        "/documents/E-004/attachments", files={"file": ("img.png", _make_png(), "image/png")}
+    )
     pages = _merged_pages(client, "E-004")
     assert len(pages) == 2
     txt = pages[1].extract_text()
@@ -665,8 +744,10 @@ def test_edge_rgba_png_no_black_background(client):
     """
     client.post("/documents", json=_doc_payload("E-005"))
     client.post("/documents/E-005/generate")
-    client.post("/documents/E-005/attachments",
-                files={"file": ("alpha.png", _make_png(rgba=True), "image/png")})
+    client.post(
+        "/documents/E-005/attachments",
+        files={"file": ("alpha.png", _make_png(rgba=True), "image/png")},
+    )
     pages = _merged_pages(client, "E-005")
     assert len(pages) == 2
     assert "Аркуш 1 з 1" in pages[1].extract_text()
@@ -676,8 +757,16 @@ def test_edge_rgba_png_no_black_background(client):
 def test_edge_xlsx_generates_placeholder_page(client):
     client.post("/documents", json=_doc_payload("E-006"))
     client.post("/documents/E-006/generate")
-    client.post("/documents/E-006/attachments",
-                files={"file": ("report.xlsx", b"mock xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    client.post(
+        "/documents/E-006/attachments",
+        files={
+            "file": (
+                "report.xlsx",
+                b"mock xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
     pages = _merged_pages(client, "E-006")
     # Should be 2: main + placeholder for xlsx
     assert len(pages) == 2
@@ -689,14 +778,23 @@ def test_edge_xlsx_generates_placeholder_page(client):
 def test_edge_mixed_formats_total_pages(client):
     client.post("/documents", json=_doc_payload("E-007"))
     client.post("/documents/E-007/generate")
-    client.post("/documents/E-007/attachments",
-                files={"file": ("a.pdf", _make_pdf(2), "application/pdf")})
-    client.post("/documents/E-007/attachments",
-                files={"file": ("b.png", _make_png(), "image/png")})
-    client.post("/documents/E-007/attachments",
-                files={"file": ("c.xlsx", b"mock", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
-    client.post("/documents/E-007/attachments",
-                files={"file": ("d.pdf", _make_pdf(1), "application/pdf")})
+    client.post(
+        "/documents/E-007/attachments", files={"file": ("a.pdf", _make_pdf(2), "application/pdf")}
+    )
+    client.post("/documents/E-007/attachments", files={"file": ("b.png", _make_png(), "image/png")})
+    client.post(
+        "/documents/E-007/attachments",
+        files={
+            "file": (
+                "c.xlsx",
+                b"mock",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    client.post(
+        "/documents/E-007/attachments", files={"file": ("d.pdf", _make_pdf(1), "application/pdf")}
+    )
     pages = _merged_pages(client, "E-007")
     # 1 main + 2 (a.pdf) + 1 (b.png) + 1 (c.xlsx placeholder) + 1 (d.pdf) = 6
     assert len(pages) == 6
@@ -712,12 +810,15 @@ def test_edge_mixed_formats_total_pages(client):
 def test_edge_corrupt_pdf_skipped_gracefully(client):
     client.post("/documents", json=_doc_payload("E-008"))
     client.post("/documents/E-008/generate")
-    client.post("/documents/E-008/attachments",
-                files={"file": ("corrupt.pdf", b"THIS IS NOT A PDF", "application/pdf")})
+    client.post(
+        "/documents/E-008/attachments",
+        files={"file": ("corrupt.pdf", b"THIS IS NOT A PDF", "application/pdf")},
+    )
     # Should still return 200 with just the main document
     res = client.get("/documents/E-008/merged-pdf")
     assert res.status_code == 200
     from pypdf import PdfReader
+
     pages = PdfReader(io.BytesIO(res.content)).pages
     assert len(pages) == 1  # Only main document, corrupt attachment skipped
 
@@ -734,8 +835,9 @@ def test_edge_no_attachments_returns_main_only(client):
 def test_edge_watermark_not_on_main_document_page(client):
     client.post("/documents", json=_doc_payload("E-010"))
     client.post("/documents/E-010/generate")
-    client.post("/documents/E-010/attachments",
-                files={"file": ("att.pdf", _make_pdf(2), "application/pdf")})
+    client.post(
+        "/documents/E-010/attachments", files={"file": ("att.pdf", _make_pdf(2), "application/pdf")}
+    )
     pages = _merged_pages(client, "E-010")
     main_txt = pages[0].extract_text()
     assert "Додаток" not in main_txt
@@ -745,14 +847,14 @@ def test_edge_watermark_not_on_main_document_page(client):
 # 27. Genitive case mapping — all known doc types produce correct preposition form
 def test_edge_genitive_case_all_doc_types(client):
     cases = [
-        ("Наказ",         "до наказу"),
-        ("Лист",          "до листа"),
-        ("Протокол",      "до протоколу"),
-        ("Рішення",       "до рішення"),
+        ("Наказ", "до наказу"),
+        ("Лист", "до листа"),
+        ("Протокол", "до протоколу"),
+        ("Рішення", "до рішення"),
         ("Розпорядження", "до розпорядження"),
-        ("Договір",       "до договору"),
-        ("Акт",           "до акта"),
-        ("Скарга",        "до скарги"),
+        ("Договір", "до договору"),
+        ("Акт", "до акта"),
+        ("Скарга", "до скарги"),
     ]
     for i, (doc_type, expected_phrase) in enumerate(cases):
         doc_id = f"E-GT-{i:02d}"
@@ -760,12 +862,15 @@ def test_edge_genitive_case_all_doc_types(client):
         payload["doc_type"] = doc_type
         client.post("/documents", json=payload)
         client.post(f"/documents/{doc_id}/generate")
-        client.post(f"/documents/{doc_id}/attachments",
-                    files={"file": ("a.pdf", _make_pdf(1), "application/pdf")})
+        client.post(
+            f"/documents/{doc_id}/attachments",
+            files={"file": ("a.pdf", _make_pdf(1), "application/pdf")},
+        )
         pages = _merged_pages(client, doc_id)
         att_txt = pages[1].extract_text()
-        assert expected_phrase in att_txt, \
+        assert expected_phrase in att_txt, (
             f"Expected '{expected_phrase}' for doc_type='{doc_type}', got: {att_txt!r}"
+        )
 
 
 # 28. Attachment order_index gaps (after deletion) — numbering is based on sorted order_index
@@ -776,12 +881,18 @@ def test_edge_attachment_order_after_deletion(client):
     """
     client.post("/documents", json=_doc_payload("E-011"))
     client.post("/documents/E-011/generate")
-    r0 = client.post("/documents/E-011/attachments",
-                     files={"file": ("first.pdf", _make_pdf(1), "application/pdf")})
-    r1 = client.post("/documents/E-011/attachments",
-                     files={"file": ("middle.pdf", _make_pdf(1), "application/pdf")})
-    r2 = client.post("/documents/E-011/attachments",
-                     files={"file": ("last.pdf", _make_pdf(1), "application/pdf")})
+    r0 = client.post(
+        "/documents/E-011/attachments",
+        files={"file": ("first.pdf", _make_pdf(1), "application/pdf")},
+    )
+    r1 = client.post(
+        "/documents/E-011/attachments",
+        files={"file": ("middle.pdf", _make_pdf(1), "application/pdf")},
+    )
+    r2 = client.post(
+        "/documents/E-011/attachments",
+        files={"file": ("last.pdf", _make_pdf(1), "application/pdf")},
+    )
     mid_id = r1.json()["id"]
     client.delete(f"/documents/E-011/attachments/{mid_id}")
 
@@ -795,12 +906,12 @@ def test_edge_attachment_order_after_deletion(client):
     assert "Додаток 2" in p2_txt
 
 
-def _doc_payload_with_approvers(doc_id: str = "T-001", signers: int = 2, approvers: list = None) -> dict:
+def _doc_payload_with_approvers(
+    doc_id: str = "T-001", signers: int = 2, approvers: list = None
+) -> dict:
     payload = _doc_payload(doc_id, signers)
     if approvers is None:
-        approvers = [
-            {"full_name": "Іваненко І.І.", "position": "Юрист"}
-        ]
+        approvers = [{"full_name": "Іваненко І.І.", "position": "Юрист"}]
     payload["approvers"] = approvers
     return payload
 
@@ -808,19 +919,22 @@ def _doc_payload_with_approvers(doc_id: str = "T-001", signers: int = 2, approve
 def test_merged_pdf_includes_visa_on_every_page(client):
     import importlib
     import datetime as dt
+
     auth = importlib.import_module("portal.auth")
     main = importlib.import_module("portal.main")
 
     # Set dependency override for current user to match our approver
     main.app.dependency_overrides[auth._current_user] = lambda: {
-        "sub": "2", "email": "ivanenko@org.local", "name": "Іваненко І.І.",
-        "role": "user", "position": "Юрист"
+        "sub": "2",
+        "email": "ivanenko@org.local",
+        "name": "Іваненко І.І.",
+        "role": "user",
+        "position": "Юрист",
     }
 
     # 1. Create document with one approver matching our user
     payload = _doc_payload_with_approvers(
-        "V-001",
-        approvers=[{"full_name": "Іваненко І.І.", "position": "Юрист"}]
+        "V-001", approvers=[{"full_name": "Іваненко І.І.", "position": "Юрист"}]
     )
     res = client.post("/documents", json=payload)
     assert res.status_code == 200
@@ -832,6 +946,7 @@ def test_merged_pdf_includes_visa_on_every_page(client):
     # Generate 2-page PDF attachment
     from reportlab.pdfgen import canvas as rl_canvas
     from reportlab.lib.pagesizes import A4
+
     out = io.BytesIO()
     c = rl_canvas.Canvas(out, pagesize=A4)
     # Page 1 of attachment
@@ -846,7 +961,7 @@ def test_merged_pdf_includes_visa_on_every_page(client):
     # Upload attachment
     res = client.post(
         "/documents/V-001/attachments",
-        files={"file": ("multipage_att.pdf", att_bytes, "application/pdf")}
+        files={"file": ("multipage_att.pdf", att_bytes, "application/pdf")},
     )
     assert res.status_code == 200
 
@@ -856,8 +971,7 @@ def test_merged_pdf_includes_visa_on_every_page(client):
 
     # 3. Approve the document
     res = client.post(
-        "/documents/V-001/approval/action",
-        json={"action": "approve", "comment": "Approved!"}
+        "/documents/V-001/approval/action", json={"action": "approve", "comment": "Approved!"}
     )
     assert res.status_code == 200
 
@@ -865,12 +979,15 @@ def test_merged_pdf_includes_visa_on_every_page(client):
     res_default = client.get("/documents/V-001/merged-pdf")
     assert res_default.status_code == 200
     assert res_default.headers["content-type"] == "application/pdf"
-    
+
     from pypdf import PdfReader
+
     reader_default = PdfReader(io.BytesIO(res_default.content))
     assert len(reader_default.pages) == 3
     for idx, page in enumerate(reader_default.pages):
-        assert "ВІЗА:" not in page.extract_text(), f"Page {idx} should not contain 'ВІЗА:' by default"
+        assert "ВІЗА:" not in page.extract_text(), (
+            f"Page {idx} should not contain 'ВІЗА:' by default"
+        )
 
     # Get merged PDF with visa=true
     res = client.get("/documents/V-001/merged-pdf?visa=true")
@@ -884,6 +1001,7 @@ def test_merged_pdf_includes_visa_on_every_page(client):
     # Calculate expected date string in Kyiv timezone
     try:
         from zoneinfo import ZoneInfo
+
         kyiv = ZoneInfo("Europe/Kyiv")
     except Exception:
         kyiv = None
@@ -903,14 +1021,12 @@ def test_merged_pdf_includes_visa_on_every_page(client):
 def test_merged_pdf_no_visa_when_draft(client):
     # 1. Create document with one approver
     payload = _doc_payload_with_approvers(
-        "V-002",
-        approvers=[{"full_name": "Іваненко І.І.", "position": "Юрист"}]
+        "V-002", approvers=[{"full_name": "Іваненко І.І.", "position": "Юрист"}]
     )
     client.post("/documents", json=payload)
     client.post("/documents/V-002/generate")
     client.post(
-        "/documents/V-002/attachments",
-        files={"file": ("att.pdf", _make_pdf(1), "application/pdf")}
+        "/documents/V-002/attachments", files={"file": ("att.pdf", _make_pdf(1), "application/pdf")}
     )
 
     # 2. Get merged PDF (still in draft state, not approved)
@@ -918,6 +1034,7 @@ def test_merged_pdf_no_visa_when_draft(client):
     assert res.status_code == 200
 
     from pypdf import PdfReader
+
     reader = PdfReader(io.BytesIO(res.content))
     assert len(reader.pages) == 2
 
@@ -929,17 +1046,20 @@ def test_merged_pdf_no_visa_when_draft(client):
 
 def test_merged_pdf_visa_pagesize_and_rotation(client):
     import importlib
+
     auth = importlib.import_module("portal.auth")
     main = importlib.import_module("portal.main")
 
     main.app.dependency_overrides[auth._current_user] = lambda: {
-        "sub": "2", "email": "ivanenko@org.local", "name": "Іваненко І.І.",
-        "role": "user", "position": "Юрист"
+        "sub": "2",
+        "email": "ivanenko@org.local",
+        "name": "Іваненко І.І.",
+        "role": "user",
+        "position": "Юрист",
     }
 
     payload = _doc_payload_with_approvers(
-        "V-003",
-        approvers=[{"full_name": "Іваненко І.І.", "position": "Юрист"}]
+        "V-003", approvers=[{"full_name": "Іваненко І.І.", "position": "Юрист"}]
     )
     client.post("/documents", json=payload)
     client.post("/documents/V-003/generate")
@@ -947,26 +1067,26 @@ def test_merged_pdf_visa_pagesize_and_rotation(client):
     # Generate an A5 page, and a rotated landscape page
     from reportlab.pdfgen import canvas as rl_canvas
     from reportlab.lib.pagesizes import A5, landscape, A4
-    
+
     out = io.BytesIO()
     c = rl_canvas.Canvas(out)
-    
+
     # Page 1: A5 size
     c.setPageSize(A5)
     c.drawString(50, 200, "A5 Page Content")
     c.showPage()
-    
+
     # Page 2: A4 rotated (landscape)
     c.setPageSize(landscape(A4))
     c.drawString(100, 200, "Rotated Landscape Page Content")
     c.showPage()
-    
+
     c.save()
     att_bytes = out.getvalue()
 
     client.post(
         "/documents/V-003/attachments",
-        files={"file": ("custom_pages.pdf", att_bytes, "application/pdf")}
+        files={"file": ("custom_pages.pdf", att_bytes, "application/pdf")},
     )
 
     # Submit and approve
@@ -977,6 +1097,7 @@ def test_merged_pdf_visa_pagesize_and_rotation(client):
     assert res.status_code == 200
 
     from pypdf import PdfReader
+
     reader = PdfReader(io.BytesIO(res.content))
     # 1 main (A4) + 2 attachment pages = 3 pages
     assert len(reader.pages) == 3
@@ -1008,3 +1129,73 @@ def test_merged_pdf_visa_pagesize_and_rotation(client):
     assert "Додаток 1" in txt3
 
 
+# 29. Facsimile overlay — when an approved approver has a facsimile blob, the
+#     merged PDF (visa=true) embeds the signature image on every page; the
+#     same document with visa=false has no images (baseline isolation).
+def test_merged_pdf_visa_facsimile_overlay(client):
+    import importlib
+    from PIL import Image
+    import io as _io
+    from portal.db import SessionLocal, User
+
+    auth = importlib.import_module("portal.auth")
+    main = importlib.import_module("portal.main")
+
+    approver_name = "Іваненко І.І."
+    # Build a small RGBA PNG facsimile for the approver's user account.
+    buf = _io.BytesIO()
+    Image.new("RGBA", (100, 40), (10, 20, 200, 255)).save(buf, format="PNG")
+    fac = buf.getvalue()
+
+    with SessionLocal() as session:
+        u = User(
+            email="visa_fac@org.local",
+            name=approver_name,
+            password_hash=User.hash_password("pass12345"),
+            facsimile_blob=fac,
+            facsimile_mime="image/png",
+        )
+        session.add(u)
+        session.commit()
+        uid = u.id
+
+    # The approver acts as the current user (by name match in _visa_lines).
+    main.app.dependency_overrides[auth._current_user] = lambda: {
+        "sub": str(uid),
+        "email": "visa_fac@org.local",
+        "name": approver_name,
+        "role": "user",
+        "position": "Юрист",
+    }
+
+    payload = _doc_payload_with_approvers(
+        "VF-001",
+        approvers=[{"full_name": approver_name, "position": "Юрист"}],
+    )
+    assert client.post("/documents", json=payload).status_code == 200
+    assert client.post("/documents/VF-001/generate").status_code == 200
+    assert client.post("/documents/VF-001/approval/submit").status_code == 200
+    assert (
+        client.post("/documents/VF-001/approval/action", json={"action": "approve"}).status_code
+        == 200
+    )
+
+    res_off = client.get("/documents/VF-001/merged-pdf")
+    res_on = client.get("/documents/VF-001/merged-pdf?visa=true")
+    assert res_on.status_code == 200
+
+    from pypdf import PdfReader
+
+    def _image_count(page):
+        try:
+            return sum(1 for _ in page.images)
+        except Exception:
+            return 0
+
+    # Baseline (no visa block at all) — main document page has no images.
+    off_imgs = _image_count(PdfReader(_io.BytesIO(res_off.content)).pages[0])
+    assert off_imgs == 0, "baseline page should have no images"
+
+    # With visa=true the facsimile PNG is overlaid on the visa page.
+    on_imgs = _image_count(PdfReader(_io.BytesIO(res_on.content)).pages[0])
+    assert on_imgs >= 1, "visa page should embed the facsimile image"

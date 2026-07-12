@@ -26,6 +26,7 @@ def _user_public(user: User) -> dict:
         "organization_cert_cn": user.organization_cert_cn,
         "phone": user.phone,
         "address": user.address,
+        "has_facsimile": user.facsimile_blob is not None,
     }
 
 

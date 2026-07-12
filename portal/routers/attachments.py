@@ -12,8 +12,17 @@ router = APIRouter(tags=["attachments"])
 
 MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024  # 25 MB
 ALLOWED_ATTACHMENT_EXT = {
-    ".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".webp",
-    ".docx", ".xlsx", ".doc", ".xls"
+    ".pdf",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".tiff",
+    ".bmp",
+    ".webp",
+    ".docx",
+    ".xlsx",
+    ".doc",
+    ".xls",
 }
 
 
@@ -21,9 +30,9 @@ def sanitize_filename(filename: str) -> str:
     # 1. Отримати лише ім'я файлу (без шляху)
     name = Path(filename).name
     # 2. Вирізати заборонені символи / \ : * ? " < > |
-    name = re.sub(r'[/\\:*?"<>|]', '', name)
+    name = re.sub(r'[/\\:*?"<>|]', "", name)
     # 3. NFKC-нормалізація (Unicode дозволено)
-    name = unicodedata.normalize('NFKC', name)
+    name = unicodedata.normalize("NFKC", name)
     # 4. Вирізати початкові/кінцеві пробіли/крапки
     name = name.strip(" .")
     if not name or name == ".":
@@ -99,7 +108,7 @@ async def upload_attachment(
         # переконаємось, що розширення зберіглося після санітації
         if not sanitized_name.lower().endswith(ext):
             sanitized_name += ext
-        
+
         stored_name = resolve_stored_filename(doc, sanitized_name)
 
         # 4. Визначення order_index
@@ -119,7 +128,13 @@ async def upload_attachment(
         doc.attachments.append(att)
         session.flush()
 
-        _audit(session, doc, "attachment_added", actor=current_user.get("email", ""), detail=stored_name)
+        _audit(
+            session,
+            doc,
+            "attachment_added",
+            actor=current_user.get("email", ""),
+            detail=stored_name,
+        )
         session.commit()
 
         return {
@@ -149,7 +164,9 @@ def download_attachment(
         # Формування правильного заголовка Content-Disposition з RFC 6266 сумісністю
         orig_name = att.original_filename or att.stored_filename
         encoded_filename = quote(orig_name)
-        content_disposition = f"attachment; filename=\"{orig_name}\"; filename*=UTF-8''{encoded_filename}"
+        content_disposition = (
+            f"attachment; filename=\"{orig_name}\"; filename*=UTF-8''{encoded_filename}"
+        )
 
         return Response(
             content=att.blob,
@@ -177,7 +194,13 @@ def delete_attachment(
 
         stored_name = att.stored_filename
         session.delete(att)
-        _audit(session, doc, "attachment_removed", actor=current_user.get("email", ""), detail=stored_name)
+        _audit(
+            session,
+            doc,
+            "attachment_removed",
+            actor=current_user.get("email", ""),
+            detail=stored_name,
+        )
         session.commit()
 
         return {"ok": True}
@@ -231,6 +254,7 @@ def get_merged_pdf(
             from src.dilovod4.infrastructure.fonts import resolve_times_new_roman
             from reportlab.pdfbase import pdfmetrics
             from reportlab.pdfbase.ttfonts import TTFont
+
             fonts = resolve_times_new_roman()
             FONT_REGULAR = "Merged-Font-Regular"
             FONT_BOLD = "Merged-Font-Bold"
@@ -240,11 +264,16 @@ def get_merged_pdf(
             FONT_REGULAR = "Helvetica"
             FONT_BOLD = "Helvetica-Bold"
 
-        def _visa_lines(d) -> list:
-            """Лише погоджені візи. Дата approved_at (UTC-aware) → Europe/Kyiv, %d.%m.%Y."""
-            from portal.db import ApproverStatus
+        def _visa_lines(d, session) -> list:
+            """Лише погоджені візи. Повертає list[tuple[str, bytes|None]]:
+            рядок тексту + blob факсимиле (або None). Дата approved_at
+            (UTC-aware) → Europe/Kyiv, %d.%m.%Y. Lookup факсимиле: за
+            Approver.user_id (надійніше), інакше за User.name == full_name."""
+            from portal.db import ApproverStatus, User
+
             try:
                 from zoneinfo import ZoneInfo
+
                 kyiv = ZoneInfo("Europe/Kyiv")
             except Exception:
                 kyiv = None
@@ -258,25 +287,63 @@ def get_merged_pdf(
                 date_s = dt.strftime("%d.%m.%Y")
                 posada = (getattr(a, "position", "") or "").strip()
                 name = (getattr(a, "full_name", "") or "").strip()
-                lines.append(f"{posada} {name} {date_s}".strip())
+                line = f"{posada} {name} {date_s}".strip()
+                # факсимиле: шукаємо за user_id (надійніше), інакше за full_name
+                blob = None
+                user_id = getattr(a, "user_id", None)
+                if user_id:
+                    u = session.get(User, user_id)
+                    if u is not None:
+                        blob = u.facsimile_blob
+                else:
+                    u = session.query(User).filter(User.name == name).first()
+                    if u is not None:
+                        blob = u.facsimile_blob
+                lines.append((line, blob))
             return lines
 
-        def _draw_visa(can, visa_lines, page_w, page_h):
-            """Лівий нижній кут: «ВІЗА:» + по рядку на approver. No-op якщо порожньо."""
-            if not visa_lines:
+        def _draw_visa(can, visa_items, page_w, page_h):
+            """Лівий нижній кут: «ВІЗА:» + по рядку на approver. Якщо
+            для рядка є blob факсимиле — накладаємо PNG правіше від тексту
+            (розмір ~50×20pt, прозорий фон збережено через mask='auto')."""
+            from reportlab.pdfbase.pdfmetrics import stringWidth
+            from reportlab.lib.utils import ImageReader
+
+            if not visa_items:
                 return
             x = 30
-            y = 40 + len(visa_lines) * 9
+            y = 40 + len(visa_items) * 9
             can.setFont(FONT_BOLD, 8)
             can.drawString(x, y, "ВІЗА:")
             y -= 11
             can.setFont(FONT_REGULAR, 7)
-            for line in visa_lines:
+            for line, blob in visa_items:
                 can.drawString(x, y, line)
+                if blob:
+                    try:
+                        img = ImageReader(io.BytesIO(blob))
+                        iw, ih = img.getSize()
+                        # розмір блоку ~50×20pt, зберігаємо пропорції
+                        box_w, box_h = 50.0, 20.0
+                        text_w = stringWidth(line, FONT_REGULAR, 7)
+                        fx = x + text_w + 4
+                        fy = y - 2
+                        can.drawImage(
+                            img,
+                            fx,
+                            fy,
+                            width=box_w,
+                            height=box_h,
+                            mask="auto",
+                            preserveAspectRatio=True,
+                        )
+                    except Exception:
+                        pass
                 y -= 9
 
-        def _draw_identification(can, *, idx, doc_type, reg_index,
-                                 page_num, total_pages, page_w, page_h):
+        def _draw_identification(
+            can, *, idx, doc_type, reg_index, page_num, total_pages, page_w, page_h
+        ):
             """Правий верхній кут: Додаток N / до ... № X / Аркуш Y з Z."""
             text_lines = [f"Додаток {idx}"]
             if doc_type and reg_index:
@@ -304,14 +371,16 @@ def get_merged_pdf(
             pkt.seek(0)
             return PdfReader(pkt).pages[0]
 
-        visa = _visa_lines(doc) if visa else []
+        visa = _visa_lines(doc, session) if visa else []
 
         # Add main document pages (штамп-віза на кожній сторінці, якщо є погоджені)
         try:
             main_reader = PdfReader(io.BytesIO(doc.rendered))
             for page in main_reader.pages:
                 if visa:
-                    overlay = _overlay_page_for(page, [lambda c, w, h, _v=visa: _draw_visa(c, _v, w, h)])
+                    overlay = _overlay_page_for(
+                        page, [lambda c, w, h, _v=visa: _draw_visa(c, _v, w, h)]
+                    )
                     page.merge_page(overlay)
                 writer.add_page(page)
         except Exception as e:
@@ -319,60 +388,63 @@ def get_merged_pdf(
 
         # Process attachments sorted by order_index
         attachments = sorted(doc.attachments, key=lambda a: a.order_index)
-        
+
         for idx, att in enumerate(attachments, start=1):
-            ext = att.stored_filename.split('.')[-1].lower() if '.' in att.stored_filename else ''
-            
+            ext = att.stored_filename.split(".")[-1].lower() if "." in att.stored_filename else ""
+
             # Determine pages to merge
             pages_to_add = []
-            
-            if ext == 'pdf':
+
+            if ext == "pdf":
                 try:
                     att_reader = PdfReader(io.BytesIO(att.blob))
                     pages_to_add = list(att_reader.pages)
                 except Exception as e:
                     print(f"Skipping corrupt PDF attachment {att.stored_filename}: {e}")
                     continue
-            elif ext in ['png', 'jpg', 'jpeg', 'bmp', 'webp']:
+            elif ext in ["png", "jpg", "jpeg", "bmp", "webp"]:
                 try:
                     # Convert image to PDF page
                     from PIL import Image
+
                     pil_img = Image.open(io.BytesIO(att.blob))
-                    
+
                     # Convert transparent background to white
-                    if pil_img.mode in ('RGBA', 'LA') or (pil_img.mode == 'P' and 'transparency' in pil_img.info):
+                    if pil_img.mode in ("RGBA", "LA") or (
+                        pil_img.mode == "P" and "transparency" in pil_img.info
+                    ):
                         bg = Image.new("RGB", pil_img.size, (255, 255, 255))
-                        if pil_img.mode == 'RGBA':
+                        if pil_img.mode == "RGBA":
                             mask = pil_img.split()[-1]
                         else:
-                            mask = pil_img.convert('RGBA').split()[-1]
+                            mask = pil_img.convert("RGBA").split()[-1]
                         bg.paste(pil_img, mask=mask)
                         pil_img = bg
-                    elif pil_img.mode != 'RGB':
-                        pil_img = pil_img.convert('RGB')
-                        
+                    elif pil_img.mode != "RGB":
+                        pil_img = pil_img.convert("RGB")
+
                     converted_bytes = io.BytesIO()
-                    pil_img.save(converted_bytes, format='JPEG')
+                    pil_img.save(converted_bytes, format="JPEG")
                     converted_bytes.seek(0)
 
                     img_packet = io.BytesIO()
                     can = canvas.Canvas(img_packet, pagesize=A4)
                     img = ImageReader(converted_bytes)
                     img_w, img_h = img.getSize()
-                    
+
                     # Scale to fit A4 page
                     max_w, max_h = 535, 781  # Margins 30pt
                     ratio = min(max_w / img_w, max_h / img_h)
                     new_w = img_w * ratio
                     new_h = img_h * ratio
-                    
+
                     x = (595.27 - new_w) / 2
                     y = (841.89 - new_h) / 2
-                    
+
                     can.drawImage(img, x, y, width=new_w, height=new_h)
                     can.save()
                     img_packet.seek(0)
-                    
+
                     img_reader = PdfReader(img_packet)
                     pages_to_add = list(img_reader.pages)
                 except Exception as e:
@@ -390,7 +462,7 @@ def get_merged_pdf(
                     can.drawString(100, 460, "Ви можете завантажити оригінал з картки документа.")
                     can.save()
                     placeholder_packet.seek(0)
-                    
+
                     placeholder_reader = PdfReader(placeholder_packet)
                     pages_to_add = list(placeholder_reader.pages)
                 except Exception as e:
@@ -402,11 +474,18 @@ def get_merged_pdf(
                 # Identification (top-right) + віза (bottom-left), один merge на сторінку
                 try:
                     drawers = [
-                        lambda c, w, h, _idx=idx, _pn=page_num, _tp=total_pages:
+                        lambda c, w, h, _idx=idx, _pn=page_num, _tp=total_pages: (
                             _draw_identification(
-                                c, idx=_idx, doc_type=doc_type, reg_index=reg_index,
-                                page_num=_pn, total_pages=_tp, page_w=w, page_h=h,
+                                c,
+                                idx=_idx,
+                                doc_type=doc_type,
+                                reg_index=reg_index,
+                                page_num=_pn,
+                                total_pages=_tp,
+                                page_w=w,
+                                page_h=h,
                             )
+                        )
                     ]
                     if visa:
                         drawers.append(lambda c, w, h, _v=visa: _draw_visa(c, _v, w, h))
@@ -424,7 +503,9 @@ def get_merged_pdf(
         # Filename
         orig_name = f"{doc_id}_merged.pdf"
         encoded_filename = quote(orig_name)
-        content_disposition = f"attachment; filename=\"{orig_name}\"; filename*=UTF-8''{encoded_filename}"
+        content_disposition = (
+            f"attachment; filename=\"{orig_name}\"; filename*=UTF-8''{encoded_filename}"
+        )
 
         return Response(
             content=merged_bytes,
@@ -434,4 +515,3 @@ def get_merged_pdf(
                 "Access-Control-Expose-Headers": "Content-Disposition",
             },
         )
-

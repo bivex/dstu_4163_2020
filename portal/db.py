@@ -410,6 +410,11 @@ class User(Base):
     # це логін, phone/address — публічні реквізити у документах.
     phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Факсимиле (дигітальне зображення рукописного підпису/печатки) — PNG/JPG блоб.
+    # Накладається на PDF при генерації merged-pdf з ?visa=true.
+    # Не є електронним підписом — виключно візуальний елемент.
+    facsimile_blob: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    facsimile_mime: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     @staticmethod
@@ -495,6 +500,11 @@ def init_db() -> None:
                 conn.execute(text("ALTER TABLE users ADD COLUMN phone VARCHAR(64)"))
             if "address" not in u_cols:
                 conn.execute(text("ALTER TABLE users ADD COLUMN address TEXT"))
+            # факсимиле (дигітальне зображення підпису)
+            if "facsimile_blob" not in u_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN facsimile_blob BLOB"))
+            if "facsimile_mime" not in u_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN facsimile_mime VARCHAR(32)"))
 
     if "signers" in insp.get_table_names():
         s_cols = {c["name"] for c in insp.get_columns("signers")}

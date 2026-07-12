@@ -39,13 +39,19 @@ def client(tmp_path, monkeypatch):
         yield c
 
 
-def _create_and_login(client, email: str, password: str = "pass12345",
-                      phone: str | None = None, address: str | None = None):
+def _create_and_login(
+    client,
+    email: str,
+    password: str = "pass12345",
+    phone: str | None = None,
+    address: str | None = None,
+):
     """Створити користувача безпосередньо в БД і увійти через /auth/login.
 
     Повертає (user_id, token, headers). Створення через БД (а не POST /users)
     дозволяє задати phone/address наперед для тестів читання /auth/me."""
     from portal.db import SessionLocal, User
+
     with SessionLocal() as session:
         user = User(
             email=email,
@@ -72,6 +78,7 @@ def test_user_model_has_contact_columns():
     Регресія: колонки випадково додавали лише до Counterparty — User їх не мав,
     і user.phone падав з AttributeError."""
     from portal.db import User
+
     col_keys = {c.key for c in User.__mapper__.columns}
     assert "phone" in col_keys, "у User немає колонки phone"
     assert "address" in col_keys, "у User немає колонки address"
@@ -110,7 +117,8 @@ def test_login_returns_phone_address(client):
     """/auth/login повертає 200 і phone/address у user — раніше падало 500,
     бо _user_public читав неіснуючий атрибут User.phone."""
     _, _, _ = _create_and_login(
-        client, email="contacts@example.com",
+        client,
+        email="contacts@example.com",
         phone="+38 050 111 22 33",
         address="вул. Садова, 5, кв. 12\nм. Харків, 61000",
     )
@@ -135,7 +143,8 @@ def test_login_returns_nulls_when_contacts_absent(client):
 def test_auth_me_returns_phone_address(client):
     """/auth/me віддає ті ж контакти, що й login — фронтенд carrier currentUser."""
     _, _, headers = _create_and_login(
-        client, email="me@example.com",
+        client,
+        email="me@example.com",
         phone="+38 044 555 66 77",
         address="м. Київ, вул. Хрещатик, 1",
     )
@@ -150,19 +159,24 @@ def test_auth_me_returns_phone_address(client):
 def test_post_user_persists_phone_address(client):
     """Створення користувача через API зберігає phone/address у БД."""
     _, admin_token, admin_h = _create_and_login(client, email="admin2@example.com")
-    r = client.post("/users", json={
-        "name": "Нова Людина",
-        "email": "newbie@example.com",
-        "password": "secret12345",
-        "phone": "+38 097 000 00 00",
-        "address": "м. Львів, пл. Ринок, 1",
-    }, headers=admin_h)
+    r = client.post(
+        "/users",
+        json={
+            "name": "Нова Людина",
+            "email": "newbie@example.com",
+            "password": "secret12345",
+            "phone": "+38 097 000 00 00",
+            "address": "м. Львів, пл. Ринок, 1",
+        },
+        headers=admin_h,
+    )
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["phone"] == "+38 097 000 00 00"
     assert body["address"] == "м. Львів, пл. Ринок, 1"
 
     from portal.db import SessionLocal, User
+
     with SessionLocal() as session:
         db_user = session.query(User).filter_by(email="newbie@example.com").first()
         assert db_user is not None
@@ -175,10 +189,14 @@ def test_put_user_persists_phone_address(client):
     """PUT /users/{id} зберігає phone/address у колонку (раніше ставив
     транзієнтний атрибут, що не зберігався — контакти губились)."""
     uid, _, headers = _create_and_login(client, email="put@example.com")
-    r = client.put(f"/users/{uid}", json={
-        "phone": "+38 050 123 45 67",
-        "address": "вул. Садова, 5, кв. 12\nм. Харків, 61000",
-    }, headers=headers)
+    r = client.put(
+        f"/users/{uid}",
+        json={
+            "phone": "+38 050 123 45 67",
+            "address": "вул. Садова, 5, кв. 12\nм. Харків, 61000",
+        },
+        headers=headers,
+    )
     assert r.status_code == 200, r.text
     assert r.json()["phone"] == "+38 050 123 45 67"
     assert r.json()["address"] == "вул. Садова, 5, кв. 12\nм. Харків, 61000"
@@ -190,6 +208,7 @@ def test_put_user_persists_phone_address(client):
     assert r_me.json()["address"] == "вул. Садова, 5, кв. 12\nм. Харків, 61000"
 
     from portal.db import SessionLocal, User
+
     with SessionLocal() as session:
         db_user = session.get(User, uid)
         assert db_user.phone == "+38 050 123 45 67"
@@ -200,7 +219,8 @@ def test_put_user_empty_phone_becomes_none(client):
     """Порожній рядок phone/address нормалізується до None (`or None`), а не
     зберігається як '' — інакше блок «від кого» отримував би порожній рядок."""
     uid, _, headers = _create_and_login(
-        client, email="empty@example.com", phone="+38 000", address="стара адреса")
+        client, email="empty@example.com", phone="+38 000", address="стара адреса"
+    )
     r = client.put(f"/users/{uid}", json={"phone": "   ", "address": ""}, headers=headers)
     assert r.status_code == 200, r.text
     assert r.json()["phone"] is None
@@ -210,8 +230,11 @@ def test_put_user_empty_phone_becomes_none(client):
 def test_put_user_partial_update_keeps_other_contact(client):
     """Оновлення лише phone не затирає address і навпаки."""
     uid, _, headers = _create_and_login(
-        client, email="partial@example.com",
-        phone="+38 050 1", address="м. Одеса, вул. Дерибасівська, 1")
+        client,
+        email="partial@example.com",
+        phone="+38 050 1",
+        address="м. Одеса, вул. Дерибасівська, 1",
+    )
     r = client.put(f"/users/{uid}", json={"phone": "+38 099 222 33 44"}, headers=headers)
     assert r.status_code == 200, r.text
     body = r.json()
@@ -223,11 +246,86 @@ def test_put_user_partial_update_keeps_other_contact(client):
 def test_get_users_returns_contacts(client):
     """GET /users віддає phone/address кожного користувача (для адмін-форми)."""
     _, _, headers = _create_and_login(
-        client, email="list@example.com",
-        phone="+38 067 888 99 00", address="м. Полтава, вул. Соборності, 10")
+        client,
+        email="list@example.com",
+        phone="+38 067 888 99 00",
+        address="м. Полтава, вул. Соборності, 10",
+    )
     r = client.get("/users", headers=headers)
     assert r.status_code == 200, r.text
     found = [u for u in r.json() if u["email"] == "list@example.com"]
     assert found, "користувача немає у списку"
     assert found[0]["phone"] == "+38 067 888 99 00"
     assert found[0]["address"] == "м. Полтава, вул. Соборності, 10"
+
+
+# ─── Факсимиле API (POST/GET/DELETE /users/me/facsimile) ───────────────
+def test_facsimile_upload_get_delete(client):
+    """Повний ланцюжок: 404 до завантаження → POST зберігає PNG →
+    GET повертає байти image/png → DELETE очищує → has_facsimile = False."""
+    from PIL import Image
+    import io as _io
+
+    _, _, headers = _create_and_login(client, email="fac@example.com")
+
+    # ще немає факсимиле
+    r = client.get("/users/me/facsimile", headers=headers)
+    assert r.status_code == 404
+
+    buf = _io.BytesIO()
+    Image.new("RGBA", (120, 48), (255, 0, 0, 128)).save(buf, format="PNG")
+    png = buf.getvalue()
+
+    r = client.post(
+        "/users/me/facsimile",
+        files={"file": ("sign.png", png, "image/png")},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["has_facsimile"] is True
+
+    r = client.get("/users/me/facsimile", headers=headers)
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/png"
+    assert len(r.content) > 0
+
+    # після видалення — знову 404, а прапорець скинувся
+    r = client.delete("/users/me/facsimile", headers=headers)
+    assert r.status_code == 200
+    r = client.get("/users/me/facsimile", headers=headers)
+    assert r.status_code == 404
+
+
+def test_facsimile_rejects_non_image(client):
+    """Лише image/png та image/jpeg — інакше 415."""
+    _, _, headers = _create_and_login(client, email="facbad@example.com")
+    r = client.post(
+        "/users/me/facsimile",
+        files={"file": ("x.exe", b"not an image", "application/octet-stream")},
+        headers=headers,
+    )
+    assert r.status_code == 415
+
+
+def test_facsimile_compresses_jpeg(client):
+    """JPEG завантажується і зберігається як image/jpeg (без альфи)."""
+    from PIL import Image
+    import io as _io
+
+    _, _, headers = _create_and_login(client, email="facjpeg@example.com")
+
+    buf = _io.BytesIO()
+    Image.new("RGB", (400, 300), (10, 200, 30)).save(buf, format="JPEG")
+    jpg = buf.getvalue()
+
+    r = client.post(
+        "/users/me/facsimile",
+        files={"file": ("stamp.jpg", jpg, "image/jpeg")},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["has_facsimile"] is True
+
+    r = client.get("/users/me/facsimile", headers=headers)
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/jpeg"

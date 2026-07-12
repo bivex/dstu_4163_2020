@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Body, Depends, HTTPException
+import io
+
+from fastapi import APIRouter, Body, Depends, HTTPException, File, UploadFile, Response
 from pydantic import BaseModel
 from portal.db import SessionLocal, User, UserRole
 from portal.auth import _current_user, _require_role
@@ -39,6 +41,7 @@ def _user_to_dict(u: User) -> dict:
         "organization_cert_cn": u.organization_cert_cn,
         "phone": u.phone,
         "address": u.address,
+        "has_facsimile": u.facsimile_blob is not None,
     }
 
 
@@ -93,7 +96,9 @@ def create_user(payload: dict = Body(...), current_user: dict = Depends(_current
 
 
 @router.put("/users/{user_id}")
-def update_user(user_id: int, payload: dict = Body(...), current_user: dict = Depends(_current_user)) -> dict:
+def update_user(
+    user_id: int, payload: dict = Body(...), current_user: dict = Depends(_current_user)
+) -> dict:
     with SessionLocal() as session:
         u = session.get(User, user_id)
         if u is None:
@@ -158,3 +163,86 @@ def delete_user(user_id: int, current_user: dict = Depends(_current_user)) -> di
         session.delete(u)
         session.commit()
         return {"deleted": user_id}
+
+
+# ─── Факсимиле (цифрове зображення рукописного підпису/печатки) ───
+# Завантажується поточним користувачем (на себе), накладається на PDF
+# у блоці «ВІЗА:» (див. portal/routers/attachments.py). Не є КЕП — візуал.
+
+_FACSIMILE_MAX = (200, 80)  # max розмір після стиску через PIL
+_FACSIMILE_MIMES = {"image/png", "image/jpeg"}
+
+
+@router.post("/users/me/facsimile")
+async def upload_facsimile(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(_current_user),
+) -> dict:
+    mime = (file.content_type or "").lower()
+    if mime not in _FACSIMILE_MIMES:
+        raise HTTPException(415, "Допускається лише PNG або JPG (image/png, image/jpeg)")
+    try:
+        data = await file.read()
+    except Exception as exc:
+        raise HTTPException(400, f"Помилка читання файлу: {exc}")
+    if not data:
+        raise HTTPException(400, "Порожній файл")
+
+    # Стиск через PIL до max 200×80, зберігаємо прозорість (PNG).
+    from PIL import Image
+
+    try:
+        with Image.open(io.BytesIO(data)) as pil_img:
+            pil_img = pil_img.copy()
+            pil_img.thumbnail(_FACSIMILE_MAX)
+            out = io.BytesIO()
+            if mime == "image/png":
+                pil_img.save(out, format="PNG")
+                stored_mime = "image/png"
+            else:
+                if pil_img.mode in ("RGBA", "LA", "P"):
+                    pil_img = pil_img.convert("RGB")
+                pil_img.save(out, format="JPEG", quality=90)
+                stored_mime = "image/jpeg"
+            blob = out.getvalue()
+    except Exception as exc:
+        raise HTTPException(400, f"Некоректне зображення: {exc}")
+
+    uid = int(current_user["sub"])
+    with SessionLocal() as session:
+        u = session.get(User, uid)
+        if u is None:
+            raise HTTPException(404, f"Користувача з ID {uid} не знайдено")
+        u.facsimile_blob = blob
+        u.facsimile_mime = stored_mime
+        session.commit()
+        session.refresh(u)
+        return _user_to_dict(u)
+
+
+@router.get("/users/me/facsimile")
+def get_facsimile(current_user: dict = Depends(_current_user)) -> Response:
+    uid = int(current_user["sub"])
+    with SessionLocal() as session:
+        u = session.get(User, uid)
+        if u is None:
+            raise HTTPException(404, f"Користувача з ID {uid} не знайдено")
+        if not u.facsimile_blob:
+            raise HTTPException(404, "Факсиміле не завантажено")
+        return Response(
+            content=u.facsimile_blob,
+            media_type=u.facsimile_mime or "image/png",
+        )
+
+
+@router.delete("/users/me/facsimile")
+def delete_facsimile(current_user: dict = Depends(_current_user)) -> dict:
+    uid = int(current_user["sub"])
+    with SessionLocal() as session:
+        u = session.get(User, uid)
+        if u is None:
+            raise HTTPException(404, f"Користувача з ID {uid} не знайдено")
+        u.facsimile_blob = None
+        u.facsimile_mime = None
+        session.commit()
+        return {"ok": True}
