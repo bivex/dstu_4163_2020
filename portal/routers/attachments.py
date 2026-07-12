@@ -209,6 +209,19 @@ def get_merged_pdf(
         doc_type = payload.get("doc_type", "")
         reg_index = payload.get("reg_index", "")
 
+        def get_genitive_doc_type(dt_str: str) -> str:
+            dt_lower = dt_str.strip().lower()
+            mapping = {
+                "наказ": "наказу",
+                "лист": "листа",
+                "протокол": "протоколу",
+                "рішення": "рішення",
+                "розпорядження": "розпорядження",
+                "договір": "договору",
+                "акт": "акта",
+            }
+            return mapping.get(dt_lower, dt_lower)
+
         writer = PdfWriter()
 
         # Add main document pages
@@ -304,7 +317,7 @@ def get_merged_pdf(
                     # Watermark text lines
                     text_lines = [f"Додаток {idx}"]
                     if doc_type and reg_index:
-                        text_lines.append(f"до {doc_type.lower()} № {reg_index}")
+                        text_lines.append(f"до {get_genitive_doc_type(doc_type)} № {reg_index}")
                     text_lines.append(f"Аркуш {page_num} з {total_pages}")
                     
                     y_pos = 810
