@@ -1034,7 +1034,7 @@ def test_counterparties_crud(client):
     assert r.status_code == 200
     data = r.json()
     assert "counterparties" in data
-    assert len(data["counterparties"]) == 3
+    assert len(data["counterparties"]) == 6
     names = {c["name"] for c in data["counterparties"]}
     assert 'ТОВ "Дія Консалтинг"' in names
     assert 'АТ "Укрпошта"' in names
@@ -1058,7 +1058,7 @@ def test_counterparties_crud(client):
 
     # Verify lists contains 4 counterparties now
     r = client.get("/counterparties")
-    assert len(r.json()["counterparties"]) == 4
+    assert len(r.json()["counterparties"]) == 7
 
     # 3. Update counterparty
     r = client.put(f"/counterparties/{c_new['id']}", json={"name": "ТОВ Оновлена назва", "code": "11111111"})
@@ -1074,7 +1074,7 @@ def test_counterparties_crud(client):
 
     # Verify lists contains 3 counterparties again
     r = client.get("/counterparties")
-    assert len(r.json()["counterparties"]) == 3
+    assert len(r.json()["counterparties"]) == 6
 
     # 5. Invalid subject type and validation errors
     r = client.post("/counterparties", json={"name": "Тест", "code": "123", "subject_type": "invalid"})

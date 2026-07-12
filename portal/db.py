@@ -628,34 +628,32 @@ def _bootstrap_admin(session, email: str | None) -> None:
 def _seed_default_counterparties() -> None:
     """Створити дефолтних контрагентів якщо таблиця порожня."""
     with SessionLocal() as session:
-        if session.query(Counterparty).first():
-            return
-        c1 = Counterparty(
-            name='ТОВ "Дія Консалтинг"',
-            code="12345678",
-            subject_type="legal",
-            email="info@diaconsulting.com.ua",
-            phone="+380441112233",
-            address="м. Київ, вул. Хрещатик, 1",
-        )
-        c2 = Counterparty(
-            name='АТ "Укрпошта"',
-            code="21560043",
-            subject_type="legal",
-            email="ukrposhta@ukrposhta.ua",
-            phone="+380442223344",
-            address="м. Київ, вул. Хрещатик, 22",
-        )
-        c3 = Counterparty(
-            name="ФОП Шевченко Тарас Григорович",
-            code="3012345678",
-            subject_type="fop",
-            email="shevchenko@gmail.com",
-            phone="+380998887766",
-            address="м. Канів, вул. Шевченка, 10",
-        )
-        session.add_all([c1, c2, c3])
-        session.commit()
+        existing_names = {c.name for c in session.query(Counterparty.name).all()}
+        
+        to_add = []
+        defaults = [
+            ('ТОВ "Дія Консалтинг"', "12345678", "legal", "info@diaconsulting.com.ua", "+380441112233", "м. Київ, вул. Хрещатик, 1"),
+            ('АТ "Укрпошта"', "21560043", "legal", "ukrposhta@ukrposhta.ua", "+380442223344", "м. Київ, вул. Хрещатик, 22"),
+            ("ФОП Шевченко Тарас Григорович", "3012345678", "fop", "shevchenko@gmail.com", "+380998887766", "м. Канів, вул. Шевченка, 10"),
+            ("Головне управління Національної поліції в Харківській області", "40108599", "legal", "info@kh.police.gov.ua", "+380577059300", "Начальнику ГУНП в Харківській області\nвул. Жон Мироносиць, 5\nм. Харків, 61002"),
+            ("Офіс Генерального прокурора", "00034051", "legal", "zvern@gp.gov.ua", "+380442007624", "Генеральному прокурору\nвул. Різницька, 13/15\nм. Київ, 01011"),
+            ("Антимонопольний комітет України", "00032744", "legal", "post@amcu.gov.ua", "+380442516223", "Голові Антимонопольного комітету України\nвул. Митрополита Василя Липківського, 45\nм. Київ, 03035")
+        ]
+
+        for name, code, subject_type, email, phone, address in defaults:
+            if name not in existing_names:
+                to_add.append(Counterparty(
+                    name=name,
+                    code=code,
+                    subject_type=subject_type,
+                    email=email,
+                    phone=phone,
+                    address=address
+                ))
+        
+        if to_add:
+            session.add_all(to_add)
+            session.commit()
 
 
 def _seed_default_processes() -> None:
