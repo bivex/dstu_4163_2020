@@ -61,11 +61,11 @@ def generate_multipage_pdf(title: str, pages: int) -> bytes:
             can.setFont(FONT_REGULAR, 12)
             can.drawCentredString(297, 800, "ПРОЕКТ")
             can.drawCentredString(297, 780, "ДЕРЖАВНЕ ПІДПРИЄМСТВО «УКРНДНЦ»")
-            can.drawCentredString(297, 760, f"ІНСТРУКЦІЯ ({title})")
+            can.drawCentredString(297, 760, "ІНСТРУКЦІЯ (" + title + ")")
             can.drawCentredString(297, 740, "10 червня 2026 року № 009-пр")
             can.drawCentredString(297, 720, "з діловодства та документообігу")
             
-            can.drawString(54, 650, f"Це тестова сторінка {p} з {pages} додатка.")
+            can.drawString(54, 650, "Це тестова сторінка " + str(p) + " з " + str(pages) + " додатка.")
             can.drawString(54, 630, "1. Ця Інструкція визначає порядок роботи з документами відповідно до ДСТУ 4163:2020.")
             can.drawString(54, 610, "2. Документи оформлюють на бланках установленого зразка з дотриманням вимог.")
             can.drawString(54, 590, "3. Контроль за дотриманням Інструкції покладається на канцелярію.")
