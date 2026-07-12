@@ -13,6 +13,7 @@ python-multipart>=0.0.9
 # доменне ядро (генерація/валідація/КЕП-відмітки)
 python-docx>=1.1
 reportlab>=4.0
+svglib>=1.5   # SVG → ReportLab Drawing: для векторного Герба України на бланках
 segno>=1.6
 pypdf>=4.0
 
