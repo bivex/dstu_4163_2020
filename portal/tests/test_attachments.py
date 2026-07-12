@@ -475,4 +475,58 @@ def test_delivery_items_contain_attachments(client):
     assert items[1]["quantity"] == 1
 
 
+# 15. test merged PDF with multi-page attachments to verify sequential page watermarks
+def test_merged_pdf_multipage_watermarks(client):
+    client.post("/documents", json=_doc_payload("T-001"))
+    client.post("/documents/T-001/generate")
+
+    # Generate a real 2-page PDF
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import A4
+    out = io.BytesIO()
+    can = canvas.Canvas(out, pagesize=A4)
+    # Page 1
+    can.drawString(100, 500, "First page content")
+    can.showPage()
+    # Page 2
+    can.drawString(100, 500, "Second page content")
+    can.showPage()
+    can.save()
+    att_bytes = out.getvalue()
+
+    # Upload attachment
+    client.post(
+        "/documents/T-001/attachments",
+        files={"file": ("multipage.pdf", att_bytes, "application/pdf")}
+    )
+
+    # Fetch merged PDF
+    res = client.get("/documents/T-001/merged-pdf")
+    assert res.status_code == 200
+    
+    from pypdf import PdfReader
+    reader = PdfReader(io.BytesIO(res.content))
+    # Total pages: 1 (main) + 2 (attachment) = 3 pages
+    assert len(reader.pages) == 3
+
+    # Extract text from pages to verify watermark content and formatting
+    p1_txt = reader.pages[0].extract_text()
+    p2_txt = reader.pages[1].extract_text()
+    p3_txt = reader.pages[2].extract_text()
+
+    # Page 1 (main document) should not have the watermark
+    assert "Додаток 1" not in p1_txt
+
+    # Page 2 (first page of attachment)
+    assert "Додаток 1" in p2_txt
+    assert "до наказу № 050-фін" in p2_txt
+    assert "Аркуш 1 з 2" in p2_txt
+
+    # Page 3 (second page of attachment)
+    assert "Додаток 1" in p3_txt
+    assert "до наказу № 050-фін" in p3_txt
+    assert "Аркуш 2 з 2" in p3_txt
+
+
+
 
