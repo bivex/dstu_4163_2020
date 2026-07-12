@@ -334,7 +334,7 @@ class _Layout:
                 f"від {sender_name},",
                 indent_mm=self.doc.left_indents.addressee_mm,
                 first_indent_mm=self.doc.left_indents.addressee_mm,
-                size=9,
+                size=12,
             )
             for contact_line in self.content.sender_contacts.split("\n"):
                 if contact_line.strip():
@@ -342,7 +342,7 @@ class _Layout:
                         contact_line.strip(),
                         indent_mm=self.doc.left_indents.addressee_mm,
                         first_indent_mm=self.doc.left_indents.addressee_mm,
-                        size=9,
+                        size=12,
                     )
 
         # 19 заголовок до тексту — центрований, напівжирний
