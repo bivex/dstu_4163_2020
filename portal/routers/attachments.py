@@ -265,9 +265,28 @@ def get_merged_pdf(
             elif ext in ['png', 'jpg', 'jpeg', 'bmp', 'webp']:
                 try:
                     # Convert image to PDF page
+                    from PIL import Image
+                    pil_img = Image.open(io.BytesIO(att.blob))
+                    
+                    # Convert transparent background to white
+                    if pil_img.mode in ('RGBA', 'LA') or (pil_img.mode == 'P' and 'transparency' in pil_img.info):
+                        bg = Image.new("RGB", pil_img.size, (255, 255, 255))
+                        if pil_img.mode == 'RGBA':
+                            mask = pil_img.split()[-1]
+                        else:
+                            mask = pil_img.convert('RGBA').split()[-1]
+                        bg.paste(pil_img, mask=mask)
+                        pil_img = bg
+                    elif pil_img.mode != 'RGB':
+                        pil_img = pil_img.convert('RGB')
+                        
+                    converted_bytes = io.BytesIO()
+                    pil_img.save(converted_bytes, format='JPEG')
+                    converted_bytes.seek(0)
+
                     img_packet = io.BytesIO()
                     can = canvas.Canvas(img_packet, pagesize=A4)
-                    img = ImageReader(io.BytesIO(att.blob))
+                    img = ImageReader(converted_bytes)
                     img_w, img_h = img.getSize()
                     
                     # Scale to fit A4 page
