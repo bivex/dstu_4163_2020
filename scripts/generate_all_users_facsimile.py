@@ -1,6 +1,7 @@
 import io
 import sys
 import os
+import random
 from pathlib import Path
 
 # Add project root to sys.path
@@ -8,64 +9,132 @@ project_root = Path(__file__).resolve().parents[1]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
+
+def download_signature_font(local_path: Path):
+    """Attempts to download a cursive font for handwriting signature simulation."""
+    url = "https://github.com/google/fonts/raw/main/ofl/greatvibes/GreatVibes-Regular.ttf"
+    if not local_path.exists():
+        try:
+            import urllib.request
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            print(f"Downloading cursive font from {url}...")
+            urllib.request.urlretrieve(url, local_path)
+            print("Font downloaded successfully.")
+        except Exception as e:
+            print(f"Could not download cursive font: {e}. Falling back to curve generator.")
+
+def catmull_rom_spline(points, num_points=150):
+    """Catmull-Rom spline interpolation to generate smooth curves."""
+    if len(points) < 4:
+        return points
+    points = [points[0]] + points + [points[-1]]
+    result = []
+    points_per_segment = max(num_points // (len(points) - 3), 2)
+    for i in range(1, len(points) - 2):
+        p0, p1, p2, p3 = points[i-1], points[i], points[i+1], points[i+2]
+        for t_idx in range(points_per_segment):
+            t = t_idx / points_per_segment
+            t2 = t * t
+            t3 = t2 * t
+            f0 = -0.5*t3 + t2 - 0.5*t
+            f1 = 1.5*t3 - 2.5*t2 + 1.0
+            f2 = -1.5*t3 + 2.0*t2 + 0.5*t
+            f3 = 0.5*t3 - 0.5*t2
+            x = p0[0]*f0 + p1[0]*f1 + p2[0]*f2 + p3[0]*f3
+            y = p0[1]*f0 + p1[1]*f1 + p2[1]*f2 + p3[1]*f3
+            result.append((x, y))
+    result.append(points[-2])
+    return result
 
 def generate_facsimile_image(name: str) -> bytes:
-    """Generates a unique, high-quality, signature image (facsimile)
-    in blue ink with a transparent background for a given user name.
+    """Generates a highly aesthetic, unique, anti-aliased cursive signature image (facsimile)
+    in blue ink with a transparent background.
     """
+    random.seed(name)
     width, height = 1000, 400
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    # Use name hash to vary ink color slightly for uniqueness
-    color_seed = sum(ord(c) for c in name) % 3
-    if color_seed == 0:
-        ink_color = (20, 50, 180, 255) # Royal blue
-    elif color_seed == 1:
-        ink_color = (15, 75, 150, 255) # Dark blue
+    # Vary ink color slightly for realistic pen effect
+    blue_colors = [
+        (24, 70, 210, 255),  # Royal blue
+        (16, 52, 166, 255),  # Cobalt blue
+        (30, 80, 230, 255),  # Vivid blue
+        (20, 40, 150, 255),  # Navy-ish blue
+    ]
+    ink_color = random.choice(blue_colors)
+
+    font_path = project_root / "portal" / "GreatVibes-Regular.ttf"
+    download_signature_font(font_path)
+
+    font_loaded = False
+    if font_path.is_file():
+        try:
+            # We render the name using cursive font
+            font = ImageFont.truetype(str(font_path), size=170)
+            
+            # Center the cursive text on the canvas
+            bbox = draw.textbbox((0, 0), name, font=font)
+            text_w = bbox[2] - bbox[0]
+            text_h = bbox[3] - bbox[1]
+            x = (width - text_w) / 2
+            y = (height - text_h) / 2 - bbox[1] - 30  # shift slightly up
+            
+            draw.text((x, y), name, fill=ink_color, font=font)
+            font_loaded = True
+        except Exception as e:
+            print(f"Error loading font: {e}. Falling back to curve generator.")
+
+    # Always draw a custom, randomized scribble/flourish underline to make it look like a signature
+    # If font failed, we generate a complete abstract signature curve
+    if font_loaded:
+        # A quick elegant underline flourish starting below the text
+        flourish_start_x = width * 0.2 + random.randint(-40, 40)
+        flourish_end_x = width * 0.8 + random.randint(-40, 40)
+        y_mid = height * 0.7 + random.randint(-15, 15)
+        
+        pts = [
+            (flourish_start_x, y_mid),
+            (flourish_start_x + 100, y_mid + 20),
+            (flourish_start_x + 250, y_mid - 25),
+            (flourish_end_x - 100, y_mid + 35),
+            (flourish_end_x, y_mid - 10),
+            (flourish_end_x + 40, y_mid - 30)
+        ]
+        smooth_pts = catmull_rom_spline(pts)
+        for i in range(len(smooth_pts) - 1):
+            p1, p2 = smooth_pts[i], smooth_pts[i+1]
+            t = i / len(smooth_pts)
+            thickness = 8.0 - 5.0 * (t - 0.5)**2 # thinner at endpoints
+            draw.line([p1[0], p1[1], p2[0], p2[1]], fill=ink_color, width=int(thickness), joint="curve")
     else:
-        ink_color = (40, 40, 160, 255) # Indigo blue
-    
-    # Capital style points
-    points_cap = [
-        (120, 220), (145, 120), (190, 80), (220, 100), (180, 200), 
-        (130, 280), (105, 270), (110, 190), (160, 120), (210, 100), 
-        (250, 150), (260, 200)
-    ]
-    
-    # Cursive waves
-    points_waves = [
-        (260, 200), (280, 240), (300, 200), (320, 240), (340, 200), 
-        (360, 240), (380, 195), (400, 240), (420, 195), (440, 240)
-    ]
-    
-    # Underline flourish
-    points_flourish = [
-        (440, 240), (500, 110), (550, 90), (540, 210), (460, 300), 
-        (300, 330), (150, 300), (250, 285), (450, 270), (650, 250), 
-        (850, 230), (920, 225)
-    ]
+        # Fallback: Draw a full abstract signature using unique randomized Bezier spline points
+        base_points = [
+            (120, 220), (145, 120), (190, 80), (220, 100), (180, 200), 
+            (130, 280), (105, 270), (110, 190), (160, 120), (210, 100), 
+            (250, 150), (280, 240), (320, 200), (380, 240), (450, 150),
+            (500, 250), (600, 200), (700, 230), (750, 220), (850, 230)
+        ]
+        # Distort coordinates based on user name seed
+        unique_points = []
+        for px, py in base_points:
+            nx = px + random.randint(-20, 20)
+            ny = py + random.randint(-30, 30)
+            unique_points.append((nx, ny))
+            
+        smooth_pts = catmull_rom_spline(unique_points, num_points=350)
+        for i in range(len(smooth_pts) - 1):
+            p1, p2 = smooth_pts[i], smooth_pts[i+1]
+            t = i / len(smooth_pts)
+            thickness = 9.0 - 6.0 * (t - 0.5)**2
+            draw.line([p1[0], p1[1], p2[0], p2[1]], fill=ink_color, width=int(thickness), joint="curve")
 
-    def draw_stroke(pts, base_radius):
-        for i in range(len(pts) - 1):
-            p1, p2 = pts[i], pts[i+1]
-            dx = p2[0] - p1[0]
-            dy = p2[1] - p1[1]
-            dist = (dx**2 + dy**2)**0.5
-            steps = max(int(dist * 2), 1)
-            for step in range(steps + 1):
-                t = step / steps
-                x = p1[0] + dx * t
-                y = p1[1] + dy * t
-                factor = 1.0 - 0.2 * (t - 0.5) ** 2
-                r = base_radius * factor
-                draw.ellipse([x - r, y - r, x + r, y + r], fill=ink_color)
+    # Add a slight natural rotate to simulate human signature slant
+    tilt_angle = random.uniform(-3.5, 3.5)
+    img = img.rotate(tilt_angle, resample=Image.Resampling.BICUBIC, expand=False)
 
-    draw_stroke(points_cap, 9.0)
-    draw_stroke(points_waves, 6.5)
-    draw_stroke(points_flourish, 8.0)
-
+    # Downsample for perfect anti-aliasing
     target_size = (200, 80)
     img_resized = img.resize(target_size, resample=Image.Resampling.LANCZOS)
     
