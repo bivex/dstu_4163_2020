@@ -13,8 +13,9 @@ def main():
     instrukciya_path = root / "samples" / "pdf" / "instrukciya_proekt.pdf"
     nakaz_path = root / "samples" / "pdf" / "nakaz.pdf"
     lyst_path = root / "samples" / "pdf" / "lyst.pdf"
+    schema_path = root / "samples" / "pdf" / "enakaz.png"
     
-    if not all(p.exists() for p in [instrukciya_path, nakaz_path, lyst_path]):
+    if not all(p.exists() for p in [instrukciya_path, nakaz_path, lyst_path, schema_path]):
         print("Error: Sample files not found on host!")
         return 1
 
@@ -22,6 +23,7 @@ def main():
     instrukciya_b64 = base64.b64encode(instrukciya_path.read_bytes()).decode('utf-8')
     nakaz_b64 = base64.b64encode(nakaz_path.read_bytes()).decode('utf-8')
     lyst_b64 = base64.b64encode(lyst_path.read_bytes()).decode('utf-8')
+    schema_b64 = base64.b64encode(schema_path.read_bytes()).decode('utf-8')
 
     # Шаблон скрипта для виконання всередині контейнера
     docker_script = f"""
@@ -30,6 +32,7 @@ import datetime as dt
 import json
 import tempfile
 import os
+import io
 from portal.db import SessionLocal, Document, DocStatus, Attachment, Signer, SignerStatus, init_db
 from portal import domain_bridge as bridge
 
@@ -38,6 +41,25 @@ init_db()
 instrukciya_bytes = base64.b64decode("{instrukciya_b64}")
 nakaz_bytes = base64.b64decode("{nakaz_b64}")
 lyst_bytes = base64.b64decode("{lyst_b64}")
+schema_bytes = base64.b64decode("{schema_b64}")
+
+def multiply_pdf_pages(pdf_bytes: bytes, pages: int) -> bytes:
+    try:
+        from pypdf import PdfReader, PdfWriter
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        writer = PdfWriter()
+        orig_page = reader.pages[0]
+        for _ in range(pages):
+            writer.add_page(orig_page)
+        out = io.BytesIO()
+        writer.write(out)
+        return out.getvalue()
+    except Exception:
+        return pdf_bytes
+
+instrukciya_3pages = multiply_pdf_pages(instrukciya_bytes, 3)
+nakaz_2pages = multiply_pdf_pages(nakaz_bytes, 2)
+lyst_4pages = multiply_pdf_pages(lyst_bytes, 4)
 
 with SessionLocal() as session:
     # 1. Оновимо NAKAZ-UKRNDNC-014
@@ -96,8 +118,8 @@ with SessionLocal() as session:
         original_filename="instruktsiya_z_dilovodstva.pdf",
         stored_filename="instruktsiya_z_dilovodstva.pdf",
         mime="application/pdf",
-        size=len(instrukciya_bytes),
-        blob=instrukciya_bytes
+        size=len(instrukciya_3pages),
+        blob=instrukciya_3pages
     ))
 
     # Згенеруємо PDF документа
@@ -162,8 +184,8 @@ with SessionLocal() as session:
         original_filename="spec_draft_final.pdf",
         stored_filename="spec_draft_final.pdf",
         mime="application/pdf",
-        size=len(nakaz_bytes),
-        blob=nakaz_bytes
+        size=len(nakaz_2pages),
+        blob=nakaz_2pages
     ))
     doc.attachments.append(Attachment(
         order_index=1,
@@ -222,16 +244,16 @@ with SessionLocal() as session:
         original_filename="schema_v1.png",
         stored_filename="schema_v1.png",
         mime="image/png",
-        size=len(b"mock png file"),
-        blob=b"mock png file"
+        size=len(schema_bytes),
+        blob=schema_bytes
     ))
     doc.attachments.append(Attachment(
         order_index=1,
         original_filename="technical_requirements.pdf",
         stored_filename="technical_requirements.pdf",
         mime="application/pdf",
-        size=len(lyst_bytes),
-        blob=lyst_bytes
+        size=len(lyst_4pages),
+        blob=lyst_4pages
     ))
     session.add(doc)
 
