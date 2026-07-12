@@ -43,7 +43,7 @@ nakaz_bytes = base64.b64decode("{nakaz_b64}")
 lyst_bytes = base64.b64decode("{lyst_b64}")
 schema_bytes = base64.b64decode("{schema_b64}")
 
-def generate_multipage_pdf(title: str, pages: int) -> bytes:
+def generate_multipage_pdf(title: str, pages: int, org_name: str = "ДЕРЖАВНЕ ПІДПРИЄМСТВО «УКРНДНЦ»", doc_type: str = "ІНСТРУКЦІЯ", date_num_text: str = "10 червня 2026 року № 009-пр") -> bytes:
     try:
         from reportlab.pdfgen import canvas
         from reportlab.lib.pagesizes import A4
@@ -60,19 +60,19 @@ def generate_multipage_pdf(title: str, pages: int) -> bytes:
         for p in range(1, pages + 1):
             can.setFont(FONT_REGULAR, 12)
             can.drawCentredString(297, 800, "ПРОЕКТ")
-            can.drawCentredString(297, 780, "ДЕРЖАВНЕ ПІДПРИЄМСТВО «УКРНДНЦ»")
-            can.drawCentredString(297, 760, "ІНСТРУКЦІЯ (" + title + ")")
-            can.drawCentredString(297, 740, "10 червня 2026 року № 009-пр")
-            can.drawCentredString(297, 720, "з діловодства та документообігу")
+            can.drawCentredString(297, 780, org_name)
+            can.drawCentredString(297, 760, doc_type + " (" + title + ")")
+            can.drawCentredString(297, 740, date_num_text)
+            can.drawCentredString(297, 720, "додаткові матеріали до справи")
             
             can.drawString(54, 650, "Це тестова сторінка " + str(p) + " з " + str(pages) + " додатка.")
-            can.drawString(54, 630, "1. Ця Інструкція визначає порядок роботи з документами відповідно до ДСТУ 4163:2020.")
-            can.drawString(54, 610, "2. Документи оформлюють на бланках установленого зразка з дотриманням вимог.")
-            can.drawString(54, 590, "3. Контроль за дотриманням Інструкції покладається на канцелярію.")
+            can.drawString(54, 630, "1. Цей додаток містить відомості відповідно до матеріалів справи та ДСТУ 4163:2020.")
+            can.drawString(54, 610, "2. Документи оформлюють з дотриманням вимог щодо складу та розміщення реквізитів.")
+            can.drawString(54, 590, "3. Контроль за дотриманням вимог покладається на канцелярію.")
             
-            can.drawString(54, 450, "Начальник канцелярії Л. МЕЛЬНИК")
-            can.drawString(54, 420, "Розробник проєкту, провідний документознавець К. ШЕВЧЕНКО 10 червня 2026 року")
-            can.drawString(54, 390, "Начальник юридичного відділу О. КОВАЛЬ 11 червня 2026 року")
+            can.drawString(54, 450, "Відповідальна особа: провідний спеціаліст")
+            can.drawString(54, 420, "Розробник проєкту, виконавець К. ШЕВЧЕНКО")
+            can.drawString(54, 390, "Начальник відділу О. КОВАЛЬ")
             can.drawString(54, 360, "Зауваження: зауважень немає")
             
             can.showPage()
@@ -82,9 +82,9 @@ def generate_multipage_pdf(title: str, pages: int) -> bytes:
         print("Error generating multipage: " + str(e))
         return b""
 
-instrukciya_3pages = generate_multipage_pdf("Інструкція з діловодства", 3)
-nakaz_2pages = generate_multipage_pdf("Специфікація", 2)
-lyst_4pages = generate_multipage_pdf("Технічні вимоги", 4)
+instrukciya_3pages = generate_multipage_pdf("Інструкція з діловодства", 3, "ДЕРЖАВНЕ ПІДПРИЄМСТВО «УКРНДНЦ»", "ІНСТРУКЦІЯ", "10 червня 2026 року № 009-пр")
+nakaz_2pages = generate_multipage_pdf("Специфікація", 2, "ТОВ «ДІЛОВОД-ІНТЕГРАЦІЯ»", "СПЕЦИФІКАЦІЯ", "12 липня 2026 року № 12/ОД-дод")
+lyst_4pages = generate_multipage_pdf("Технічні вимоги", 4, "ТОВ «ДІЛОВОД-ІНТЕГРАЦІЯ»", "ТЕХНІЧНЕ ЗАВДАННЯ", "12 липня 2026 року № 45-вих-дод")
 
 def finalize_and_sign(session, doc, payload):
     # 1. Generate PDF body
@@ -354,7 +354,7 @@ with SessionLocal() as session:
         )
     )
     # Generate 2-page PDF for attachment 1
-    kopiya_zayavy = generate_multipage_pdf("Копія заяви", 2)
+    kopiya_zayavy = generate_multipage_pdf("Копія заяви", 2, "НАЦІОНАЛЬНЕ АГЕНТСТВО З ПИТАНЬ ЗАПОБІГАННЯ КОРУПЦІЇ", "ЗАЯВА", "12 липня 2026 року")
     doc.attachments.append(Attachment(
         order_index=0,
         original_filename="kopiya_zayavy.pdf",
@@ -364,7 +364,7 @@ with SessionLocal() as session:
         blob=kopiya_zayavy
     ))
     # Generate 1-page PDF for attachment 2
-    dokaz_dostavky = generate_multipage_pdf("Доказ доставки", 1)
+    dokaz_dostavky = generate_multipage_pdf("Доказ доставки", 1, "НАЦІОНАЛЬНЕ АГЕНТСТВО З ПИТАНЬ ЗАПОБІГАННЯ КОРУПЦІЇ", "ПІДТВЕРДЖЕННЯ", "12 липня 2026 року")
     doc.attachments.append(Attachment(
         order_index=1,
         original_filename="dokaz_dostavky.pdf",
