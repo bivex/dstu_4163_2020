@@ -86,6 +86,31 @@ instrukciya_3pages = generate_multipage_pdf("Інструкція з ділов�
 nakaz_2pages = generate_multipage_pdf("Специфікація", 2)
 lyst_4pages = generate_multipage_pdf("Технічні вимоги", 4)
 
+def finalize_and_sign(session, doc, payload):
+    # 1. Generate PDF body
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        dest = tmp.name
+    try:
+        out = bridge.generate(payload, "pdf", dest)
+        with open(out["path"], "rb") as fh:
+            doc.rendered = fh.read()
+        doc.conformance_json = json.dumps(out["report"], ensure_ascii=False)
+    finally:
+        for p in (dest, dest + ".pdf"):
+            if os.path.exists(p):
+                os.remove(p)
+
+    # 2. Attach mock signatures
+    fake_sig = base64.b64decode("MDCCAfgCAQExCzAJBgUrDgMCGgUAMAsGCSqGSIb3DQEHATFCBEEwPTAOBgNVHQ8BAf8EBAMCB4AwHQYDVR0OBBYEFBXeMockBytes" + "0" * 500)
+    for s in doc.signers:
+        s.status = SignerStatus.SIGNED
+        s.signature = fake_sig
+    doc.status = DocStatus.SIGNED
+
+    # 3. Assemble ASiC-E container
+    from portal.helpers import _assemble_asice
+    _assemble_asice(session, doc)
+
 with SessionLocal() as session:
     # 1. Оновимо NAKAZ-UKRNDNC-014
     doc_id = "NAKAZ-UKRNDNC-014"
@@ -147,19 +172,8 @@ with SessionLocal() as session:
         blob=instrukciya_3pages
     ))
 
-    # Згенеруємо PDF документа
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-        dest = tmp.name
-    try:
-        out = bridge.generate(payload, "pdf", dest)
-        with open(out["path"], "rb") as fh:
-            doc.rendered = fh.read()
-        doc.conformance_json = json.dumps(out["report"], ensure_ascii=False)
-    finally:
-        for p in (dest, dest + ".pdf"):
-            if os.path.exists(p):
-                os.remove(p)
-
+    # Згенеруємо PDF, підпишемо та створимо ASiC-E
+    finalize_and_sign(session, doc, payload)
     session.add(doc)
 
     # 2. Оновимо NAKAZ-SEED-01
@@ -220,6 +234,9 @@ with SessionLocal() as session:
         size=len(b"mock xlsx file contents"),
         blob=b"mock xlsx file contents"
     ))
+
+    # Згенеруємо PDF, підпишемо та створимо ASiC-E
+    finalize_and_sign(session, doc, payload)
     session.add(doc)
 
     # 3. Оновимо LIST-SEED-02
@@ -280,10 +297,13 @@ with SessionLocal() as session:
         size=len(lyst_4pages),
         blob=lyst_4pages
     ))
+
+    # Згенеруємо PDF, підпишемо та створимо ASiC-E
+    finalize_and_sign(session, doc, payload)
     session.add(doc)
 
     session.commit()
-    print("Database seeded with real PDF blobs successfully.")
+    print("Database seeded with real signed PDF blobs successfully.")
 """
 
     # Записуємо тимчасовий скрипт
