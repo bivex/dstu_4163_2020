@@ -24,6 +24,8 @@ def _user_public(user: User) -> dict:
         "kep_certificate_serial": user.kep_certificate_serial,
         "kep_subject_cn": user.kep_subject_cn,
         "organization_cert_cn": user.organization_cert_cn,
+        "phone": user.phone,
+        "address": user.address,
     }
 
 
