@@ -30,11 +30,18 @@ def _make_token(user: User) -> str:
 
 def _current_user(
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    token: str | None = None,
 ) -> dict:
-    if not creds:
+    jwt_token = None
+    if creds:
+        jwt_token = creds.credentials
+    elif token:
+        jwt_token = token
+
+    if not jwt_token:
         raise HTTPException(401, "Потрібна авторизація")
     try:
-        return jwt.decode(creds.credentials, _JWT_SECRET, algorithms=[_JWT_ALGO])
+        return jwt.decode(jwt_token, _JWT_SECRET, algorithms=[_JWT_ALGO])
     except jwt.ExpiredSignatureError:
         raise HTTPException(401, "Токен прострочений")
     except jwt.PyJWTError:
