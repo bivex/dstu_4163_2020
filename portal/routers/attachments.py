@@ -225,14 +225,6 @@ def get_merged_pdf(
 
         writer = PdfWriter()
 
-        # Add main document pages
-        try:
-            main_reader = PdfReader(io.BytesIO(doc.rendered))
-            for page in main_reader.pages:
-                writer.add_page(page)
-        except Exception as e:
-            raise HTTPException(500, f"Помилка читання головного документа: {e}")
-
         # Setup font for watermark (Cyrillic support)
         try:
             from src.dilovod4.infrastructure.fonts import resolve_times_new_roman
@@ -246,6 +238,83 @@ def get_merged_pdf(
         except Exception:
             FONT_REGULAR = "Helvetica"
             FONT_BOLD = "Helvetica-Bold"
+
+        def _visa_lines(d) -> list:
+            """Лише погоджені візи. Дата approved_at (UTC-aware) → Europe/Kyiv, %d.%m.%Y."""
+            from portal.db import ApproverStatus
+            try:
+                from zoneinfo import ZoneInfo
+                kyiv = ZoneInfo("Europe/Kyiv")
+            except Exception:
+                kyiv = None
+            lines = []
+            for a in getattr(d, "approvers", []) or []:
+                if getattr(a, "status", None) != ApproverStatus.APPROVED or not a.approved_at:
+                    continue
+                dt = a.approved_at
+                if kyiv is not None and getattr(dt, "tzinfo", None) is not None:
+                    dt = dt.astimezone(kyiv)
+                date_s = dt.strftime("%d.%m.%Y")
+                posada = (getattr(a, "position", "") or "").strip()
+                name = (getattr(a, "full_name", "") or "").strip()
+                lines.append(f"{posada} {name} {date_s}".strip())
+            return lines
+
+        def _draw_visa(can, visa_lines, page_w, page_h):
+            """Лівий нижній кут: «ВІЗА:» + по рядку на approver. No-op якщо порожньо."""
+            if not visa_lines:
+                return
+            x = 30
+            y = 40 + len(visa_lines) * 9
+            can.setFont(FONT_BOLD, 8)
+            can.drawString(x, y, "ВІЗА:")
+            y -= 11
+            can.setFont(FONT_REGULAR, 7)
+            for line in visa_lines:
+                can.drawString(x, y, line)
+                y -= 9
+
+        def _draw_identification(can, *, idx, doc_type, reg_index,
+                                 page_num, total_pages, page_w, page_h):
+            """Правий верхній кут: Додаток N / до ... № X / Аркуш Y з Z."""
+            text_lines = [f"Додаток {idx}"]
+            if doc_type and reg_index:
+                text_lines.append(f"до {get_genitive_doc_type(doc_type)} № {reg_index}")
+            text_lines.append(f"Аркуш {page_num} з {total_pages}")
+            y = page_h - 32
+            can.setFont(FONT_REGULAR, 9)
+            for line in text_lines:
+                can.drawRightString(page_w - 30, y, line)
+                y -= 11
+
+        def _overlay_page_for(target_page, drawers):
+            """Overlay-сторінка під mediabox цільової сторінки (A3/A4/A5-safe).
+            drawers — список callable(can, page_w, page_h). NB: /Rotate не
+            коригується (як і в попередньому identification-штампі) — координати
+            у просторі mediabox."""
+            mb = target_page.mediabox
+            page_w = float(mb.width)
+            page_h = float(mb.height)
+            pkt = io.BytesIO()
+            can = canvas.Canvas(pkt, pagesize=(page_w, page_h))
+            for drawer in drawers:
+                drawer(can, page_w, page_h)
+            can.save()
+            pkt.seek(0)
+            return PdfReader(pkt).pages[0]
+
+        visa = _visa_lines(doc)
+
+        # Add main document pages (штамп-віза на кожній сторінці, якщо є погоджені)
+        try:
+            main_reader = PdfReader(io.BytesIO(doc.rendered))
+            for page in main_reader.pages:
+                if visa:
+                    overlay = _overlay_page_for(page, [lambda c, w, h, _v=visa: _draw_visa(c, _v, w, h)])
+                    page.merge_page(overlay)
+                writer.add_page(page)
+        except Exception as e:
+            raise HTTPException(500, f"Помилка читання головного документа: {e}")
 
         # Process attachments sorted by order_index
         attachments = sorted(doc.attachments, key=lambda a: a.order_index)
@@ -329,31 +398,21 @@ def get_merged_pdf(
 
             total_pages = len(pages_to_add)
             for page_num, page in enumerate(pages_to_add, start=1):
-                # Generate watermark page
+                # Identification (top-right) + віза (bottom-left), один merge на сторінку
                 try:
-                    watermark_packet = io.BytesIO()
-                    can = canvas.Canvas(watermark_packet, pagesize=A4)
-                    
-                    # Watermark text lines
-                    text_lines = [f"Додаток {idx}"]
-                    if doc_type and reg_index:
-                        text_lines.append(f"до {get_genitive_doc_type(doc_type)} № {reg_index}")
-                    text_lines.append(f"Аркуш {page_num} з {total_pages}")
-                    
-                    y_pos = 810
-                    can.setFont(FONT_REGULAR, 9)
-                    for line in text_lines:
-                        can.drawRightString(565, y_pos, line)
-                        y_pos -= 11
-                    can.save()
-                    watermark_packet.seek(0)
-                    
-                    watermark = PdfReader(watermark_packet).pages[0]
-                    # Merge watermark onto the target page
-                    page.merge_page(watermark)
+                    drawers = [
+                        lambda c, w, h, _idx=idx, _pn=page_num, _tp=total_pages:
+                            _draw_identification(
+                                c, idx=_idx, doc_type=doc_type, reg_index=reg_index,
+                                page_num=_pn, total_pages=_tp, page_w=w, page_h=h,
+                            )
+                    ]
+                    if visa:
+                        drawers.append(lambda c, w, h, _v=visa: _draw_visa(c, _v, w, h))
+                    page.merge_page(_overlay_page_for(page, drawers))
                 except Exception as e:
-                    print(f"Watermark merging failed: {e}")
-                
+                    print(f"Stamp merging failed: {e}")
+
                 writer.add_page(page)
 
         # Output the merged PDF

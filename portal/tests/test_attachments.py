@@ -795,3 +795,207 @@ def test_edge_attachment_order_after_deletion(client):
     assert "Додаток 2" in p2_txt
 
 
+def _doc_payload_with_approvers(doc_id: str = "T-001", signers: int = 2, approvers: list = None) -> dict:
+    payload = _doc_payload(doc_id, signers)
+    if approvers is None:
+        approvers = [
+            {"full_name": "Іваненко І.І.", "position": "Юрист"}
+        ]
+    payload["approvers"] = approvers
+    return payload
+
+
+def test_merged_pdf_includes_visa_on_every_page(client):
+    import importlib
+    import datetime as dt
+    auth = importlib.import_module("portal.auth")
+    main = importlib.import_module("portal.main")
+
+    # Set dependency override for current user to match our approver
+    main.app.dependency_overrides[auth._current_user] = lambda: {
+        "sub": "2", "email": "ivanenko@org.local", "name": "Іваненко І.І.",
+        "role": "user", "position": "Юрист"
+    }
+
+    # 1. Create document with one approver matching our user
+    payload = _doc_payload_with_approvers(
+        "V-001",
+        approvers=[{"full_name": "Іваненко І.І.", "position": "Юрист"}]
+    )
+    res = client.post("/documents", json=payload)
+    assert res.status_code == 200
+
+    # Generate main document
+    res = client.post("/documents/V-001/generate")
+    assert res.status_code == 200
+
+    # Generate 2-page PDF attachment
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.lib.pagesizes import A4
+    out = io.BytesIO()
+    c = rl_canvas.Canvas(out, pagesize=A4)
+    # Page 1 of attachment
+    c.drawString(100, 500, "Attachment Page 1 content")
+    c.showPage()
+    # Page 2 of attachment
+    c.drawString(100, 500, "Attachment Page 2 content")
+    c.showPage()
+    c.save()
+    att_bytes = out.getvalue()
+
+    # Upload attachment
+    res = client.post(
+        "/documents/V-001/attachments",
+        files={"file": ("multipage_att.pdf", att_bytes, "application/pdf")}
+    )
+    assert res.status_code == 200
+
+    # 2. Submit for approval
+    res = client.post("/documents/V-001/approval/submit")
+    assert res.status_code == 200
+
+    # 3. Approve the document
+    res = client.post(
+        "/documents/V-001/approval/action",
+        json={"action": "approve", "comment": "Approved!"}
+    )
+    assert res.status_code == 200
+
+    # 4. Get merged PDF
+    res = client.get("/documents/V-001/merged-pdf")
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "application/pdf"
+
+    # 5. Extract text from pages to verify visa is present on every page
+    from pypdf import PdfReader
+    reader = PdfReader(io.BytesIO(res.content))
+    # Total pages: 1 (main) + 2 (attachment) = 3 pages
+    assert len(reader.pages) == 3
+
+    # Calculate expected date string in Kyiv timezone
+    try:
+        from zoneinfo import ZoneInfo
+        kyiv = ZoneInfo("Europe/Kyiv")
+    except Exception:
+        kyiv = None
+    now_kyiv = dt.datetime.now(dt.timezone.utc)
+    if kyiv is not None:
+        now_kyiv = now_kyiv.astimezone(kyiv)
+    today_str = now_kyiv.strftime("%d.%m.%Y")
+
+    # Every page should contain "ВІЗА:" and the approver details
+    for idx, page in enumerate(reader.pages):
+        txt = page.extract_text()
+        assert "ВІЗА:" in txt, f"Page {idx} missing 'ВІЗА:'"
+        assert "Юрист Іваненко І.І." in txt, f"Page {idx} missing approver name"
+        assert today_str in txt, f"Page {idx} missing today's date"
+
+
+def test_merged_pdf_no_visa_when_draft(client):
+    # 1. Create document with one approver
+    payload = _doc_payload_with_approvers(
+        "V-002",
+        approvers=[{"full_name": "Іваненко І.І.", "position": "Юрист"}]
+    )
+    client.post("/documents", json=payload)
+    client.post("/documents/V-002/generate")
+    client.post(
+        "/documents/V-002/attachments",
+        files={"file": ("att.pdf", _make_pdf(1), "application/pdf")}
+    )
+
+    # 2. Get merged PDF (still in draft state, not approved)
+    res = client.get("/documents/V-002/merged-pdf")
+    assert res.status_code == 200
+
+    from pypdf import PdfReader
+    reader = PdfReader(io.BytesIO(res.content))
+    assert len(reader.pages) == 2
+
+    # Verify no visa text is present on any page
+    for idx, page in enumerate(reader.pages):
+        txt = page.extract_text()
+        assert "ВІЗА:" not in txt, f"Page {idx} should not contain 'ВІЗА:'"
+
+
+def test_merged_pdf_visa_pagesize_and_rotation(client):
+    import importlib
+    auth = importlib.import_module("portal.auth")
+    main = importlib.import_module("portal.main")
+
+    main.app.dependency_overrides[auth._current_user] = lambda: {
+        "sub": "2", "email": "ivanenko@org.local", "name": "Іваненко І.І.",
+        "role": "user", "position": "Юрист"
+    }
+
+    payload = _doc_payload_with_approvers(
+        "V-003",
+        approvers=[{"full_name": "Іваненко І.І.", "position": "Юрист"}]
+    )
+    client.post("/documents", json=payload)
+    client.post("/documents/V-003/generate")
+
+    # Generate an A5 page, and a rotated landscape page
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.lib.pagesizes import A5, landscape, A4
+    
+    out = io.BytesIO()
+    c = rl_canvas.Canvas(out)
+    
+    # Page 1: A5 size
+    c.setPageSize(A5)
+    c.drawString(50, 200, "A5 Page Content")
+    c.showPage()
+    
+    # Page 2: A4 rotated (landscape)
+    c.setPageSize(landscape(A4))
+    c.drawString(100, 200, "Rotated Landscape Page Content")
+    c.showPage()
+    
+    c.save()
+    att_bytes = out.getvalue()
+
+    client.post(
+        "/documents/V-003/attachments",
+        files={"file": ("custom_pages.pdf", att_bytes, "application/pdf")}
+    )
+
+    # Submit and approve
+    client.post("/documents/V-003/approval/submit")
+    client.post("/documents/V-003/approval/action", json={"action": "approve"})
+
+    res = client.get("/documents/V-003/merged-pdf")
+    assert res.status_code == 200
+
+    from pypdf import PdfReader
+    reader = PdfReader(io.BytesIO(res.content))
+    # 1 main (A4) + 2 attachment pages = 3 pages
+    assert len(reader.pages) == 3
+
+    # Check page sizes and that text contains visa and identification
+    # Main document page (A4: 595.27 x 841.89)
+    p1 = reader.pages[0]
+    mb1 = p1.mediabox
+    assert abs(float(mb1.width) - 595.27) < 1.0
+    assert abs(float(mb1.height) - 841.89) < 1.0
+    assert "ВІЗА:" in p1.extract_text()
+
+    # Attachment page 1 (A5: 419.53 x 595.27)
+    p2 = reader.pages[1]
+    mb2 = p2.mediabox
+    assert abs(float(mb2.width) - 419.53) < 1.0 or abs(float(mb2.width) - 420.0) < 1.0
+    assert abs(float(mb2.height) - 595.27) < 1.0 or abs(float(mb2.height) - 596.0) < 1.0
+    txt2 = p2.extract_text()
+    assert "ВІЗА:" in txt2
+    assert "Додаток 1" in txt2
+
+    # Attachment page 2 (A4 Landscape: 841.89 x 595.27)
+    p3 = reader.pages[2]
+    mb3 = p3.mediabox
+    assert abs(float(mb3.width) - 841.89) < 1.0
+    assert abs(float(mb3.height) - 595.27) < 1.0
+    txt3 = p3.extract_text()
+    assert "ВІЗА:" in txt3
+    assert "Додаток 1" in txt3
+
+
