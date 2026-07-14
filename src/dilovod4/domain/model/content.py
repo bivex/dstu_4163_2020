@@ -51,6 +51,8 @@ class DocumentContent:
     # Реквізит 15 — гриф обмеження доступу (ст.21 З-ну 2657-XII). None для
     # відкритих документів; задається лише для інформації з обмеженим доступом.
     access_restriction: AccessRestriction | None = None
+    # Чи накладати графічну синю печатку організації поверх підпису.
+    use_stamp: bool = False
 
     def __post_init__(self) -> None:
         if not self.org_name.strip():

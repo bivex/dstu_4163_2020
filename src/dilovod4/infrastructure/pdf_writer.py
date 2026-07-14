@@ -375,6 +375,9 @@ class _Layout:
                 decode_x = self.left + self.doc.left_indents.signature_decode_mm * mm
                 self.c.setFont(_FONT_REGULAR, self.body_pt)
                 self.c.drawString(decode_x, self.y, name)
+                if self.content.use_stamp:
+                    # Печатка перекриває частину назви посади та підпису
+                    self._draw_stamp(self.left + 95 * mm, self.y + 2 * mm)
 
         # 23 грифи погодження (ПОГОДЖЕНО) — зовнішнє, нижче підпису, від лівого поля
         for agreement in self.content.agreements:
@@ -499,6 +502,9 @@ class _Layout:
         # QR-код підписувача — праворуч від рамки, центрований по її висоті.
         # Подорожує разом із відміткою, тож масштабується на багатьох підписантів.
         self._draw_mark_qr(mark, top, box_h)
+        if self.content.use_stamp:
+            # Накладаємо печатку поверх електронного підпису/QR
+            self._draw_stamp(self.left + 50 * mm, bottom + box_h / 2)
         self.y = bottom - line_h
 
     def _wrap_to_width(self, text: str, font: str, size: float, avail_pt: float) -> list[str]:
@@ -587,3 +593,57 @@ class _Layout:
         # Малюємо герб від y_bottom (нижній лівий кут обмежувального боксу)
         x = x_center - w / 2
         drawing.drawOn(self.c, x, y_bottom)
+
+    def _draw_stamp(self, x: float, y: float) -> None:
+        """Малює візуальний синій круглий відбиток печатки компанії."""
+        self.c.saveState()
+        try:
+            # Синя напівпрозора печатка (alpha=0.6 для реалістичного накладання поверх тексту)
+            self.c.setStrokeColorRGB(0.12, 0.25, 0.72)
+            self.c.setFillColorRGB(0.12, 0.25, 0.72)
+            self.c.setLineWidth(1.8)
+            
+            # Зовнішнє коло (діаметр 40 мм = радіус 20 мм)
+            r = 20 * mm
+            self.c.circle(x, y, r, stroke=1, fill=0)
+            
+            # Внутрішнє тонке коло (радіус 17.5 мм)
+            self.c.setLineWidth(0.6)
+            self.c.circle(x, y, 17.5 * mm, stroke=1, fill=0)
+            
+            # Центральний текст
+            self.c.setFont(_FONT_BOLD, 7)
+            self.c.drawCentredString(x, y + 2 * mm, "ДЛЯ")
+            self.c.drawCentredString(x, y - 2 * mm, "ДОКУМЕНТІВ")
+            
+            # Текст по верхній дузі (назва організації)
+            org_text = self.content.org_name.upper()
+            # Очистимо префікси на кшталт "Гр. " або "АТ " для компактності на печатці
+            org_text = org_text.removeprefix("ГР. ").removeprefix("АТ ").strip()
+            if len(org_text) > 45:
+                org_text = org_text[:42] + "..."
+            
+            self.c.setFont(_FONT_REGULAR, 6)
+            # Розподілимо літери по колу від -110 до 110 градусів
+            if org_text:
+                angle_step = 220.0 / max(1, len(org_text) - 1)
+                for i, char in enumerate(org_text):
+                    angle = -110 + i * angle_step
+                    self.c.saveState()
+                    self.c.translate(x, y)
+                    self.c.rotate(angle)
+                    self.c.drawString(-1.5 * mm, 14 * mm, char)
+                    self.c.restoreState()
+            
+            # Код ЄДРПОУ / ідентифікатор знизу
+            code_text = "* УКРАЇНА *"
+            angle_step_code = 90.0 / max(1, len(code_text) - 1)
+            for i, char in enumerate(code_text):
+                angle = 135 + i * angle_step_code
+                self.c.saveState()
+                self.c.translate(x, y)
+                self.c.rotate(angle)
+                self.c.drawString(-1.5 * mm, 14 * mm, char)
+                self.c.restoreState()
+        finally:
+            self.c.restoreState()
