@@ -765,7 +765,7 @@ class _Layout:
             x = 4 * mm
             y = self.page_h - 60 * mm
             h = 7 * mm
-            self.c.roundRect(x, y, 22 * mm, h, 0.8 * mm, 0.8 * mm, stroke=1, fill=0)
+            self.c.roundRect(x, y, 22 * mm, h, 0.8 * mm)
             
             font_name = _FONT_BOLD
             font_size = 8.0
@@ -795,7 +795,7 @@ class _Layout:
             y = 25 * mm
             
             # Зовнішня рамка з округленими кутами
-            self.c.roundRect(x, y, w, h, 1.2 * mm, 1.2 * mm, stroke=1, fill=0)
+            self.c.roundRect(x, y, w, h, 1.2 * mm)
             
             # Горизонтальна лінія-роздільник посередині
             self.c.line(x, y + 8 * mm, x + w, y + 8 * mm)
@@ -858,7 +858,7 @@ class _Layout:
             y = self.y - h - 3 * mm
             
             # Зовнішня рамка з округленими кутами
-            self.c.roundRect(x, y, w, h, 1.2 * mm, 1.2 * mm, stroke=1, fill=0)
+            self.c.roundRect(x, y, w, h, 1.2 * mm)
             
             # Лінія-роздільник
             self.c.line(x, y + 12 * mm, x + w, y + 12 * mm)
@@ -935,7 +935,7 @@ class _Layout:
             x = self.page_w - self.right_margin - w
             y = self.page_h - self.top - 8 * mm
             
-            self.c.roundRect(x, y, w, h, 0.8 * mm, 0.8 * mm, stroke=1, fill=0)
+            self.c.roundRect(x, y, w, h, 0.8 * mm)
             
             font_obj = pdfmetrics.getFont(font_name)
             ascent = font_obj.face.ascent * font_size / 1000.0
@@ -959,7 +959,7 @@ class _Layout:
             x = self.page_w - self.right_margin - w
             y = self.page_h - self.top - 17 * mm
             
-            self.c.roundRect(x, y, w, h, 0.8 * mm, 0.8 * mm, stroke=1, fill=0)
+            self.c.roundRect(x, y, w, h, 0.8 * mm)
             
             font_name = _FONT_BOLD
             font_size = 8.0
@@ -989,7 +989,7 @@ class _Layout:
             y = 25 * mm
             
             # Зовнішня рамка з округленими кутами
-            self.c.roundRect(x, y, w, h, 1.2 * mm, 1.2 * mm, stroke=1, fill=0)
+            self.c.roundRect(x, y, w, h, 1.2 * mm)
             
             # Лінія-роздільник
             self.c.line(x, y + 10 * mm, x + w, y + 10 * mm)
@@ -1035,7 +1035,7 @@ class _Layout:
             x = (self.page_w - w) / 2
             y = self.page_h - self.top - 12 * mm
             
-            self.c.roundRect(x, y, w, h, 1.0 * mm, 1.0 * mm, stroke=1, fill=0)
+            self.c.roundRect(x, y, w, h, 1.0 * mm)
             
             font_name = _FONT_BOLD
             font_size = 9.0
@@ -1064,7 +1064,7 @@ class _Layout:
             x = self.page_w - self.right_margin - w
             y = self.page_h - self.top - 26 * mm
             
-            self.c.roundRect(x, y, w, h, 0.8 * mm, 0.8 * mm, stroke=1, fill=0)
+            self.c.roundRect(x, y, w, h, 0.8 * mm)
             
             font_name = _FONT_BOLD
             font_size = 8.0
