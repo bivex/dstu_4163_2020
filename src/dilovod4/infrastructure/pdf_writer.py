@@ -670,21 +670,30 @@ class _Layout:
             # Розрахунок довжини з урахуванням пропорцій шрифту
             font_name = _FONT_REGULAR
             font_size = 6.0
-            self.c.setFont(font_name, font_size)
-            
-            # Функція для вимірювання ширини тексту з letter_spacing (наприклад, 1.2 pt)
             spacing = 1.2
             
-            def get_text_width(txt: str) -> float:
+            def get_text_width(txt: str, f_size: float, sp: float) -> float:
                 if not txt:
                     return 0.0
-                return sum(pdfmetrics.stringWidth(c, font_name, font_size) for c in txt) + (len(txt) - 1) * spacing
+                return sum(pdfmetrics.stringWidth(c, font_name, f_size) for c in txt) + (len(txt) - 1) * sp
 
-            # Адаптивна обрізка рядка
-            if get_text_width(org_text) > max_arc_len:
-                while len(org_text) > 0 and get_text_width(org_text + "...") > max_arc_len:
-                    org_text = org_text[:-1]
-                org_text += "..."
+            # Динамічне зменшення розміру шрифту та інтервалу для запобігання обрізанню
+            if get_text_width(org_text, font_size, spacing) > max_arc_len:
+                # Спробуємо зменшити шрифт до 4.0 pt та інтервал до 0.5 pt
+                for f_sz, sp in [(5.5, 1.0), (5.0, 0.8), (4.5, 0.6), (4.0, 0.5)]:
+                    if get_text_width(org_text, f_sz, sp) <= max_arc_len:
+                        font_size = f_sz
+                        spacing = sp
+                        break
+                else:
+                    # Якщо навіть за мінімального шрифту не влізає, робимо обрізання
+                    font_size = 4.0
+                    spacing = 0.5
+                    while len(org_text) > 0 and get_text_width(org_text + "...", font_size, spacing) > max_arc_len:
+                        org_text = org_text[:-1]
+                    org_text += "..."
+                    
+            self.c.setFont(font_name, font_size)
             
             # Тепер розставимо символи пропорційно їх ширині на дузі
             if org_text:
