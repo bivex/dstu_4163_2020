@@ -617,8 +617,18 @@ class _Layout:
         x = x_center - w / 2
         drawing.drawOn(self.c, x, y_bottom)
 
+    def _draw_double_round_rect(self, x: float, y: float, w: float, h: float, radius: float, offset: float = 0.8 * mm) -> None:
+        """Малює преміальну подвійну рамку з округленими кутами."""
+        # Зовнішня товща рамка
+        self.c.setLineWidth(0.9)
+        self.c.roundRect(x, y, w, h, radius)
+        # Внутрішня тонка рамка
+        self.c.setLineWidth(0.35)
+        inner_r = max(0.2 * mm, radius - offset)
+        self.c.roundRect(x + offset, y + offset, w - 2 * offset, h - 2 * offset, inner_r)
+
     def _draw_stamp(self, x: float, y: float) -> None:
-        """Малює візуальний синій круглий відбиток печатки компанії у преміум-стилі (Deep Indigo)."""
+        """Малює візуальний синій круглий відбиток печатки компанії у преміум-стилі (Banking Indigo)."""
         stype = self.content.stamp_type.strip().lower()
         if not stype:
             if self.content.use_stamp:
@@ -630,44 +640,42 @@ class _Layout:
         from reportlab.pdfbase import pdfmetrics
         self.c.saveState()
         try:
-            # Преміальний глибокий синій колір (Deep Indigo)
-            self.c.setStrokeColorRGB(0.08, 0.20, 0.58)
-            self.c.setFillColorRGB(0.08, 0.20, 0.58)
-            self.c.setLineWidth(1.8)
+            # Преміальний банківський синій колір (Banking Indigo)
+            self.c.setStrokeColorRGB(0.03, 0.14, 0.42)
+            self.c.setFillColorRGB(0.03, 0.14, 0.42)
+            self.c.setLineWidth(2.2)
             
-            # Зовнішнє коло (діаметр 40 мм = радіус 20 мм)
+            # Зовнішнє товсте коло (діаметр 40 мм = радіус 20 мм)
             r = 20 * mm
             self.c.circle(x, y, r, stroke=1, fill=0)
             
-            # Внутрішнє тонке коло (радіус 17.5 мм)
+            # Внутрішнє тонке коло (радіус 17.5 мм, відстань 2.5 мм)
             self.c.setLineWidth(0.6)
             self.c.circle(x, y, 17.5 * mm, stroke=1, fill=0)
             
             # Центральний текст
             self.c.setFont(_FONT_BOLD, 7)
             if stype == "contracts":
-                self.c.drawCentredString(x, y + 2 * mm, "ДЛЯ")
-                self.c.drawCentredString(x, y - 2 * mm, "ДОГОВОРІВ")
+                self.c.drawCentredString(x, y + 2.3 * mm, "ДЛЯ")
+                self.c.drawCentredString(x, y - 1.7 * mm, "ДОГОВОРІВ")
             elif stype == "hr":
-                self.c.drawCentredString(x, y + 2 * mm, "ВІДДІЛ")
-                self.c.drawCentredString(x, y - 2 * mm, "КАДРІВ")
+                self.c.drawCentredString(x, y + 2.3 * mm, "ВІДДІЛ")
+                self.c.drawCentredString(x, y - 1.7 * mm, "КАДРІВ")
             elif stype == "chancellery":
                 self.c.setFont(_FONT_BOLD, 8)
-                self.c.drawCentredString(x, y, "КАНЦЕЛЯРІЯ")
+                self.c.drawCentredString(x, y + 0.3 * mm, "КАНЦЕЛЯРІЯ")
             else:  # documents / fallback
-                self.c.drawCentredString(x, y + 2 * mm, "ДЛЯ")
-                self.c.drawCentredString(x, y - 2 * mm, "ДОКУМЕНТІВ")
+                self.c.drawCentredString(x, y + 2.3 * mm, "ДЛЯ")
+                self.c.drawCentredString(x, y - 1.7 * mm, "ДОКУМЕНТІВ")
             
             # Текст по верхній дузі (назва організації)
             org_text = self.content.org_name.upper()
-            # Очистимо префікси на кшталт "Гр. " або "АТ " для компактності на печатці
             org_text = org_text.removeprefix("ГР. ").removeprefix("АТ ").strip()
             
             # Адаптивно обріжемо за шириною на дузі (доступно 190 градусів на радіусі 14.5 мм)
             r_text = 14.5 * mm
             max_arc_len = r_text * math.radians(190.0)
             
-            # Розрахунок довжини з урахуванням пропорцій шрифту
             font_name = _FONT_REGULAR
             font_size = 6.0
             spacing = 1.2
@@ -679,14 +687,12 @@ class _Layout:
 
             # Динамічне зменшення розміру шрифту та інтервалу для запобігання обрізанню
             if get_text_width(org_text, font_size, spacing) > max_arc_len:
-                # Спробуємо зменшити шрифт до 4.0 pt та інтервал до 0.5 pt
                 for f_sz, sp in [(5.5, 1.0), (5.0, 0.8), (4.5, 0.6), (4.0, 0.5)]:
                     if get_text_width(org_text, f_sz, sp) <= max_arc_len:
                         font_size = f_sz
                         spacing = sp
                         break
                 else:
-                    # Якщо навіть за мінімального шрифту не влізає, робимо обрізання
                     font_size = 4.0
                     spacing = 0.5
                     while len(org_text) > 0 and get_text_width(org_text + "...", font_size, spacing) > max_arc_len:
@@ -706,7 +712,6 @@ class _Layout:
                 
                 curr_angle = start_angle
                 for i, char in enumerate(org_text):
-                    # Половина ширини поточного символу переводиться в кут
                     char_angle_w = (widths[i] / r_text) * (180.0 / math.pi)
                     char_center_angle = curr_angle + char_angle_w / 2.0
                     
@@ -716,22 +721,19 @@ class _Layout:
                     
                     self.c.saveState()
                     self.c.translate(char_x, char_y)
-                    self.c.rotate(-char_center_angle)  # голова назовні від центру
+                    self.c.rotate(-char_center_angle)
                     self.c.drawCentredString(0, 0, char)
                     self.c.restoreState()
                     
-                    # Переходимо до наступного символу: додаємо ширину поточного гліфа + міжлітерний інтервал
                     curr_angle += char_angle_w + (spacing / r_text) * (180.0 / math.pi)
             
-            # Код ЄДРПОУ / ідентифікатор знизу (читається зліва направо, голови до центру)
-            code_text = "* УКРАЇНА *"
+            # Код ЄДРПОУ / ідентифікатор знизу (• замість *)
+            code_text = "• УКРАЇНА •"
             if code_text:
                 widths_code = [pdfmetrics.stringWidth(c, font_name, font_size) for c in code_text]
                 total_w_code = sum(widths_code) + (len(code_text) - 1) * spacing
                 total_angle_code = (total_w_code / r_text) * (180.0 / math.pi)
                 
-                # Симетрично знизу (180 градусів)
-                # Йдемо в зворотному кутовому порядку, щоб читалося зліва направо при rotate(180-angle)
                 start_angle_code = 180.0 + total_angle_code / 2.0
                 
                 curr_angle = start_angle_code
@@ -745,7 +747,7 @@ class _Layout:
                     
                     self.c.saveState()
                     self.c.translate(char_x, char_y)
-                    self.c.rotate(180.0 - char_center_angle)  # голова до центру
+                    self.c.rotate(180.0 - char_center_angle)
                     self.c.drawCentredString(0, 0, char)
                     self.c.restoreState()
                     
@@ -754,18 +756,18 @@ class _Layout:
             self.c.restoreState()
 
     def _draw_control_stamp(self) -> None:
-        """Малює червоний штамп «КОНТРОЛЬ» у лівому полі першої сторінки (преміум-бордо з округленими кутами)."""
+        """Малює червоний штамп «КОНТРОЛЬ» у лівому полі першої сторінки (подвійна рамка, розрядка)."""
         self.c.saveState()
         try:
-            self.c.setStrokeColorRGB(0.75, 0.12, 0.12)
-            self.c.setFillColorRGB(0.75, 0.12, 0.12)
-            self.c.setLineWidth(1.5)
+            self.c.setStrokeColorRGB(0.62, 0.08, 0.10)
+            self.c.setFillColorRGB(0.62, 0.08, 0.10)
             
-            # Рамка штампу (ширина 22 мм, висота 7 мм) з округленими кутами
+            w = 26 * mm
+            h = 8 * mm
             x = 4 * mm
             y = self.page_h - 60 * mm
-            h = 7 * mm
-            self.c.roundRect(x, y, 22 * mm, h, 0.8 * mm)
+            
+            self._draw_double_round_rect(x, y, w, h, 1.0 * mm, 0.7 * mm)
             
             font_name = _FONT_BOLD
             font_size = 8.0
@@ -775,33 +777,34 @@ class _Layout:
             font_obj = pdfmetrics.getFont(font_name)
             ascent = font_obj.face.ascent * font_size / 1000.0
             descent = font_obj.face.descent * font_size / 1000.0
-            y_baseline = y + (h - (ascent - descent)) / 2.0 - descent
+            # Оптичне центрування (+0.3 мм)
+            y_baseline = y + (h - (ascent - descent)) / 2.0 - descent + 0.3 * mm
             
-            self.c.drawCentredString(x + 11 * mm, y_baseline, "КОНТРОЛЬ")
+            self.c.drawCentredString(x + w / 2, y_baseline, "К О Н Т Р О Л Ь")
         finally:
             self.c.restoreState()
 
     def _draw_incoming_stamp(self) -> None:
-        """Малює синій вхідний реєстраційний штамп організації у правому нижньому куті (округлені кути)."""
+        """Малює синій вхідний реєстраційний штамп організації у правому нижньому куті (подвійна рамка)."""
         self.c.saveState()
         try:
-            self.c.setStrokeColorRGB(0.08, 0.20, 0.58)
-            self.c.setFillColorRGB(0.08, 0.20, 0.58)
-            self.c.setLineWidth(1.2)
+            self.c.setStrokeColorRGB(0.03, 0.14, 0.42)
+            self.c.setFillColorRGB(0.03, 0.14, 0.42)
             
             w = 72 * mm
-            h = 16 * mm
+            h = 17 * mm
             x = self.page_w - self.right_margin - w
             y = 25 * mm
             
-            # Зовнішня рамка з округленими кутами
-            self.c.roundRect(x, y, w, h, 1.2 * mm)
+            # Подвійна зовнішня рамка
+            self._draw_double_round_rect(x, y, w, h, 1.5 * mm, 0.8 * mm)
             
-            # Горизонтальна лінія-роздільник посередині
-            self.c.line(x, y + 8 * mm, x + w, y + 8 * mm)
+            # Внутрішня лінія-роздільник посередині (прив'язана до внутрішньої рамки)
+            self.c.setLineWidth(0.35)
+            self.c.line(x + 0.8 * mm, y + 8.5 * mm, x + w - 0.8 * mm, y + 8.5 * mm)
             
             # Вертикальна лінія-роздільник у нижній частині
-            self.c.line(x + 30 * mm, y, x + 30 * mm, y + 8 * mm)
+            self.c.line(x + 30 * mm, y + 0.8 * mm, x + 30 * mm, y + 8.5 * mm)
             
             # Назва організації (вгорі, центровано)
             font_name_bold = _FONT_BOLD
@@ -812,12 +815,12 @@ class _Layout:
             font_obj_bold = pdfmetrics.getFont(font_name_bold)
             ascent_bold = font_obj_bold.face.ascent * font_size_bold / 1000.0
             descent_bold = font_obj_bold.face.descent * font_size_bold / 1000.0
-            # Верхня половинка висотою 8 мм (від y + 8 до y + 16)
-            y_baseline_top = (y + 8 * mm) + (8 * mm - (ascent_bold - descent_bold)) / 2.0 - descent_bold
+            
+            # Висота верхнього осередку 7.7 мм (від y + 8.5 до y + 16.2)
+            y_baseline_top = (y + 8.5 * mm) + (7.7 * mm - (ascent_bold - descent_bold)) / 2.0 - descent_bold + 0.3 * mm
             
             org = self.content.org_name.removeprefix("Гр. ").removeprefix("АТ ").strip()
-            # Обрізаємо адаптивно за фізичною шириною в пунктах (макс. 66 мм)
-            max_org_w = 66 * mm
+            max_org_w = 64 * mm
             if pdfmetrics.stringWidth(org, font_name_bold, font_size_bold) > max_org_w:
                 while len(org) > 0 and pdfmetrics.stringWidth(org + "...", font_name_bold, font_size_bold) > max_org_w:
                     org = org[:-1]
@@ -825,7 +828,7 @@ class _Layout:
                 
             self.c.drawCentredString(x + w / 2, y_baseline_top, org)
             
-            # Нижня частина (колонки)
+            # Нижня частина (колонки) - шрифт regular
             font_name_reg = _FONT_REGULAR
             font_size_reg = 6.5
             self.c.setFont(font_name_reg, font_size_reg)
@@ -833,35 +836,34 @@ class _Layout:
             font_obj_reg = pdfmetrics.getFont(font_name_reg)
             ascent_reg = font_obj_reg.face.ascent * font_size_reg / 1000.0
             descent_reg = font_obj_reg.face.descent * font_size_reg / 1000.0
-            y_baseline_bot = y + (8 * mm - (ascent_reg - descent_reg)) / 2.0 - descent_reg
             
-            # Вхідний номер ліворуч знизу
-            self.c.drawString(x + 3 * mm, y_baseline_bot, "Вх. № ________________")
+            # Висота нижнього осередку 7.7 мм (від y + 0.8 до y + 8.5)
+            y_baseline_bot = (y + 0.8 * mm) + (7.7 * mm - (ascent_reg - descent_reg)) / 2.0 - descent_reg + 0.3 * mm
             
-            # Дата праворуч знизу
-            self.c.drawString(x + 33 * mm, y_baseline_bot, "від «___» ____________ 20___ р.")
+            self.c.drawString(x + 3.5 * mm, y_baseline_bot, "Вх. № ________________")
+            self.c.drawString(x + 33.5 * mm, y_baseline_bot, "від «___» ____________ 20___ р.")
         finally:
             self.c.restoreState()
 
     def _draw_copy_stamp(self) -> None:
-        """Малює синій штамп засвідчення копії «Згідно з оригіналом» під підписами (округлені кути)."""
-        self._ensure_space(20 * mm)
+        """Малює синій штамп засвідчення копії «Згідно з оригіналом» під підписами (подвійна рамка)."""
+        self._ensure_space(22 * mm)
         self.c.saveState()
         try:
-            self.c.setStrokeColorRGB(0.08, 0.20, 0.58)
-            self.c.setFillColorRGB(0.08, 0.20, 0.58)
-            self.c.setLineWidth(1.3)
+            self.c.setStrokeColorRGB(0.03, 0.14, 0.42)
+            self.c.setFillColorRGB(0.03, 0.14, 0.42)
             
             w = 70 * mm
-            h = 18 * mm
+            h = 19 * mm
             x = self.left
             y = self.y - h - 3 * mm
             
-            # Зовнішня рамка з округленими кутами
-            self.c.roundRect(x, y, w, h, 1.2 * mm)
+            # Подвійна рамка
+            self._draw_double_round_rect(x, y, w, h, 1.5 * mm, 0.8 * mm)
             
             # Лінія-роздільник
-            self.c.line(x, y + 12 * mm, x + w, y + 12 * mm)
+            self.c.setLineWidth(0.35)
+            self.c.line(x + 0.8 * mm, y + 13 * mm, x + w - 0.8 * mm, y + 13 * mm)
             
             font_name_bold = _FONT_BOLD
             font_size_bold = 7.5
@@ -871,12 +873,13 @@ class _Layout:
             font_obj_bold = pdfmetrics.getFont(font_name_bold)
             ascent_bold = font_obj_bold.face.ascent * font_size_bold / 1000.0
             descent_bold = font_obj_bold.face.descent * font_size_bold / 1000.0
-            # Верхня частина висотою 6 мм (від y + 12 до y + 18)
-            y_baseline_top = (y + 12 * mm) + (6 * mm - (ascent_bold - descent_bold)) / 2.0 - descent_bold
             
-            self.c.drawCentredString(x + w / 2, y_baseline_top, "ЗГІДНО З ОРИГІНАЛОМ")
+            # Висота верхнього осередку 5.2 мм (від y+13 до y+18.2)
+            y_baseline_top = (y + 13 * mm) + (5.2 * mm - (ascent_bold - descent_bold)) / 2.0 - descent_bold + 0.2 * mm
             
-            # Нижня частина (два рядки)
+            self.c.drawCentredString(x + w / 2, y_baseline_top, "З Г І Д Н О   З   О Р И Г І Н А Л О М")
+            
+            # Нижня частина (два рядки) - шрифт regular
             font_name_reg = _FONT_REGULAR
             font_size_reg = 6.5
             self.c.setFont(font_name_reg, font_size_reg)
@@ -885,40 +888,39 @@ class _Layout:
             ascent_reg = font_obj_reg.face.ascent * font_size_reg / 1000.0
             descent_reg = font_obj_reg.face.descent * font_size_reg / 1000.0
             
-            # Перший рядок знизу (від y + 6 до y + 12)
-            y_line1 = (y + 6 * mm) + (6 * mm - (ascent_reg - descent_reg)) / 2.0 - descent_reg
-            # Другий рядок знизу (від y до y + 6)
-            y_line2 = y + (6 * mm - (ascent_reg - descent_reg)) / 2.0 - descent_reg
+            # Перший рядок знизу (від y + 6.8 до y + 12.2)
+            y_line1 = (y + 6.8 * mm) + (5.4 * mm - (ascent_reg - descent_reg)) / 2.0 - descent_reg + 0.2 * mm
+            # Другий рядок знизу (від y + 0.8 до y + 6.8)
+            y_line2 = (y + 0.8 * mm) + (6.0 * mm - (ascent_reg - descent_reg)) / 2.0 - descent_reg + 0.2 * mm
             
             pos = self.content.signature_position or "Посадова особа"
             name = self.content.signature_name or "І. Прізвище"
             
-            max_text_w = 64 * mm
+            max_text_w = 62 * mm
             if pdfmetrics.stringWidth(pos, font_name_reg, font_size_reg) > max_text_w:
                 while len(pos) > 0 and pdfmetrics.stringWidth(pos + "...", font_name_reg, font_size_reg) > max_text_w:
                     pos = pos[:-1]
                 pos += "..."
                 
-            self.c.drawString(x + 3 * mm, y_line1, pos)
-            self.c.drawString(x + 3 * mm, y_line2, f"Підпис _________________  {name}")
+            self.c.drawString(x + 3.5 * mm, y_line1, pos)
+            self.c.drawString(x + 3.5 * mm, y_line2, f"Підпис _________________  {name}")
             
             self.y = y - 2 * mm
         finally:
             self.c.restoreState()
 
     def _draw_restriction_stamp(self, label: str) -> None:
-        """Малює червоний штамп обмеження доступу у правому верхньому куті (округлені кути)."""
+        """Малює червоний штамп обмеження доступу у правому верхньому куті (подвійна рамка)."""
         self.c.saveState()
         try:
-            self.c.setStrokeColorRGB(0.75, 0.12, 0.12)
-            self.c.setFillColorRGB(0.75, 0.12, 0.12)
-            self.c.setLineWidth(1.1)
+            self.c.setStrokeColorRGB(0.62, 0.08, 0.10)
+            self.c.setFillColorRGB(0.62, 0.08, 0.10)
             
             text = ""
             if label == "dsk":
                 text = "ДЛЯ СЛУЖБОВОГО КОРИСТУВАННЯ"
             elif label == "secret":
-                text = "ТАЄМНО"
+                text = "Т А Є М Н О"
             elif label == "confidential":
                 text = "КОНФІДЕНЦІЙНО"
             else:
@@ -929,8 +931,8 @@ class _Layout:
             self.c.setFont(font_name, font_size)
             
             from reportlab.pdfbase import pdfmetrics
-            w = max(40 * mm, (pdfmetrics.stringWidth(text, font_name, font_size) + 6 * mm))
-            h = 7 * mm
+            w = max(40 * mm, (pdfmetrics.stringWidth(text, font_name, font_size) + 8 * mm))
+            h = 8 * mm
             
             x = self.page_w - self.right_margin - w
             y = self.page_h - self.top - 8 * mm
@@ -947,19 +949,19 @@ class _Layout:
             self.c.restoreState()
 
     def _draw_copy_mark_stamp(self) -> None:
-        """Малює синій прямокутний штамп «КОПІЯ» у правому верхньому куті першої сторінки (округлені кути)."""
+        """Малює синій прямокутний штамп «КОПІЯ» у правому верхньому куті першої сторінки (подвійна рамка)."""
         self.c.saveState()
         try:
-            self.c.setStrokeColorRGB(0.08, 0.20, 0.58)
-            self.c.setFillColorRGB(0.08, 0.20, 0.58)
-            self.c.setLineWidth(1.1)
+            self.c.setStrokeColorRGB(0.03, 0.14, 0.42)
+            self.c.setFillColorRGB(0.03, 0.14, 0.42)
             
-            w = 25 * mm
-            h = 7 * mm
+            w = 26 * mm
+            h = 8 * mm
             x = self.page_w - self.right_margin - w
-            y = self.page_h - self.top - 17 * mm
+            y = self.page_h - self.top - 18 * mm
             
-            self.c.roundRect(x, y, w, h, 0.8 * mm)
+            # Подвійна рамка
+            self._draw_double_round_rect(x, y, w, h, 1.0 * mm, 0.7 * mm)
             
             font_name = _FONT_BOLD
             font_size = 8.0
@@ -969,30 +971,30 @@ class _Layout:
             font_obj = pdfmetrics.getFont(font_name)
             ascent = font_obj.face.ascent * font_size / 1000.0
             descent = font_obj.face.descent * font_size / 1000.0
-            y_baseline = y + (h - (ascent - descent)) / 2.0 - descent
+            y_baseline = y + (h - (ascent - descent)) / 2.0 - descent + 0.3 * mm
             
-            self.c.drawCentredString(x + w / 2, y_baseline, "КОПІЯ")
+            self.c.drawCentredString(x + w / 2, y_baseline, "К О П І Я")
         finally:
             self.c.restoreState()
 
     def _draw_archived_stamp(self) -> None:
-        """Малює синій прямокутний штамп «ДО СПРАВИ» у лівому нижньому куті першої сторінки (округлені кути)."""
+        """Малює синій прямокутний штамп «ДО СПРАВИ» у лівому нижньому куті (подвійна рамка)."""
         self.c.saveState()
         try:
-            self.c.setStrokeColorRGB(0.08, 0.20, 0.58)
-            self.c.setFillColorRGB(0.08, 0.20, 0.58)
-            self.c.setLineWidth(1.1)
+            self.c.setStrokeColorRGB(0.03, 0.14, 0.42)
+            self.c.setFillColorRGB(0.03, 0.14, 0.42)
             
             w = 56 * mm
-            h = 15 * mm
+            h = 16 * mm
             x = self.left
             y = 25 * mm
             
-            # Зовнішня рамка з округленими кутами
-            self.c.roundRect(x, y, w, h, 1.2 * mm)
+            # Подвійна зовнішня рамка
+            self._draw_double_round_rect(x, y, w, h, 1.5 * mm, 0.8 * mm)
             
             # Лінія-роздільник
-            self.c.line(x, y + 10 * mm, x + w, y + 10 * mm)
+            self.c.setLineWidth(0.35)
+            self.c.line(x + 0.8 * mm, y + 10.5 * mm, x + w - 0.8 * mm, y + 10.5 * mm)
             
             font_name_bold = _FONT_BOLD
             font_size_bold = 7.0
@@ -1002,9 +1004,11 @@ class _Layout:
             font_obj_bold = pdfmetrics.getFont(font_name_bold)
             ascent_bold = font_obj_bold.face.ascent * font_size_bold / 1000.0
             descent_bold = font_obj_bold.face.descent * font_size_bold / 1000.0
-            y_baseline_top = (y + 10 * mm) + (5 * mm - (ascent_bold - descent_bold)) / 2.0 - descent_bold
             
-            self.c.drawCentredString(x + w / 2, y_baseline_top, "ДО СПРАВИ")
+            # Висота верхнього осередку 4.7 мм (від y + 10.5 до y + 15.2)
+            y_baseline_top = (y + 10.5 * mm) + (4.7 * mm - (ascent_bold - descent_bold)) / 2.0 - descent_bold + 0.2 * mm
+            
+            self.c.drawCentredString(x + w / 2, y_baseline_top, "Д О   С П Р А В И")
             
             font_name_reg = _FONT_REGULAR
             font_size_reg = 6.0
@@ -1014,28 +1018,29 @@ class _Layout:
             ascent_reg = font_obj_reg.face.ascent * font_size_reg / 1000.0
             descent_reg = font_obj_reg.face.descent * font_size_reg / 1000.0
             
-            y_line1 = (y + 5 * mm) + (5 * mm - (ascent_reg - descent_reg)) / 2.0 - descent_reg
-            y_line2 = y + (5 * mm - (ascent_reg - descent_reg)) / 2.0 - descent_reg
+            # Два нижні рядки
+            y_line1 = (y + 5.6 * mm) + (4.9 * mm - (ascent_reg - descent_reg)) / 2.0 - descent_reg + 0.2 * mm
+            y_line2 = (y + 0.8 * mm) + (4.8 * mm - (ascent_reg - descent_reg)) / 2.0 - descent_reg + 0.2 * mm
             
-            self.c.drawString(x + 3 * mm, y_line1, "Справа № ____________________")
-            self.c.drawString(x + 3 * mm, y_line2, "«___» __________ 20___ р.  Підпис ________")
+            self.c.drawString(x + 3.5 * mm, y_line1, "Справа № ____________________")
+            self.c.drawString(x + 3.5 * mm, y_line2, "«___» __________ 20___ р.  Підпис ________")
         finally:
             self.c.restoreState()
 
     def _draw_annulled_stamp(self) -> None:
-        """Малює червоний штамп «АНУЛЬОВАНО» у верхній частині першої сторінки (округлені кути)."""
+        """Малює червоний штамп «АНУЛЬОВАНО» у верхній частині першої сторінки (подвійна рамка, розрядка)."""
         self.c.saveState()
         try:
-            self.c.setStrokeColorRGB(0.75, 0.12, 0.12)
-            self.c.setFillColorRGB(0.75, 0.12, 0.12)
-            self.c.setLineWidth(1.6)
+            self.c.setStrokeColorRGB(0.62, 0.08, 0.10)
+            self.c.setFillColorRGB(0.62, 0.08, 0.10)
             
-            w = 35 * mm
-            h = 8 * mm
+            w = 38 * mm
+            h = 9 * mm
             x = (self.page_w - w) / 2
             y = self.page_h - self.top - 12 * mm
             
-            self.c.roundRect(x, y, w, h, 1.0 * mm)
+            # Подвійна рамка
+            self._draw_double_round_rect(x, y, w, h, 1.2 * mm, 0.7 * mm)
             
             font_name = _FONT_BOLD
             font_size = 9.0
@@ -1045,26 +1050,26 @@ class _Layout:
             font_obj = pdfmetrics.getFont(font_name)
             ascent = font_obj.face.ascent * font_size / 1000.0
             descent = font_obj.face.descent * font_size / 1000.0
-            y_baseline = y + (h - (ascent - descent)) / 2.0 - descent
+            y_baseline = y + (h - (ascent - descent)) / 2.0 - descent + 0.3 * mm
             
-            self.c.drawCentredString(x + w / 2, y_baseline, "АНУЛЬОВАНО")
+            self.c.drawCentredString(x + w / 2, y_baseline, "А Н У Л Ь О В А Н О")
         finally:
             self.c.restoreState()
 
     def _draw_urgent_stamp(self) -> None:
-        """Малює червоний штамп «ТЕРМІНОВО» у правому верхньому куті першої сторінки (округлені кути)."""
+        """Малює червоний штамп «ТЕРМІНОВО» у правому верхньому куті (подвійна рамка, розрядка)."""
         self.c.saveState()
         try:
-            self.c.setStrokeColorRGB(0.75, 0.12, 0.12)
-            self.c.setFillColorRGB(0.75, 0.12, 0.12)
-            self.c.setLineWidth(1.2)
+            self.c.setStrokeColorRGB(0.62, 0.08, 0.10)
+            self.c.setFillColorRGB(0.62, 0.08, 0.10)
             
-            w = 28 * mm
-            h = 7 * mm
+            w = 30 * mm
+            h = 8 * mm
             x = self.page_w - self.right_margin - w
-            y = self.page_h - self.top - 26 * mm
+            y = self.page_h - self.top - 28 * mm
             
-            self.c.roundRect(x, y, w, h, 0.8 * mm)
+            # Подвійна рамка
+            self._draw_double_round_rect(x, y, w, h, 1.0 * mm, 0.7 * mm)
             
             font_name = _FONT_BOLD
             font_size = 8.0
@@ -1074,9 +1079,9 @@ class _Layout:
             font_obj = pdfmetrics.getFont(font_name)
             ascent = font_obj.face.ascent * font_size / 1000.0
             descent = font_obj.face.descent * font_size / 1000.0
-            y_baseline = y + (h - (ascent - descent)) / 2.0 - descent
+            y_baseline = y + (h - (ascent - descent)) / 2.0 - descent + 0.3 * mm
             
-            self.c.drawCentredString(x + w / 2, y_baseline, "ТЕРМІНОВО")
+            self.c.drawCentredString(x + w / 2, y_baseline, "Т Е Р М І Н О В О")
         finally:
             self.c.restoreState()
 
