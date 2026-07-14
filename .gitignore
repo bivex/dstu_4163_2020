@@ -52,8 +52,7 @@ portal/web/pnpm-lock.yaml
 /portal/web/vendor
 
 # Personal appeals (personal data — never commit)
-samples/appeals/oschadbank_appeal.pdf
-samples/appeals/oschadbank_appeal.pdf.p7s
+samples/appeals/oschadbank_appeal*
 # Fonts and generated images
 portal/*.ttf
 admin_facsimile.png
