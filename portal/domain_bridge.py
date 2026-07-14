@@ -177,6 +177,7 @@ def build_content(payload: dict[str, Any], *, with_marks: bool = False) -> Docum
         use_archived_stamp=bool(payload.get("use_archived_stamp", False)),
         use_annulled_stamp=bool(payload.get("use_annulled_stamp", False)),
         use_urgent_stamp=bool(payload.get("use_urgent_stamp", False)),
+        extra_stamps=tuple(str(s) for s in payload.get("extra_stamps", ())),
     )
 
 
