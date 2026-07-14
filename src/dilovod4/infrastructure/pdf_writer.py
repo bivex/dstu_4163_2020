@@ -618,7 +618,7 @@ class _Layout:
         drawing.drawOn(self.c, x, y_bottom)
 
     def _draw_stamp(self, x: float, y: float) -> None:
-        """Малює візуальний синій круглий відбиток печатки компанії."""
+        """Малює візуальний синій круглий відбиток печатки компанії у преміум-стилі (Deep Indigo)."""
         stype = self.content.stamp_type.strip().lower()
         if not stype:
             if self.content.use_stamp:
@@ -630,9 +630,9 @@ class _Layout:
         from reportlab.pdfbase import pdfmetrics
         self.c.saveState()
         try:
-            # Синя напівпрозора печатка (alpha=0.6 для реалістичного накладання поверх тексту)
-            self.c.setStrokeColorRGB(0.12, 0.25, 0.72)
-            self.c.setFillColorRGB(0.12, 0.25, 0.72)
+            # Преміальний глибокий синій колір (Deep Indigo)
+            self.c.setStrokeColorRGB(0.08, 0.20, 0.58)
+            self.c.setFillColorRGB(0.08, 0.20, 0.58)
             self.c.setLineWidth(1.8)
             
             # Зовнішнє коло (діаметр 40 мм = радіус 20 мм)
@@ -754,18 +754,18 @@ class _Layout:
             self.c.restoreState()
 
     def _draw_control_stamp(self) -> None:
-        """Малює червоний штамп «КОНТРОЛЬ» у лівому полі першої сторінки."""
+        """Малює червоний штамп «КОНТРОЛЬ» у лівому полі першої сторінки (преміум-бордо з округленими кутами)."""
         self.c.saveState()
         try:
-            self.c.setStrokeColorRGB(0.85, 0.15, 0.15)
-            self.c.setFillColorRGB(0.85, 0.15, 0.15)
+            self.c.setStrokeColorRGB(0.75, 0.12, 0.12)
+            self.c.setFillColorRGB(0.75, 0.12, 0.12)
             self.c.setLineWidth(1.5)
             
-            # Рамка штампу (ширина 22 мм, висота 7 мм)
+            # Рамка штампу (ширина 22 мм, висота 7 мм) з округленими кутами
             x = 4 * mm
             y = self.page_h - 60 * mm
             h = 7 * mm
-            self.c.rect(x, y, 22 * mm, h, stroke=1, fill=0)
+            self.c.roundRect(x, y, 22 * mm, h, 0.8 * mm, 0.8 * mm, stroke=1, fill=0)
             
             font_name = _FONT_BOLD
             font_size = 8.0
@@ -782,20 +782,20 @@ class _Layout:
             self.c.restoreState()
 
     def _draw_incoming_stamp(self) -> None:
-        """Малює синій вхідний реєстраційний штамп організації у правому нижньому куті."""
+        """Малює синій вхідний реєстраційний штамп організації у правому нижньому куті (округлені кути)."""
         self.c.saveState()
         try:
-            self.c.setStrokeColorRGB(0.12, 0.25, 0.72)
-            self.c.setFillColorRGB(0.12, 0.25, 0.72)
-            self.c.setLineWidth(1.0)
+            self.c.setStrokeColorRGB(0.08, 0.20, 0.58)
+            self.c.setFillColorRGB(0.08, 0.20, 0.58)
+            self.c.setLineWidth(1.2)
             
             w = 72 * mm
             h = 16 * mm
             x = self.page_w - self.right_margin - w
             y = 25 * mm
             
-            # Зовнішня рамка
-            self.c.rect(x, y, w, h, stroke=1, fill=0)
+            # Зовнішня рамка з округленими кутами
+            self.c.roundRect(x, y, w, h, 1.2 * mm, 1.2 * mm, stroke=1, fill=0)
             
             # Горизонтальна лінія-роздільник посередині
             self.c.line(x, y + 8 * mm, x + w, y + 8 * mm)
@@ -844,21 +844,21 @@ class _Layout:
             self.c.restoreState()
 
     def _draw_copy_stamp(self) -> None:
-        """Малює синій штамп засвідчення копії «Згідно з оригіналом» під підписами."""
+        """Малює синій штамп засвідчення копії «Згідно з оригіналом» під підписами (округлені кути)."""
         self._ensure_space(20 * mm)
         self.c.saveState()
         try:
-            self.c.setStrokeColorRGB(0.12, 0.25, 0.72)
-            self.c.setFillColorRGB(0.12, 0.25, 0.72)
-            self.c.setLineWidth(1.2)
+            self.c.setStrokeColorRGB(0.08, 0.20, 0.58)
+            self.c.setFillColorRGB(0.08, 0.20, 0.58)
+            self.c.setLineWidth(1.3)
             
             w = 70 * mm
             h = 18 * mm
             x = self.left
             y = self.y - h - 3 * mm
             
-            # Зовнішня рамка
-            self.c.rect(x, y, w, h, stroke=1, fill=0)
+            # Зовнішня рамка з округленими кутами
+            self.c.roundRect(x, y, w, h, 1.2 * mm, 1.2 * mm, stroke=1, fill=0)
             
             # Лінія-роздільник
             self.c.line(x, y + 12 * mm, x + w, y + 12 * mm)
@@ -907,12 +907,12 @@ class _Layout:
             self.c.restoreState()
 
     def _draw_restriction_stamp(self, label: str) -> None:
-        """Малює червоний штамп обмеження доступу (напр. ДСК) у правому верхньому куті."""
+        """Малює червоний штамп обмеження доступу у правому верхньому куті (округлені кути)."""
         self.c.saveState()
         try:
-            self.c.setStrokeColorRGB(0.85, 0.15, 0.15)
-            self.c.setFillColorRGB(0.85, 0.15, 0.15)
-            self.c.setLineWidth(1.0)
+            self.c.setStrokeColorRGB(0.75, 0.12, 0.12)
+            self.c.setFillColorRGB(0.75, 0.12, 0.12)
+            self.c.setLineWidth(1.1)
             
             text = ""
             if label == "dsk":
@@ -935,7 +935,7 @@ class _Layout:
             x = self.page_w - self.right_margin - w
             y = self.page_h - self.top - 8 * mm
             
-            self.c.rect(x, y, w, h, stroke=1, fill=0)
+            self.c.roundRect(x, y, w, h, 0.8 * mm, 0.8 * mm, stroke=1, fill=0)
             
             font_obj = pdfmetrics.getFont(font_name)
             ascent = font_obj.face.ascent * font_size / 1000.0
@@ -947,19 +947,19 @@ class _Layout:
             self.c.restoreState()
 
     def _draw_copy_mark_stamp(self) -> None:
-        """Малює синій прямокутний штамп «КОПІЯ» у правому верхньому куті першої сторінки."""
+        """Малює синій прямокутний штамп «КОПІЯ» у правому верхньому куті першої сторінки (округлені кути)."""
         self.c.saveState()
         try:
-            self.c.setStrokeColorRGB(0.12, 0.25, 0.72)
-            self.c.setFillColorRGB(0.12, 0.25, 0.72)
-            self.c.setLineWidth(1.0)
+            self.c.setStrokeColorRGB(0.08, 0.20, 0.58)
+            self.c.setFillColorRGB(0.08, 0.20, 0.58)
+            self.c.setLineWidth(1.1)
             
             w = 25 * mm
             h = 7 * mm
             x = self.page_w - self.right_margin - w
-            y = self.page_h - self.top - 17 * mm  # трохи нижче грифа обмеження
+            y = self.page_h - self.top - 17 * mm
             
-            self.c.rect(x, y, w, h, stroke=1, fill=0)
+            self.c.roundRect(x, y, w, h, 0.8 * mm, 0.8 * mm, stroke=1, fill=0)
             
             font_name = _FONT_BOLD
             font_size = 8.0
@@ -976,20 +976,20 @@ class _Layout:
             self.c.restoreState()
 
     def _draw_archived_stamp(self) -> None:
-        """Малює синій прямокутний штамп «ДО СПРАВИ» у лівому нижньому куті першої сторінки."""
+        """Малює синій прямокутний штамп «ДО СПРАВИ» у лівому нижньому куті першої сторінки (округлені кути)."""
         self.c.saveState()
         try:
-            self.c.setStrokeColorRGB(0.12, 0.25, 0.72)
-            self.c.setFillColorRGB(0.12, 0.25, 0.72)
-            self.c.setLineWidth(1.0)
+            self.c.setStrokeColorRGB(0.08, 0.20, 0.58)
+            self.c.setFillColorRGB(0.08, 0.20, 0.58)
+            self.c.setLineWidth(1.1)
             
             w = 56 * mm
             h = 15 * mm
             x = self.left
-            y = 25 * mm  # той самий рівень по висоті, що й вхідний штамп
+            y = 25 * mm
             
-            # Зовнішня рамка
-            self.c.rect(x, y, w, h, stroke=1, fill=0)
+            # Зовнішня рамка з округленими кутами
+            self.c.roundRect(x, y, w, h, 1.2 * mm, 1.2 * mm, stroke=1, fill=0)
             
             # Лінія-роздільник
             self.c.line(x, y + 10 * mm, x + w, y + 10 * mm)
@@ -1023,20 +1023,19 @@ class _Layout:
             self.c.restoreState()
 
     def _draw_annulled_stamp(self) -> None:
-        """Малює червоний штамп «АНУЛЬОВАНО» у верхній частині першої сторінки."""
+        """Малює червоний штамп «АНУЛЬОВАНО» у верхній частині першої сторінки (округлені кути)."""
         self.c.saveState()
         try:
-            self.c.setStrokeColorRGB(0.85, 0.15, 0.15)
-            self.c.setFillColorRGB(0.85, 0.15, 0.15)
-            self.c.setLineWidth(1.5)
+            self.c.setStrokeColorRGB(0.75, 0.12, 0.12)
+            self.c.setFillColorRGB(0.75, 0.12, 0.12)
+            self.c.setLineWidth(1.6)
             
             w = 35 * mm
             h = 8 * mm
-            # Центровано по ширині сторінки
             x = (self.page_w - w) / 2
             y = self.page_h - self.top - 12 * mm
             
-            self.c.rect(x, y, w, h, stroke=1, fill=0)
+            self.c.roundRect(x, y, w, h, 1.0 * mm, 1.0 * mm, stroke=1, fill=0)
             
             font_name = _FONT_BOLD
             font_size = 9.0
@@ -1053,19 +1052,19 @@ class _Layout:
             self.c.restoreState()
 
     def _draw_urgent_stamp(self) -> None:
-        """Малює червоний штамп «ТЕРМІНОВО» у правому верхньому куті першої сторінки."""
+        """Малює червоний штамп «ТЕРМІНОВО» у правому верхньому куті першої сторінки (округлені кути)."""
         self.c.saveState()
         try:
-            self.c.setStrokeColorRGB(0.85, 0.15, 0.15)
-            self.c.setFillColorRGB(0.85, 0.15, 0.15)
+            self.c.setStrokeColorRGB(0.75, 0.12, 0.12)
+            self.c.setFillColorRGB(0.75, 0.12, 0.12)
             self.c.setLineWidth(1.2)
             
             w = 28 * mm
             h = 7 * mm
             x = self.page_w - self.right_margin - w
-            y = self.page_h - self.top - 26 * mm  # нижче штампу КОПІЯ
+            y = self.page_h - self.top - 26 * mm
             
-            self.c.rect(x, y, w, h, stroke=1, fill=0)
+            self.c.roundRect(x, y, w, h, 0.8 * mm, 0.8 * mm, stroke=1, fill=0)
             
             font_name = _FONT_BOLD
             font_size = 8.0
