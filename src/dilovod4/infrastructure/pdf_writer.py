@@ -627,6 +627,7 @@ class _Layout:
                 return
 
         import math
+        from reportlab.pdfbase import pdfmetrics
         self.c.saveState()
         try:
             # Синя напівпрозора печатка (alpha=0.6 для реалістичного накладання поверх тексту)
@@ -661,42 +662,85 @@ class _Layout:
             org_text = self.content.org_name.upper()
             # Очистимо префікси на кшталт "Гр. " або "АТ " для компактності на печатці
             org_text = org_text.removeprefix("ГР. ").removeprefix("АТ ").strip()
-            if len(org_text) > 45:
-                org_text = org_text[:42] + "..."
             
+            # Адаптивно обріжемо за шириною на дузі (доступно 190 градусів на радіусі 14.5 мм)
             r_text = 14.5 * mm
-            self.c.setFont(_FONT_REGULAR, 6)
-            # Розподілимо літери по верхньому колу від -95 до 95 градусів (0 - вгорі)
+            max_arc_len = r_text * math.radians(190.0)
+            
+            # Розрахунок довжини з урахуванням пропорцій шрифту
+            font_name = _FONT_REGULAR
+            font_size = 6.0
+            self.c.setFont(font_name, font_size)
+            
+            # Функція для вимірювання ширини тексту з letter_spacing (наприклад, 1.2 pt)
+            spacing = 1.2
+            
+            def get_text_width(txt: str) -> float:
+                if not txt:
+                    return 0.0
+                return sum(pdfmetrics.stringWidth(c, font_name, font_size) for c in txt) + (len(txt) - 1) * spacing
+
+            # Адаптивна обрізка рядка
+            if get_text_width(org_text) > max_arc_len:
+                while len(org_text) > 0 and get_text_width(org_text + "...") > max_arc_len:
+                    org_text = org_text[:-1]
+                org_text += "..."
+            
+            # Тепер розставимо символи пропорційно їх ширині на дузі
             if org_text:
-                angle_step = 190.0 / max(1, len(org_text) - 1)
+                widths = [pdfmetrics.stringWidth(c, font_name, font_size) for c in org_text]
+                total_w = sum(widths) + (len(org_text) - 1) * spacing
+                total_angle = (total_w / r_text) * (180.0 / math.pi)
+                
+                # Починаємо симетрично від центру (0 градусів)
+                start_angle = -total_angle / 2.0
+                
+                curr_angle = start_angle
                 for i, char in enumerate(org_text):
-                    alpha = -95 + i * angle_step
-                    angle_rad = math.radians(alpha)
+                    # Половина ширини поточного символу переводиться в кут
+                    char_angle_w = (widths[i] / r_text) * (180.0 / math.pi)
+                    char_center_angle = curr_angle + char_angle_w / 2.0
+                    
+                    angle_rad = math.radians(char_center_angle)
                     char_x = x + r_text * math.sin(angle_rad)
                     char_y = y + r_text * math.cos(angle_rad)
                     
                     self.c.saveState()
                     self.c.translate(char_x, char_y)
-                    self.c.rotate(-alpha)  # так голова літери дивиться назовні від центру
+                    self.c.rotate(-char_center_angle)  # голова назовні від центру
                     self.c.drawCentredString(0, 0, char)
                     self.c.restoreState()
+                    
+                    # Переходимо до наступного символу: додаємо ширину поточного гліфа + міжлітерний інтервал
+                    curr_angle += char_angle_w + (spacing / r_text) * (180.0 / math.pi)
             
             # Код ЄДРПОУ / ідентифікатор знизу (читається зліва направо, голови до центру)
             code_text = "* УКРАЇНА *"
             if code_text:
-                angle_step_code = 90.0 / max(1, len(code_text) - 1)
+                widths_code = [pdfmetrics.stringWidth(c, font_name, font_size) for c in code_text]
+                total_w_code = sum(widths_code) + (len(code_text) - 1) * spacing
+                total_angle_code = (total_w_code / r_text) * (180.0 / math.pi)
+                
+                # Симетрично знизу (180 градусів)
+                # Йдемо в зворотному кутовому порядку, щоб читалося зліва направо при rotate(180-angle)
+                start_angle_code = 180.0 + total_angle_code / 2.0
+                
+                curr_angle = start_angle_code
                 for i, char in enumerate(code_text):
-                    # Йдемо від 225 (ліворуч знизу) до 135 (праворуч знизу)
-                    alpha = 225 - i * angle_step_code
-                    angle_rad = math.radians(alpha)
+                    char_angle_w = (widths_code[i] / r_text) * (180.0 / math.pi)
+                    char_center_angle = curr_angle - char_angle_w / 2.0
+                    
+                    angle_rad = math.radians(char_center_angle)
                     char_x = x + r_text * math.sin(angle_rad)
                     char_y = y + r_text * math.cos(angle_rad)
                     
                     self.c.saveState()
                     self.c.translate(char_x, char_y)
-                    self.c.rotate(180 - alpha)  # так голова літери дивиться всередину (до центру)
+                    self.c.rotate(180.0 - char_center_angle)  # голова до центру
                     self.c.drawCentredString(0, 0, char)
                     self.c.restoreState()
+                    
+                    curr_angle -= char_angle_w + (spacing / r_text) * (180.0 / math.pi)
         finally:
             self.c.restoreState()
 
@@ -711,11 +755,20 @@ class _Layout:
             # Рамка штампу (ширина 22 мм, висота 7 мм)
             x = 4 * mm
             y = self.page_h - 60 * mm
-            self.c.rect(x, y, 22 * mm, 7 * mm, stroke=1, fill=0)
+            h = 7 * mm
+            self.c.rect(x, y, 22 * mm, h, stroke=1, fill=0)
             
-            self.c.setFont(_FONT_BOLD, 8)
-            # Точне вертикальне вирівнювання: h/2 - font_size/2 = 3.5 - 2.8 = 0.7 pt (~ 2.2 mm)
-            self.c.drawCentredString(x + 11 * mm, y + 2.2 * mm, "КОНТРОЛЬ")
+            font_name = _FONT_BOLD
+            font_size = 8.0
+            self.c.setFont(font_name, font_size)
+            
+            from reportlab.pdfbase import pdfmetrics
+            font_obj = pdfmetrics.getFont(font_name)
+            ascent = font_obj.face.ascent * font_size / 1000.0
+            descent = font_obj.face.descent * font_size / 1000.0
+            y_baseline = y + (h - (ascent - descent)) / 2.0 - descent
+            
+            self.c.drawCentredString(x + 11 * mm, y_baseline, "КОНТРОЛЬ")
         finally:
             self.c.restoreState()
 
@@ -742,18 +795,42 @@ class _Layout:
             self.c.line(x + 30 * mm, y, x + 30 * mm, y + 8 * mm)
             
             # Назва організації (вгорі, центровано)
-            self.c.setFont(_FONT_BOLD, 7)
-            org = self.content.org_name.removeprefix("Гр. ").removeprefix("АТ ").strip()
-            if len(org) > 42:
-                org = org[:39] + "..."
-            self.c.drawCentredString(x + w / 2, y + 11.5 * mm, org)
+            font_name_bold = _FONT_BOLD
+            font_size_bold = 7.0
+            self.c.setFont(font_name_bold, font_size_bold)
             
-            self.c.setFont(_FONT_REGULAR, 6.5)
+            from reportlab.pdfbase import pdfmetrics
+            font_obj_bold = pdfmetrics.getFont(font_name_bold)
+            ascent_bold = font_obj_bold.face.ascent * font_size_bold / 1000.0
+            descent_bold = font_obj_bold.face.descent * font_size_bold / 1000.0
+            # Верхня половинка висотою 8 мм (від y + 8 до y + 16)
+            y_baseline_top = (y + 8 * mm) + (8 * mm - (ascent_bold - descent_bold)) / 2.0 - descent_bold
+            
+            org = self.content.org_name.removeprefix("Гр. ").removeprefix("АТ ").strip()
+            # Обрізаємо адаптивно за фізичною шириною в пунктах (макс. 66 мм)
+            max_org_w = 66 * mm
+            if pdfmetrics.stringWidth(org, font_name_bold, font_size_bold) > max_org_w:
+                while len(org) > 0 and pdfmetrics.stringWidth(org + "...", font_name_bold, font_size_bold) > max_org_w:
+                    org = org[:-1]
+                org += "..."
+                
+            self.c.drawCentredString(x + w / 2, y_baseline_top, org)
+            
+            # Нижня частина (колонки)
+            font_name_reg = _FONT_REGULAR
+            font_size_reg = 6.5
+            self.c.setFont(font_name_reg, font_size_reg)
+            
+            font_obj_reg = pdfmetrics.getFont(font_name_reg)
+            ascent_reg = font_obj_reg.face.ascent * font_size_reg / 1000.0
+            descent_reg = font_obj_reg.face.descent * font_size_reg / 1000.0
+            y_baseline_bot = y + (8 * mm - (ascent_reg - descent_reg)) / 2.0 - descent_reg
+            
             # Вхідний номер ліворуч знизу
-            self.c.drawString(x + 3 * mm, y + 3 * mm, "Вх. № ________________")
+            self.c.drawString(x + 3 * mm, y_baseline_bot, "Вх. № ________________")
             
             # Дата праворуч знизу
-            self.c.drawString(x + 33 * mm, y + 3 * mm, "від «___» ____________ 20___ р.")
+            self.c.drawString(x + 33 * mm, y_baseline_bot, "від «___» ____________ 20___ р.")
         finally:
             self.c.restoreState()
 
@@ -777,18 +854,44 @@ class _Layout:
             # Лінія-роздільник
             self.c.line(x, y + 12 * mm, x + w, y + 12 * mm)
             
-            # Центрований напис "ЗГІДНО З ОРИГІНАЛОМ"
-            self.c.setFont(_FONT_BOLD, 7.5)
-            self.c.drawCentredString(x + w / 2, y + 14 * mm, "ЗГІДНО З ОРИГІНАЛОМ")
+            font_name_bold = _FONT_BOLD
+            font_size_bold = 7.5
+            self.c.setFont(font_name_bold, font_size_bold)
             
-            self.c.setFont(_FONT_REGULAR, 6.5)
+            from reportlab.pdfbase import pdfmetrics
+            font_obj_bold = pdfmetrics.getFont(font_name_bold)
+            ascent_bold = font_obj_bold.face.ascent * font_size_bold / 1000.0
+            descent_bold = font_obj_bold.face.descent * font_size_bold / 1000.0
+            # Верхня частина висотою 6 мм (від y + 12 до y + 18)
+            y_baseline_top = (y + 12 * mm) + (6 * mm - (ascent_bold - descent_bold)) / 2.0 - descent_bold
+            
+            self.c.drawCentredString(x + w / 2, y_baseline_top, "ЗГІДНО З ОРИГІНАЛОМ")
+            
+            # Нижня частина (два рядки)
+            font_name_reg = _FONT_REGULAR
+            font_size_reg = 6.5
+            self.c.setFont(font_name_reg, font_size_reg)
+            
+            font_obj_reg = pdfmetrics.getFont(font_name_reg)
+            ascent_reg = font_obj_reg.face.ascent * font_size_reg / 1000.0
+            descent_reg = font_obj_reg.face.descent * font_size_reg / 1000.0
+            
+            # Перший рядок знизу (від y + 6 до y + 12)
+            y_line1 = (y + 6 * mm) + (6 * mm - (ascent_reg - descent_reg)) / 2.0 - descent_reg
+            # Другий рядок знизу (від y до y + 6)
+            y_line2 = y + (6 * mm - (ascent_reg - descent_reg)) / 2.0 - descent_reg
+            
             pos = self.content.signature_position or "Посадова особа"
             name = self.content.signature_name or "І. Прізвище"
-            if len(pos) > 42:
-                pos = pos[:39] + "..."
             
-            self.c.drawString(x + 3 * mm, y + 7.5 * mm, pos)
-            self.c.drawString(x + 3 * mm, y + 3 * mm, f"Підпис _________________  {name}")
+            max_text_w = 64 * mm
+            if pdfmetrics.stringWidth(pos, font_name_reg, font_size_reg) > max_text_w:
+                while len(pos) > 0 and pdfmetrics.stringWidth(pos + "...", font_name_reg, font_size_reg) > max_text_w:
+                    pos = pos[:-1]
+                pos += "..."
+                
+            self.c.drawString(x + 3 * mm, y_line1, pos)
+            self.c.drawString(x + 3 * mm, y_line2, f"Підпис _________________  {name}")
             
             self.y = y - 2 * mm
         finally:
@@ -812,16 +915,25 @@ class _Layout:
             else:
                 text = label.upper()
                 
-            w = max(40 * mm, (pdfmetrics.stringWidth(text, _FONT_BOLD, 7) + 6 * mm))
+            font_name = _FONT_BOLD
+            font_size = 7.0
+            self.c.setFont(font_name, font_size)
+            
+            from reportlab.pdfbase import pdfmetrics
+            w = max(40 * mm, (pdfmetrics.stringWidth(text, font_name, font_size) + 6 * mm))
             h = 7 * mm
             
             x = self.page_w - self.right_margin - w
             y = self.page_h - self.top - 8 * mm
             
             self.c.rect(x, y, w, h, stroke=1, fill=0)
-            self.c.setFont(_FONT_BOLD, 7)
-            # Точне вертикальне вирівнювання
-            self.c.drawCentredString(x + w / 2, y + 2.2 * mm, text)
+            
+            font_obj = pdfmetrics.getFont(font_name)
+            ascent = font_obj.face.ascent * font_size / 1000.0
+            descent = font_obj.face.descent * font_size / 1000.0
+            y_baseline = y + (h - (ascent - descent)) / 2.0 - descent
+            
+            self.c.drawCentredString(x + w / 2, y_baseline, text)
         finally:
             self.c.restoreState()
 
@@ -839,9 +951,18 @@ class _Layout:
             y = self.page_h - self.top - 17 * mm  # трохи нижче грифа обмеження
             
             self.c.rect(x, y, w, h, stroke=1, fill=0)
-            self.c.setFont(_FONT_BOLD, 8)
-            # Точне вертикальне вирівнювання
-            self.c.drawCentredString(x + w / 2, y + 2.2 * mm, "КОПІЯ")
+            
+            font_name = _FONT_BOLD
+            font_size = 8.0
+            self.c.setFont(font_name, font_size)
+            
+            from reportlab.pdfbase import pdfmetrics
+            font_obj = pdfmetrics.getFont(font_name)
+            ascent = font_obj.face.ascent * font_size / 1000.0
+            descent = font_obj.face.descent * font_size / 1000.0
+            y_baseline = y + (h - (ascent - descent)) / 2.0 - descent
+            
+            self.c.drawCentredString(x + w / 2, y_baseline, "КОПІЯ")
         finally:
             self.c.restoreState()
 
@@ -864,13 +985,31 @@ class _Layout:
             # Лінія-роздільник
             self.c.line(x, y + 10 * mm, x + w, y + 10 * mm)
             
-            # Напис "ДО СПРАВИ" (центровано)
-            self.c.setFont(_FONT_BOLD, 7)
-            self.c.drawCentredString(x + w / 2, y + 11.5 * mm, "ДО СПРАВИ")
+            font_name_bold = _FONT_BOLD
+            font_size_bold = 7.0
+            self.c.setFont(font_name_bold, font_size_bold)
             
-            self.c.setFont(_FONT_REGULAR, 6)
-            self.c.drawString(x + 3 * mm, y + 6 * mm, "Справа № ____________________")
-            self.c.drawString(x + 3 * mm, y + 2 * mm, "«___» __________ 20___ р.  Підпис ________")
+            from reportlab.pdfbase import pdfmetrics
+            font_obj_bold = pdfmetrics.getFont(font_name_bold)
+            ascent_bold = font_obj_bold.face.ascent * font_size_bold / 1000.0
+            descent_bold = font_obj_bold.face.descent * font_size_bold / 1000.0
+            y_baseline_top = (y + 10 * mm) + (5 * mm - (ascent_bold - descent_bold)) / 2.0 - descent_bold
+            
+            self.c.drawCentredString(x + w / 2, y_baseline_top, "ДО СПРАВИ")
+            
+            font_name_reg = _FONT_REGULAR
+            font_size_reg = 6.0
+            self.c.setFont(font_name_reg, font_size_reg)
+            
+            font_obj_reg = pdfmetrics.getFont(font_name_reg)
+            ascent_reg = font_obj_reg.face.ascent * font_size_reg / 1000.0
+            descent_reg = font_obj_reg.face.descent * font_size_reg / 1000.0
+            
+            y_line1 = (y + 5 * mm) + (5 * mm - (ascent_reg - descent_reg)) / 2.0 - descent_reg
+            y_line2 = y + (5 * mm - (ascent_reg - descent_reg)) / 2.0 - descent_reg
+            
+            self.c.drawString(x + 3 * mm, y_line1, "Справа № ____________________")
+            self.c.drawString(x + 3 * mm, y_line2, "«___» __________ 20___ р.  Підпис ________")
         finally:
             self.c.restoreState()
 
@@ -889,9 +1028,18 @@ class _Layout:
             y = self.page_h - self.top - 12 * mm
             
             self.c.rect(x, y, w, h, stroke=1, fill=0)
-            self.c.setFont(_FONT_BOLD, 9)
-            # Точне вертикальне вирівнювання
-            self.c.drawCentredString(x + w / 2, y + 2.4 * mm, "АНУЛЬОВАНО")
+            
+            font_name = _FONT_BOLD
+            font_size = 9.0
+            self.c.setFont(font_name, font_size)
+            
+            from reportlab.pdfbase import pdfmetrics
+            font_obj = pdfmetrics.getFont(font_name)
+            ascent = font_obj.face.ascent * font_size / 1000.0
+            descent = font_obj.face.descent * font_size / 1000.0
+            y_baseline = y + (h - (ascent - descent)) / 2.0 - descent
+            
+            self.c.drawCentredString(x + w / 2, y_baseline, "АНУЛЬОВАНО")
         finally:
             self.c.restoreState()
 
@@ -909,9 +1057,18 @@ class _Layout:
             y = self.page_h - self.top - 26 * mm  # нижче штампу КОПІЯ
             
             self.c.rect(x, y, w, h, stroke=1, fill=0)
-            self.c.setFont(_FONT_BOLD, 8)
-            # Точне вертикальне вирівнювання
-            self.c.drawCentredString(x + w / 2, y + 2.2 * mm, "ТЕРМІНОВО")
+            
+            font_name = _FONT_BOLD
+            font_size = 8.0
+            self.c.setFont(font_name, font_size)
+            
+            from reportlab.pdfbase import pdfmetrics
+            font_obj = pdfmetrics.getFont(font_name)
+            ascent = font_obj.face.ascent * font_size / 1000.0
+            descent = font_obj.face.descent * font_size / 1000.0
+            y_baseline = y + (h - (ascent - descent)) / 2.0 - descent
+            
+            self.c.drawCentredString(x + w / 2, y_baseline, "ТЕРМІНОВО")
         finally:
             self.c.restoreState()
 
