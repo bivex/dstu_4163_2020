@@ -7,6 +7,22 @@ services:
       - "8000:8000"
     volumes:
       - portal_data:/data
+      # dev: живе монтування сорсу → зміни в portal/ та src/ підхоплюються --reload
+      # без перебудови образа (UAPKI .so лишається запеченим, не монтується)
+      - ./src:/app/src
+      - ./portal:/app/portal
+    command:
+      - uvicorn
+      - portal.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --reload
+      - --reload-dir
+      - /app/portal
+      - --reload-dir
+      - /app/src
     environment:
       PORTAL_DATABASE_URL: "sqlite:////data/portal.db"
       PORTAL_CORS: "*"

@@ -338,9 +338,11 @@ class _Layout:
                 size=self.doc_type_pt,
             )
 
-        # 10 дата + 11 реєстраційний індекс
+        # 08 місце складання + 10 дата + 11 реєстраційний індекс
         self._gap()
-        self._line(f"{self.content.date_text}    № {self.content.reg_index}")
+        place = self.content.place.strip()
+        prefix = f"{place}    " if place else ""
+        self._line(f"{prefix}{self.content.date_text}    № {self.content.reg_index}")
 
         # Запобігання накладанню грифів затвердження та адресатів на штампи у правому верхньому куті
         max_stamp_y_offset = 0.0
