@@ -169,6 +169,10 @@ def build_content(payload: dict[str, Any], *, with_marks: bool = False) -> Docum
         sender_contacts=str(payload.get("sender_contacts", "")),
         use_stamp=bool(payload.get("use_stamp", False)),
         stamp_type=str(payload.get("stamp_type", "")),
+        use_incoming_stamp=bool(payload.get("use_incoming_stamp", False)),
+        use_copy_stamp=bool(payload.get("use_copy_stamp", False)),
+        use_control_stamp=bool(payload.get("use_control_stamp", False)),
+        restriction_stamp=str(payload.get("restriction_stamp", "")),
     )
 
 

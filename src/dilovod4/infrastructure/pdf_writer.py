@@ -132,6 +132,8 @@ class _Layout:
 
     # --- службове ---
     def _new_page(self) -> None:
+        if self.page_no == 1 and self.content.use_incoming_stamp:
+            self._draw_incoming_stamp()
         self._draw_page_number()
         self._draw_page_barcode()
         self.c.showPage()
@@ -249,6 +251,8 @@ class _Layout:
         # QR-коди КЕП малюються поряд із кожною відміткою підписувача (внизу),
         # а не стовпчиком у правому полі — так вони масштабуються на багатьох
         # підписантів і природно переносяться між сторінками.
+        if self.content.use_control_stamp:
+            self._draw_control_stamp()
 
         # робоча позначка (напр. «ПРОЕКТ») — праворуч угорі, над реквізитами
         if self.content.marking.strip():
@@ -286,7 +290,9 @@ class _Layout:
 
 
         # реквізит 15 — гриф обмеження доступу (ст.21 З-ну 2657-XII), праворуч угорі
-        if self.content.access_restriction is not None:
+        if self.content.restriction_stamp and self.content.restriction_stamp != "none":
+            self._draw_restriction_stamp(self.content.restriction_stamp)
+        elif self.content.access_restriction is not None:
             self._line(
                 self.content.access_restriction.heading,
                 indent_mm=self.doc.left_indents.restriction_mm,
@@ -389,7 +395,12 @@ class _Layout:
             self._gap(0.6)
             self._draw_visa(visa)
 
+        if self.content.use_copy_stamp:
+            self._draw_copy_stamp()
+
         # завершальна сторінка: номер (якщо 2+) + штрихкод пагінації
+        if self.page_no == 1 and self.content.use_incoming_stamp:
+            self._draw_incoming_stamp()
         self._draw_page_number()
         self._draw_page_barcode()
 
@@ -676,3 +687,109 @@ class _Layout:
                     self.c.restoreState()
         finally:
             self.c.restoreState()
+
+    def _draw_control_stamp(self) -> None:
+        """Малює червоний штамп «КОНТРОЛЬ» у лівому полі першої сторінки."""
+        self.c.saveState()
+        try:
+            self.c.setStrokeColorRGB(0.85, 0.15, 0.15)
+            self.c.setFillColorRGB(0.85, 0.15, 0.15)
+            self.c.setLineWidth(1.5)
+            
+            # Рамка штампу (ширина 22 мм, висота 7 мм)
+            x = 4 * mm
+            y = self.page_h - 60 * mm
+            self.c.rect(x, y, 22 * mm, 7 * mm, stroke=1, fill=0)
+            
+            self.c.setFont(_FONT_BOLD, 8)
+            self.c.drawCentredString(x + 11 * mm, y + 2 * mm, "КОНТРОЛЬ")
+        finally:
+            self.c.restoreState()
+
+    def _draw_incoming_stamp(self) -> None:
+        """Малює синій вхідний реєстраційний штамп організації у правому нижньому куті."""
+        self.c.saveState()
+        try:
+            self.c.setStrokeColorRGB(0.12, 0.25, 0.72)
+            self.c.setFillColorRGB(0.12, 0.25, 0.72)
+            self.c.setLineWidth(1.0)
+            
+            w = 70 * mm
+            h = 16 * mm
+            x = self.page_w - self.right_margin - w
+            y = 25 * mm
+            
+            self.c.rect(x, y, w, h, stroke=1, fill=0)
+            self.c.setFont(_FONT_BOLD, 7)
+            # Заголовок штампу
+            org = self.content.org_name.removeprefix("Гр. ").removeprefix("АТ ").strip()
+            if len(org) > 40:
+                org = org[:37] + "..."
+            self.c.drawCentredString(x + w / 2, y + h - 4.5 * mm, org)
+            
+            self.c.setFont(_FONT_REGULAR, 7)
+            self.c.drawString(x + 4 * mm, y + 3 * mm, "Вх. № _________________ від «___» ___________ 20__ р.")
+        finally:
+            self.c.restoreState()
+
+    def _draw_copy_stamp(self) -> None:
+        """Малює синій штамп засвідчення копії «Згідно з оригіналом» під підписами."""
+        self._ensure_space(20 * mm)
+        self.c.saveState()
+        try:
+            self.c.setStrokeColorRGB(0.12, 0.25, 0.72)
+            self.c.setFillColorRGB(0.12, 0.25, 0.72)
+            self.c.setLineWidth(1.2)
+            
+            w = 70 * mm
+            h = 17 * mm
+            x = self.left
+            y = self.y - h - 3 * mm
+            
+            self.c.rect(x, y, w, h, stroke=1, fill=0)
+            
+            self.c.setFont(_FONT_BOLD, 8)
+            self.c.drawString(x + 4 * mm, y + h - 4.5 * mm, "ЗГІДНО З ОРИГІНАЛОМ")
+            
+            self.c.setFont(_FONT_REGULAR, 7)
+            pos = self.content.signature_position or "Посадова особа"
+            name = self.content.signature_name or "І. Прізвище"
+            if len(pos) > 40:
+                pos = pos[:37] + "..."
+            self.c.drawString(x + 4 * mm, y + h - 9.5 * mm, pos)
+            self.c.drawString(x + 4 * mm, y + h - 14.5 * mm, f"Підпис ___________  {name}")
+            
+            self.y = y - 2 * mm
+        finally:
+            self.c.restoreState()
+
+    def _draw_restriction_stamp(self, label: str) -> None:
+        """Малює червоний штамп обмеження доступу (напр. ДСК) у правому верхньому куті."""
+        self.c.saveState()
+        try:
+            self.c.setStrokeColorRGB(0.85, 0.15, 0.15)
+            self.c.setFillColorRGB(0.85, 0.15, 0.15)
+            self.c.setLineWidth(1.0)
+            
+            text = ""
+            if label == "dsk":
+                text = "ДЛЯ СЛУЖБОВОГО КОРИСТУВАННЯ"
+            elif label == "secret":
+                text = "ТАЄМНО"
+            elif label == "confidential":
+                text = "КОНФІДЕНЦІЙНО"
+            else:
+                text = label.upper()
+                
+            w = max(40 * mm, (pdfmetrics.stringWidth(text, _FONT_BOLD, 7) + 6 * mm))
+            h = 7 * mm
+            
+            x = self.page_w - self.right_margin - w
+            y = self.page_h - self.top - 8 * mm
+            
+            self.c.rect(x, y, w, h, stroke=1, fill=0)
+            self.c.setFont(_FONT_BOLD, 7)
+            self.c.drawCentredString(x + w / 2, y + 2 * mm, text)
+        finally:
+            self.c.restoreState()
+

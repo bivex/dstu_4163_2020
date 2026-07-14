@@ -55,6 +55,12 @@ class DocumentContent:
     use_stamp: bool = False
     # Тип графічної печатки ("" - немає, "documents", "contracts", "hr", "chancellery").
     stamp_type: str = ""
+    # Службові прямокутні штампи
+    use_incoming_stamp: bool = False
+    use_copy_stamp: bool = False
+    use_control_stamp: bool = False
+    restriction_stamp: str = ""
+
 
     def __post_init__(self) -> None:
         if not self.org_name.strip():
