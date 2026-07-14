@@ -342,6 +342,26 @@ class _Layout:
         self._gap()
         self._line(f"{self.content.date_text}    № {self.content.reg_index}")
 
+        # Запобігання накладанню грифів затвердження та адресатів на штампи у правому верхньому куті
+        max_stamp_y_offset = 0.0
+        if self.content.use_copy_mark:
+            max_stamp_y_offset = max(max_stamp_y_offset, 18 * mm + 8 * mm)
+        if self.content.use_urgent_stamp:
+            max_stamp_y_offset = max(max_stamp_y_offset, 28 * mm + 8 * mm)
+        
+        top_right_count = 0
+        for stamp_text in self.content.extra_stamps:
+            loc, _ = self._classify_extra_stamp(stamp_text)
+            if loc == "top_right":
+                top_right_count += 1
+        if top_right_count > 0:
+            max_stamp_y_offset = max(max_stamp_y_offset, 38 * mm + top_right_count * 10 * mm)
+            
+        if max_stamp_y_offset > 0.0:
+            limit_y = self.page_h - self.top - max_stamp_y_offset - 2 * mm
+            if self.y > limit_y:
+                self.y = limit_y
+
         # 21 гриф затвердження — праворуч угорі, відступ 100 мм (§7.7)
         if self.content.approval is not None:
             self._gap()
