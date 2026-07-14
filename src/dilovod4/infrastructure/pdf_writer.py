@@ -714,7 +714,8 @@ class _Layout:
             self.c.rect(x, y, 22 * mm, 7 * mm, stroke=1, fill=0)
             
             self.c.setFont(_FONT_BOLD, 8)
-            self.c.drawCentredString(x + 11 * mm, y + 2 * mm, "КОНТРОЛЬ")
+            # Точне вертикальне вирівнювання: h/2 - font_size/2 = 3.5 - 2.8 = 0.7 pt (~ 2.2 mm)
+            self.c.drawCentredString(x + 11 * mm, y + 2.2 * mm, "КОНТРОЛЬ")
         finally:
             self.c.restoreState()
 
@@ -726,21 +727,33 @@ class _Layout:
             self.c.setFillColorRGB(0.12, 0.25, 0.72)
             self.c.setLineWidth(1.0)
             
-            w = 70 * mm
+            w = 72 * mm
             h = 16 * mm
             x = self.page_w - self.right_margin - w
             y = 25 * mm
             
+            # Зовнішня рамка
             self.c.rect(x, y, w, h, stroke=1, fill=0)
-            self.c.setFont(_FONT_BOLD, 7)
-            # Заголовок штампу
-            org = self.content.org_name.removeprefix("Гр. ").removeprefix("АТ ").strip()
-            if len(org) > 40:
-                org = org[:37] + "..."
-            self.c.drawCentredString(x + w / 2, y + h - 4.5 * mm, org)
             
-            self.c.setFont(_FONT_REGULAR, 7)
-            self.c.drawString(x + 4 * mm, y + 3 * mm, "Вх. № _________________ від «___» ___________ 20__ р.")
+            # Горизонтальна лінія-роздільник посередині
+            self.c.line(x, y + 8 * mm, x + w, y + 8 * mm)
+            
+            # Вертикальна лінія-роздільник у нижній частині
+            self.c.line(x + 30 * mm, y, x + 30 * mm, y + 8 * mm)
+            
+            # Назва організації (вгорі, центровано)
+            self.c.setFont(_FONT_BOLD, 7)
+            org = self.content.org_name.removeprefix("Гр. ").removeprefix("АТ ").strip()
+            if len(org) > 42:
+                org = org[:39] + "..."
+            self.c.drawCentredString(x + w / 2, y + 11.5 * mm, org)
+            
+            self.c.setFont(_FONT_REGULAR, 6.5)
+            # Вхідний номер ліворуч знизу
+            self.c.drawString(x + 3 * mm, y + 3 * mm, "Вх. № ________________")
+            
+            # Дата праворуч знизу
+            self.c.drawString(x + 33 * mm, y + 3 * mm, "від «___» ____________ 20___ р.")
         finally:
             self.c.restoreState()
 
@@ -754,22 +767,28 @@ class _Layout:
             self.c.setLineWidth(1.2)
             
             w = 70 * mm
-            h = 17 * mm
+            h = 18 * mm
             x = self.left
             y = self.y - h - 3 * mm
             
+            # Зовнішня рамка
             self.c.rect(x, y, w, h, stroke=1, fill=0)
             
-            self.c.setFont(_FONT_BOLD, 8)
-            self.c.drawString(x + 4 * mm, y + h - 4.5 * mm, "ЗГІДНО З ОРИГІНАЛОМ")
+            # Лінія-роздільник
+            self.c.line(x, y + 12 * mm, x + w, y + 12 * mm)
             
-            self.c.setFont(_FONT_REGULAR, 7)
+            # Центрований напис "ЗГІДНО З ОРИГІНАЛОМ"
+            self.c.setFont(_FONT_BOLD, 7.5)
+            self.c.drawCentredString(x + w / 2, y + 14 * mm, "ЗГІДНО З ОРИГІНАЛОМ")
+            
+            self.c.setFont(_FONT_REGULAR, 6.5)
             pos = self.content.signature_position or "Посадова особа"
             name = self.content.signature_name or "І. Прізвище"
-            if len(pos) > 40:
-                pos = pos[:37] + "..."
-            self.c.drawString(x + 4 * mm, y + h - 9.5 * mm, pos)
-            self.c.drawString(x + 4 * mm, y + h - 14.5 * mm, f"Підпис ___________  {name}")
+            if len(pos) > 42:
+                pos = pos[:39] + "..."
+            
+            self.c.drawString(x + 3 * mm, y + 7.5 * mm, pos)
+            self.c.drawString(x + 3 * mm, y + 3 * mm, f"Підпис _________________  {name}")
             
             self.y = y - 2 * mm
         finally:
@@ -801,7 +820,8 @@ class _Layout:
             
             self.c.rect(x, y, w, h, stroke=1, fill=0)
             self.c.setFont(_FONT_BOLD, 7)
-            self.c.drawCentredString(x + w / 2, y + 2 * mm, text)
+            # Точне вертикальне вирівнювання
+            self.c.drawCentredString(x + w / 2, y + 2.2 * mm, text)
         finally:
             self.c.restoreState()
 
@@ -820,7 +840,8 @@ class _Layout:
             
             self.c.rect(x, y, w, h, stroke=1, fill=0)
             self.c.setFont(_FONT_BOLD, 8)
-            self.c.drawCentredString(x + w / 2, y + 2 * mm, "КОПІЯ")
+            # Точне вертикальне вирівнювання
+            self.c.drawCentredString(x + w / 2, y + 2.2 * mm, "КОПІЯ")
         finally:
             self.c.restoreState()
 
@@ -832,18 +853,24 @@ class _Layout:
             self.c.setFillColorRGB(0.12, 0.25, 0.72)
             self.c.setLineWidth(1.0)
             
-            w = 55 * mm
-            h = 13 * mm
+            w = 56 * mm
+            h = 15 * mm
             x = self.left
             y = 25 * mm  # той самий рівень по висоті, що й вхідний штамп
             
+            # Зовнішня рамка
             self.c.rect(x, y, w, h, stroke=1, fill=0)
+            
+            # Лінія-роздільник
+            self.c.line(x, y + 10 * mm, x + w, y + 10 * mm)
+            
+            # Напис "ДО СПРАВИ" (центровано)
             self.c.setFont(_FONT_BOLD, 7)
-            self.c.drawCentredString(x + w / 2, y + h - 3.5 * mm, "ДО СПРАВИ")
+            self.c.drawCentredString(x + w / 2, y + 11.5 * mm, "ДО СПРАВИ")
             
             self.c.setFont(_FONT_REGULAR, 6)
-            self.c.drawString(x + 3 * mm, y + 5 * mm, "Справа № ___________")
-            self.c.drawString(x + 3 * mm, y + 1.5 * mm, "«___» ________ 20__ р.  Підпис ________")
+            self.c.drawString(x + 3 * mm, y + 6 * mm, "Справа № ____________________")
+            self.c.drawString(x + 3 * mm, y + 2 * mm, "«___» __________ 20___ р.  Підпис ________")
         finally:
             self.c.restoreState()
 
@@ -863,7 +890,8 @@ class _Layout:
             
             self.c.rect(x, y, w, h, stroke=1, fill=0)
             self.c.setFont(_FONT_BOLD, 9)
-            self.c.drawCentredString(x + w / 2, y + 2.5 * mm, "АНУЛЬОВАНО")
+            # Точне вертикальне вирівнювання
+            self.c.drawCentredString(x + w / 2, y + 2.4 * mm, "АНУЛЬОВАНО")
         finally:
             self.c.restoreState()
 
@@ -882,7 +910,8 @@ class _Layout:
             
             self.c.rect(x, y, w, h, stroke=1, fill=0)
             self.c.setFont(_FONT_BOLD, 8)
-            self.c.drawCentredString(x + w / 2, y + 2 * mm, "ТЕРМІНОВО")
+            # Точне вертикальне вирівнювання
+            self.c.drawCentredString(x + w / 2, y + 2.2 * mm, "ТЕРМІНОВО")
         finally:
             self.c.restoreState()
 
