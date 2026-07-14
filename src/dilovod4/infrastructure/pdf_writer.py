@@ -263,6 +263,26 @@ class _Layout:
         if self.content.use_urgent_stamp:
             self._draw_urgent_stamp()
 
+        # Додаткові довільні корпоративні штампи
+        top_right_count = 0
+        top_center_count = 0
+        left_margin_count = 0
+        
+        for stamp_text in self.content.extra_stamps:
+            loc, color = self._classify_extra_stamp(stamp_text)
+            if loc == "top_right":
+                y = self.page_h - self.top - 38 * mm - top_right_count * 10 * mm
+                self._draw_generic_stamp(stamp_text, y, loc, color)
+                top_right_count += 1
+            elif loc == "top_center":
+                y = self.page_h - self.top - 24 * mm - top_center_count * 11 * mm
+                self._draw_generic_stamp(stamp_text, y, loc, color)
+                top_center_count += 1
+            elif loc == "left_margin":
+                y = self.page_h - 70 * mm - left_margin_count * 10 * mm
+                self._draw_generic_stamp(stamp_text, y, loc, color)
+                left_margin_count += 1
+
         # робоча позначка (напр. «ПРОЕКТ») — праворуч угорі, над реквізитами
         if self.content.marking.strip():
             self._line(
@@ -664,6 +684,27 @@ class _Layout:
             elif stype == "chancellery":
                 self.c.setFont(_FONT_BOLD, 8)
                 self.c.drawCentredString(x, y + 0.3 * mm, "КАНЦЕЛЯРІЯ")
+            elif stype in ["buh", "bookkeeping", "accounting", "бухгалтерія"]:
+                self.c.setFont(_FONT_BOLD, 8)
+                self.c.drawCentredString(x, y + 0.3 * mm, "БУХГАЛТЕРІЯ")
+            elif stype in ["law", "legal", "юридичний"]:
+                self.c.drawCentredString(x, y + 2.3 * mm, "ЮРИДИЧНИЙ")
+                self.c.drawCentredString(x, y - 1.7 * mm, "ВІДДІЛ")
+            elif stype in ["sec", "security", "безпека"]:
+                self.c.drawCentredString(x, y + 2.3 * mm, "СЛУЖБА")
+                self.c.drawCentredString(x, y - 1.7 * mm, "БЕЗПЕКИ")
+            elif stype in ["pur", "purchasing", "procurement", "закупівлі"]:
+                self.c.drawCentredString(x, y + 2.3 * mm, "ВІДДІЛ")
+                self.c.drawCentredString(x, y - 1.7 * mm, "ЗАКУПІВЕЛЬ")
+            elif stype in ["doc", "workflow", "records", "документообіг"]:
+                self.c.drawCentredString(x, y + 2.3 * mm, "ВІДДІЛ")
+                self.c.drawCentredString(x, y - 1.7 * mm, "ДОКУМЕНТООБІГУ")
+            elif stype in ["arc", "archive", "архів"]:
+                self.c.setFont(_FONT_BOLD, 8)
+                self.c.drawCentredString(x, y + 0.3 * mm, "АРХІВ")
+            elif stype in ["fin", "finance", "financial", "фінансовий"]:
+                self.c.drawCentredString(x, y + 2.3 * mm, "ФІНАНСОВИЙ")
+                self.c.drawCentredString(x, y - 1.7 * mm, "ВІДДІЛ")
             else:  # documents / fallback
                 self.c.drawCentredString(x, y + 2.3 * mm, "ДЛЯ")
                 self.c.drawCentredString(x, y - 1.7 * mm, "ДОКУМЕНТІВ")
@@ -1082,6 +1123,70 @@ class _Layout:
             y_baseline = y + (h - (ascent - descent)) / 2.0 - descent + 0.3 * mm
             
             self.c.drawCentredString(x + w / 2, y_baseline, "Т Е Р М І Н О В О")
+        finally:
+            self.c.restoreState()
+
+    def _classify_extra_stamp(self, text: str) -> tuple[str, tuple[float, float, float]]:
+        """Визначає розташування та колір для додаткового штампа."""
+        t = text.upper().strip()
+        
+        # Червоні бордові штампи для контролю, анулювання, небезпеки або відхилення
+        red_texts = {
+            "ДО ВИКОНАННЯ", "НА КОНТРОЛІ", "ВИКОНАТИ ДО", "ТЕРМІН ПРОДОВЖЕНО", 
+            "ПОВЕРНУТО БЕЗ РОЗГЛЯДУ", "НЕДІЙСНО", "ЗНИЩЕНО", "НЕ ОПЛАЧЕНО", "ПОВТОРНО",
+            "УВАГА", "ВАЖЛИВО", "ТЕРМІН ЗБЕРІГАННЯ"
+        }
+        color = (0.62, 0.08, 0.10) if any(x in t for x in red_texts) else (0.03, 0.14, 0.42)
+        
+        # Визначаємо локацію
+        if any(x in t for x in ["НЕДІЙСНО", "ЗНИЩЕНО", "АНУЛЬОВАНО"]):
+            loc = "top_center"
+        elif any(x in t for x in ["КОНТРОЛ", "ВИКОНАТИ", "ПРОДОВЖЕНО", "ДО ВИКОНАННЯ"]):
+            loc = "left_margin"
+        else:
+            loc = "top_right"
+            
+        return loc, color
+
+    def _draw_generic_stamp(self, text: str, y: float, loc: str, color: tuple[float, float, float]) -> None:
+        """Малює будь-який службовий прямокутний штамп у преміум-стилі."""
+        self.c.saveState()
+        try:
+            self.c.setStrokeColorRGB(*color)
+            self.c.setFillColorRGB(*color)
+            
+            # Підготуємо текст (розрядка літер, якщо текст короткий)
+            text_upper = text.upper().strip()
+            if len(text_upper) <= 12 and " " not in text_upper:
+                display_text = " ".join(list(text_upper))
+            else:
+                display_text = text_upper
+                
+            font_name = _FONT_BOLD
+            font_size = 7.5
+            self.c.setFont(font_name, font_size)
+            
+            from reportlab.pdfbase import pdfmetrics
+            text_w = pdfmetrics.stringWidth(display_text, font_name, font_size)
+            w = max(28 * mm, text_w + 6 * mm)
+            h = 8 * mm
+            
+            if loc == "top_right":
+                x = self.page_w - self.right_margin - w
+            elif loc == "top_center":
+                x = (self.page_w - w) / 2
+            else:  # left_margin
+                x = 4 * mm
+                w = 26 * mm  # фіксована ширина для лівого поля
+                
+            self._draw_double_round_rect(x, y, w, h, 1.0 * mm, 0.7 * mm)
+            
+            font_obj = pdfmetrics.getFont(font_name)
+            ascent = font_obj.face.ascent * font_size / 1000.0
+            descent = font_obj.face.descent * font_size / 1000.0
+            y_baseline = y + (h - (ascent - descent)) / 2.0 - descent + 0.3 * mm
+            
+            self.c.drawCentredString(x + w / 2, y_baseline, display_text)
         finally:
             self.c.restoreState()
 

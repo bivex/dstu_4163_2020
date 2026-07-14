@@ -65,6 +65,8 @@ class DocumentContent:
     use_archived_stamp: bool = False
     use_annulled_stamp: bool = False
     use_urgent_stamp: bool = False
+    # Додаткові довільні корпоративні штампи
+    extra_stamps: tuple[str, ...] = field(default_factory=tuple)
 
 
 
