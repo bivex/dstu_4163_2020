@@ -60,6 +60,12 @@ class DocumentContent:
     use_copy_stamp: bool = False
     use_control_stamp: bool = False
     restriction_stamp: str = ""
+    # Додаткові основні штампи
+    use_copy_mark: bool = False
+    use_archived_stamp: bool = False
+    use_annulled_stamp: bool = False
+    use_urgent_stamp: bool = False
+
 
 
     def __post_init__(self) -> None:

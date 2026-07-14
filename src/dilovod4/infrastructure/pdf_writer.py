@@ -132,8 +132,11 @@ class _Layout:
 
     # --- службове ---
     def _new_page(self) -> None:
-        if self.page_no == 1 and self.content.use_incoming_stamp:
-            self._draw_incoming_stamp()
+        if self.page_no == 1:
+            if self.content.use_incoming_stamp:
+                self._draw_incoming_stamp()
+            if self.content.use_archived_stamp:
+                self._draw_archived_stamp()
         self._draw_page_number()
         self._draw_page_barcode()
         self.c.showPage()
@@ -253,6 +256,12 @@ class _Layout:
         # підписантів і природно переносяться між сторінками.
         if self.content.use_control_stamp:
             self._draw_control_stamp()
+        if self.content.use_annulled_stamp:
+            self._draw_annulled_stamp()
+        if self.content.use_copy_mark:
+            self._draw_copy_mark_stamp()
+        if self.content.use_urgent_stamp:
+            self._draw_urgent_stamp()
 
         # робоча позначка (напр. «ПРОЕКТ») — праворуч угорі, над реквізитами
         if self.content.marking.strip():
@@ -399,8 +408,11 @@ class _Layout:
             self._draw_copy_stamp()
 
         # завершальна сторінка: номер (якщо 2+) + штрихкод пагінації
-        if self.page_no == 1 and self.content.use_incoming_stamp:
-            self._draw_incoming_stamp()
+        if self.page_no == 1:
+            if self.content.use_incoming_stamp:
+                self._draw_incoming_stamp()
+            if self.content.use_archived_stamp:
+                self._draw_archived_stamp()
         self._draw_page_number()
         self._draw_page_barcode()
 
@@ -792,4 +804,86 @@ class _Layout:
             self.c.drawCentredString(x + w / 2, y + 2 * mm, text)
         finally:
             self.c.restoreState()
+
+    def _draw_copy_mark_stamp(self) -> None:
+        """Малює синій прямокутний штамп «КОПІЯ» у правому верхньому куті першої сторінки."""
+        self.c.saveState()
+        try:
+            self.c.setStrokeColorRGB(0.12, 0.25, 0.72)
+            self.c.setFillColorRGB(0.12, 0.25, 0.72)
+            self.c.setLineWidth(1.0)
+            
+            w = 25 * mm
+            h = 7 * mm
+            x = self.page_w - self.right_margin - w
+            y = self.page_h - self.top - 17 * mm  # трохи нижче грифа обмеження
+            
+            self.c.rect(x, y, w, h, stroke=1, fill=0)
+            self.c.setFont(_FONT_BOLD, 8)
+            self.c.drawCentredString(x + w / 2, y + 2 * mm, "КОПІЯ")
+        finally:
+            self.c.restoreState()
+
+    def _draw_archived_stamp(self) -> None:
+        """Малює синій прямокутний штамп «ДО СПРАВИ» у лівому нижньому куті першої сторінки."""
+        self.c.saveState()
+        try:
+            self.c.setStrokeColorRGB(0.12, 0.25, 0.72)
+            self.c.setFillColorRGB(0.12, 0.25, 0.72)
+            self.c.setLineWidth(1.0)
+            
+            w = 55 * mm
+            h = 13 * mm
+            x = self.left
+            y = 25 * mm  # той самий рівень по висоті, що й вхідний штамп
+            
+            self.c.rect(x, y, w, h, stroke=1, fill=0)
+            self.c.setFont(_FONT_BOLD, 7)
+            self.c.drawCentredString(x + w / 2, y + h - 3.5 * mm, "ДО СПРАВИ")
+            
+            self.c.setFont(_FONT_REGULAR, 6)
+            self.c.drawString(x + 3 * mm, y + 5 * mm, "Справа № ___________")
+            self.c.drawString(x + 3 * mm, y + 1.5 * mm, "«___» ________ 20__ р.  Підпис ________")
+        finally:
+            self.c.restoreState()
+
+    def _draw_annulled_stamp(self) -> None:
+        """Малює червоний штамп «АНУЛЬОВАНО» у верхній частині першої сторінки."""
+        self.c.saveState()
+        try:
+            self.c.setStrokeColorRGB(0.85, 0.15, 0.15)
+            self.c.setFillColorRGB(0.85, 0.15, 0.15)
+            self.c.setLineWidth(1.5)
+            
+            w = 35 * mm
+            h = 8 * mm
+            # Центровано по ширині сторінки
+            x = (self.page_w - w) / 2
+            y = self.page_h - self.top - 12 * mm
+            
+            self.c.rect(x, y, w, h, stroke=1, fill=0)
+            self.c.setFont(_FONT_BOLD, 9)
+            self.c.drawCentredString(x + w / 2, y + 2.5 * mm, "АНУЛЬОВАНО")
+        finally:
+            self.c.restoreState()
+
+    def _draw_urgent_stamp(self) -> None:
+        """Малює червоний штамп «ТЕРМІНОВО» у правому верхньому куті першої сторінки."""
+        self.c.saveState()
+        try:
+            self.c.setStrokeColorRGB(0.85, 0.15, 0.15)
+            self.c.setFillColorRGB(0.85, 0.15, 0.15)
+            self.c.setLineWidth(1.2)
+            
+            w = 28 * mm
+            h = 7 * mm
+            x = self.page_w - self.right_margin - w
+            y = self.page_h - self.top - 26 * mm  # нижче штампу КОПІЯ
+            
+            self.c.rect(x, y, w, h, stroke=1, fill=0)
+            self.c.setFont(_FONT_BOLD, 8)
+            self.c.drawCentredString(x + w / 2, y + 2 * mm, "ТЕРМІНОВО")
+        finally:
+            self.c.restoreState()
+
 

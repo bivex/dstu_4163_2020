@@ -173,6 +173,10 @@ def build_content(payload: dict[str, Any], *, with_marks: bool = False) -> Docum
         use_copy_stamp=bool(payload.get("use_copy_stamp", False)),
         use_control_stamp=bool(payload.get("use_control_stamp", False)),
         restriction_stamp=str(payload.get("restriction_stamp", "")),
+        use_copy_mark=bool(payload.get("use_copy_mark", False)),
+        use_archived_stamp=bool(payload.get("use_archived_stamp", False)),
+        use_annulled_stamp=bool(payload.get("use_annulled_stamp", False)),
+        use_urgent_stamp=bool(payload.get("use_urgent_stamp", False)),
     )
 
 
