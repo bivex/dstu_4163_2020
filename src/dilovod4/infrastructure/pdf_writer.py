@@ -596,6 +596,7 @@ class _Layout:
 
     def _draw_stamp(self, x: float, y: float) -> None:
         """Малює візуальний синій круглий відбиток печатки компанії."""
+        import math
         self.c.saveState()
         try:
             # Синя напівпрозора печатка (alpha=0.6 для реалістичного накладання поверх тексту)
@@ -623,27 +624,38 @@ class _Layout:
             if len(org_text) > 45:
                 org_text = org_text[:42] + "..."
             
+            r_text = 14.5 * mm
             self.c.setFont(_FONT_REGULAR, 6)
-            # Розподілимо літери по колу від -110 до 110 градусів
+            # Розподілимо літери по верхньому колу від -95 до 95 градусів (0 - вгорі)
             if org_text:
-                angle_step = 220.0 / max(1, len(org_text) - 1)
+                angle_step = 190.0 / max(1, len(org_text) - 1)
                 for i, char in enumerate(org_text):
-                    angle = -110 + i * angle_step
+                    alpha = -95 + i * angle_step
+                    angle_rad = math.radians(alpha)
+                    char_x = x + r_text * math.sin(angle_rad)
+                    char_y = y + r_text * math.cos(angle_rad)
+                    
                     self.c.saveState()
-                    self.c.translate(x, y)
-                    self.c.rotate(angle)
-                    self.c.drawString(-1.5 * mm, 14 * mm, char)
+                    self.c.translate(char_x, char_y)
+                    self.c.rotate(-alpha)  # так голова літери дивиться назовні від центру
+                    self.c.drawCentredString(0, 0, char)
                     self.c.restoreState()
             
-            # Код ЄДРПОУ / ідентифікатор знизу
+            # Код ЄДРПОУ / ідентифікатор знизу (читається зліва направо, голови до центру)
             code_text = "* УКРАЇНА *"
-            angle_step_code = 90.0 / max(1, len(code_text) - 1)
-            for i, char in enumerate(code_text):
-                angle = 135 + i * angle_step_code
-                self.c.saveState()
-                self.c.translate(x, y)
-                self.c.rotate(angle)
-                self.c.drawString(-1.5 * mm, 14 * mm, char)
-                self.c.restoreState()
+            if code_text:
+                angle_step_code = 90.0 / max(1, len(code_text) - 1)
+                for i, char in enumerate(code_text):
+                    # Йдемо від 225 (ліворуч знизу) до 135 (праворуч знизу)
+                    alpha = 225 - i * angle_step_code
+                    angle_rad = math.radians(alpha)
+                    char_x = x + r_text * math.sin(angle_rad)
+                    char_y = y + r_text * math.cos(angle_rad)
+                    
+                    self.c.saveState()
+                    self.c.translate(char_x, char_y)
+                    self.c.rotate(180 - alpha)  # так голова літери дивиться всередину (до центру)
+                    self.c.drawCentredString(0, 0, char)
+                    self.c.restoreState()
         finally:
             self.c.restoreState()
