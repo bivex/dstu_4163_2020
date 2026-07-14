@@ -53,6 +53,8 @@ class DocumentContent:
     access_restriction: AccessRestriction | None = None
     # Чи накладати графічну синю печатку організації поверх підпису.
     use_stamp: bool = False
+    # Тип графічної печатки ("" - немає, "documents", "contracts", "hr", "chancellery").
+    stamp_type: str = ""
 
     def __post_init__(self) -> None:
         if not self.org_name.strip():

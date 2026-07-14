@@ -375,7 +375,7 @@ class _Layout:
                 decode_x = self.left + self.doc.left_indents.signature_decode_mm * mm
                 self.c.setFont(_FONT_REGULAR, self.body_pt)
                 self.c.drawString(decode_x, self.y, name)
-                if self.content.use_stamp:
+                if self.content.use_stamp or self.content.stamp_type:
                     # Печатка перекриває частину назви посади та підпису
                     self._draw_stamp(self.left + 95 * mm, self.y + 2 * mm)
 
@@ -502,7 +502,7 @@ class _Layout:
         # QR-код підписувача — праворуч від рамки, центрований по її висоті.
         # Подорожує разом із відміткою, тож масштабується на багатьох підписантів.
         self._draw_mark_qr(mark, top, box_h)
-        if self.content.use_stamp:
+        if self.content.use_stamp or self.content.stamp_type:
             # Накладаємо печатку поверх електронного підпису/QR
             self._draw_stamp(self.left + 50 * mm, bottom + box_h / 2)
         self.y = bottom - line_h
@@ -596,6 +596,13 @@ class _Layout:
 
     def _draw_stamp(self, x: float, y: float) -> None:
         """Малює візуальний синій круглий відбиток печатки компанії."""
+        stype = self.content.stamp_type.strip().lower()
+        if not stype:
+            if self.content.use_stamp:
+                stype = "documents"
+            else:
+                return
+
         import math
         self.c.saveState()
         try:
@@ -614,8 +621,18 @@ class _Layout:
             
             # Центральний текст
             self.c.setFont(_FONT_BOLD, 7)
-            self.c.drawCentredString(x, y + 2 * mm, "ДЛЯ")
-            self.c.drawCentredString(x, y - 2 * mm, "ДОКУМЕНТІВ")
+            if stype == "contracts":
+                self.c.drawCentredString(x, y + 2 * mm, "ДЛЯ")
+                self.c.drawCentredString(x, y - 2 * mm, "ДОГОВОРІВ")
+            elif stype == "hr":
+                self.c.drawCentredString(x, y + 2 * mm, "ВІДДІЛ")
+                self.c.drawCentredString(x, y - 2 * mm, "КАДРІВ")
+            elif stype == "chancellery":
+                self.c.setFont(_FONT_BOLD, 8)
+                self.c.drawCentredString(x, y, "КАНЦЕЛЯРІЯ")
+            else:  # documents / fallback
+                self.c.drawCentredString(x, y + 2 * mm, "ДЛЯ")
+                self.c.drawCentredString(x, y - 2 * mm, "ДОКУМЕНТІВ")
             
             # Текст по верхній дузі (назва організації)
             org_text = self.content.org_name.upper()
