@@ -163,9 +163,12 @@ def download_attachment(
 
         # Формування правильного заголовка Content-Disposition з RFC 6266 сумісністю
         orig_name = att.original_filename or att.stored_filename
+        ascii_fallback = orig_name.encode("ascii", errors="ignore").decode("ascii").strip()
+        if not ascii_fallback:
+            ascii_fallback = "attachment"
         encoded_filename = quote(orig_name)
         content_disposition = (
-            f"attachment; filename=\"{orig_name}\"; filename*=UTF-8''{encoded_filename}"
+            f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{encoded_filename}"
         )
 
         return Response(
