@@ -73,6 +73,7 @@ def list_attachments(doc_id: str, current_user: dict = Depends(_current_user)):
                 "mime": a.mime,
                 "size": a.size,
                 "use_incoming_stamp": a.use_incoming_stamp,
+                "use_copy_stamp": a.use_copy_stamp,
                 "created_at": a.created_at.isoformat() if a.created_at else None,
             }
             for a in doc.attachments
@@ -146,6 +147,7 @@ async def upload_attachment(
             "mime": att.mime,
             "size": att.size,
             "use_incoming_stamp": att.use_incoming_stamp,
+            "use_copy_stamp": att.use_copy_stamp,
             "created_at": att.created_at.isoformat() if att.created_at else None,
         }
 
@@ -199,6 +201,8 @@ def update_attachment(
         
         if "use_incoming_stamp" in payload:
             att.use_incoming_stamp = bool(payload["use_incoming_stamp"])
+        if "use_copy_stamp" in payload:
+            att.use_copy_stamp = bool(payload["use_copy_stamp"])
             
         session.commit()
         return {
@@ -209,6 +213,7 @@ def update_attachment(
             "mime": att.mime,
             "size": att.size,
             "use_incoming_stamp": att.use_incoming_stamp,
+            "use_copy_stamp": att.use_copy_stamp,
             "created_at": att.created_at.isoformat() if att.created_at else None,
         }
 
@@ -377,18 +382,43 @@ def get_merged_pdf(
                 y -= 9
 
         def _draw_identification(
-            can, *, idx, doc_type, reg_index, page_num, total_pages, page_w, page_h
+            can, *, idx, doc_type, reg_index, page_num, total_pages, page_w, page_h, has_copy_stamp=False
         ):
             """Правий верхній кут: Додаток N / до ... № X / Аркуш Y з Z."""
             text_lines = [f"Додаток {idx}"]
             if doc_type and reg_index:
                 text_lines.append(f"до {get_genitive_doc_type(doc_type)} № {reg_index}")
             text_lines.append(f"Аркуш {page_num} з {total_pages}")
-            y = page_h - 32
+            y = page_h - (62 if has_copy_stamp else 32)
             can.setFont(FONT_REGULAR, 9)
             for line in text_lines:
                 can.drawRightString(page_w - 30, y, line)
                 y -= 11
+
+        def _draw_copy_stamp(can, page_w, page_h):
+            """Малює синій прямокутний штамп «КОПІЯ» у правому верхньому куті (подвійна рамка)."""
+            can.saveState()
+            try:
+                can.setStrokeColorRGB(0.03, 0.14, 0.42)
+                can.setFillColorRGB(0.03, 0.14, 0.42)
+                mm = 2.83464567
+                w = 26 * mm
+                h = 8 * mm
+                right_margin = 10 * mm
+                top_margin = 10 * mm
+                x = page_w - right_margin - w
+                y = page_h - top_margin - h
+                
+                # Подвійна рамка
+                can.setLineWidth(1.0)
+                can.rect(x, y, w, h, stroke=True, fill=False)
+                can.setLineWidth(0.4)
+                can.rect(x + 1.2, y + 1.2, w - 2.4, h - 2.4, stroke=True, fill=False)
+                
+                can.setFont(FONT_BOLD, 8.0)
+                can.drawCentredString(x + w / 2, y + h / 2 - 2.5, "К О П І Я")
+            finally:
+                can.restoreState()
 
         def _draw_incoming_stamp(
             can, *, org_name, reg_index, reg_date, page_w, page_h
@@ -544,8 +574,9 @@ def get_merged_pdf(
             for page_num, page in enumerate(pages_to_add, start=1):
                 # Identification (top-right) + віза (bottom-left), один merge на сторінку
                 try:
+                    has_copy_stamp = (att.use_copy_stamp and page_num == 1)
                     drawers = [
-                        lambda c, w, h, _idx=idx, _pn=page_num, _tp=total_pages: (
+                        lambda c, w, h, _idx=idx, _pn=page_num, _tp=total_pages, _hcs=has_copy_stamp: (
                             _draw_identification(
                                 c,
                                 idx=_idx,
@@ -555,11 +586,15 @@ def get_merged_pdf(
                                 total_pages=_tp,
                                 page_w=w,
                                 page_h=h,
+                                has_copy_stamp=_hcs,
                             )
                         )
                     ]
                     if visa:
                         drawers.append(lambda c, w, h, _v=visa: _draw_visa(c, _v, w, h))
+                    
+                    if has_copy_stamp:
+                        drawers.append(lambda c, w, h: _draw_copy_stamp(c, w, h))
                     
                     if matching_inc:
                         try:
