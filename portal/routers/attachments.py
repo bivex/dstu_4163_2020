@@ -2,7 +2,7 @@ import re
 import unicodedata
 from urllib.parse import quote
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Response
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Response, Body
 
 from portal.db import Attachment, Document, SessionLocal
 from portal.auth import _current_user
@@ -72,6 +72,7 @@ def list_attachments(doc_id: str, current_user: dict = Depends(_current_user)):
                 "stored_filename": a.stored_filename,
                 "mime": a.mime,
                 "size": a.size,
+                "use_incoming_stamp": a.use_incoming_stamp,
                 "created_at": a.created_at.isoformat() if a.created_at else None,
             }
             for a in doc.attachments
@@ -144,6 +145,7 @@ async def upload_attachment(
             "stored_filename": att.stored_filename,
             "mime": att.mime,
             "size": att.size,
+            "use_incoming_stamp": att.use_incoming_stamp,
             "created_at": att.created_at.isoformat() if att.created_at else None,
         }
 
@@ -179,6 +181,36 @@ def download_attachment(
                 "Access-Control-Expose-Headers": "Content-Disposition",
             },
         )
+
+
+@router.patch("/documents/{doc_id}/attachments/{att_id}")
+def update_attachment(
+    doc_id: str,
+    att_id: int,
+    payload: dict = Body(...),
+    current_user: dict = Depends(_current_user),
+):
+    with SessionLocal() as session:
+        doc = _load(session, doc_id)
+        _assert_editable(doc, current_user)
+        att = session.query(Attachment).filter_by(id=att_id, document_id=doc.id).first()
+        if not att:
+            raise HTTPException(404, "Додаток не знайдено")
+        
+        if "use_incoming_stamp" in payload:
+            att.use_incoming_stamp = bool(payload["use_incoming_stamp"])
+            
+        session.commit()
+        return {
+            "id": att.id,
+            "order_index": att.order_index,
+            "original_filename": att.original_filename,
+            "stored_filename": att.stored_filename,
+            "mime": att.mime,
+            "size": att.size,
+            "use_incoming_stamp": att.use_incoming_stamp,
+            "created_at": att.created_at.isoformat() if att.created_at else None,
+        }
 
 
 @router.delete("/documents/{doc_id}/attachments/{att_id}")
@@ -358,6 +390,37 @@ def get_merged_pdf(
                 can.drawRightString(page_w - 30, y, line)
                 y -= 11
 
+        def _draw_incoming_stamp(
+            can, *, org_name, reg_index, reg_date, page_w, page_h
+        ):
+            """Малює синій вхідний реєстраційний штамп організації у правому нижньому куті (подвійна рамка)."""
+            can.saveState()
+            try:
+                can.setStrokeColorRGB(0.03, 0.14, 0.42)
+                can.setFillColorRGB(0.03, 0.14, 0.42)
+                mm = 2.83464567
+                w = 72 * mm
+                h = 17 * mm
+                right_margin = 10 * mm
+                x = page_w - right_margin - w
+                y = 25 * mm
+                can.setLineWidth(1.2)
+                can.rect(x, y, w, h, stroke=True, fill=False)
+                can.setLineWidth(0.4)
+                can.rect(x + 1.5, y + 1.5, w - 3, h - 3, stroke=True, fill=False)
+                can.line(x + 1.5, y + 8.5 * mm, x + w - 1.5, y + 8.5 * mm)
+                can.line(x + 30 * mm, y + 1.5, x + 30 * mm, y + 8.5 * mm)
+                can.setFont(FONT_BOLD, 7.0)
+                org = org_name.removeprefix("Гр. ").removeprefix("АТ ").strip()
+                if len(org) > 40:
+                    org = org[:37] + "..."
+                can.drawCentredString(x + w / 2, y + 11.5 * mm, org)
+                can.setFont(FONT_REGULAR, 6.5)
+                can.drawString(x + 3.5 * mm, y + 4.0 * mm, f"Вх. № {reg_index}")
+                can.drawString(x + 32.5 * mm, y + 4.0 * mm, f"від {reg_date}")
+            finally:
+                can.restoreState()
+
         def _overlay_page_for(target_page, drawers):
             """Overlay-сторінка під mediabox цільової сторінки (A3/A4/A5-safe).
             drawers — список callable(can, page_w, page_h). NB: /Rotate не
@@ -473,6 +536,11 @@ def get_merged_pdf(
                     continue
 
             total_pages = len(pages_to_add)
+            
+            matching_inc = None
+            if att.use_incoming_stamp:
+                matching_inc = session.query(Document).filter(Document.journal_id == 2).order_by(Document.id.desc()).first()
+
             for page_num, page in enumerate(pages_to_add, start=1):
                 # Identification (top-right) + віза (bottom-left), один merge на сторінку
                 try:
@@ -492,6 +560,28 @@ def get_merged_pdf(
                     ]
                     if visa:
                         drawers.append(lambda c, w, h, _v=visa: _draw_visa(c, _v, w, h))
+                    
+                    if matching_inc:
+                        try:
+                            inc_payload = bridge.content_from_json(matching_inc.content_json)
+                            org_name = inc_payload.get("org_name", "Організація")
+                            reg_index_inc = matching_inc.reg_index or "—"
+                            reg_date_inc = matching_inc.reg_date or "—"
+                            drawers.append(
+                                lambda c, w, h, _org=org_name, _idx_inc=reg_index_inc, _dt_inc=reg_date_inc: (
+                                    _draw_incoming_stamp(
+                                        c,
+                                        org_name=_org,
+                                        reg_index=_idx_inc,
+                                        reg_date=_dt_inc,
+                                        page_w=w,
+                                        page_h=h,
+                                    )
+                                )
+                            )
+                        except Exception as e:
+                            print(f"Failed to append incoming stamp to attachment: {e}")
+
                     page.merge_page(_overlay_page_for(page, drawers))
                 except Exception as e:
                     print(f"Stamp merging failed: {e}")

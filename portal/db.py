@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     Enum,
     ForeignKey,
@@ -234,6 +235,7 @@ class Attachment(Base):
     mime: Mapped[str] = mapped_column(String(128), default="application/octet-stream")
     size: Mapped[int] = mapped_column(Integer, default=0)
     blob: Mapped[bytes] = mapped_column(LargeBinary)
+    use_incoming_stamp: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     document: Mapped["Document"] = relationship(back_populates="attachments")
