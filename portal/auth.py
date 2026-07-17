@@ -1,7 +1,7 @@
 import datetime as dt
 import os
 import jwt
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Query
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from .db import User, UserRole
 
@@ -30,7 +30,7 @@ def _make_token(user: User) -> str:
 
 def _current_user(
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
-    token: str | None = None,
+    token: str | None = Query(None),
 ) -> dict:
     jwt_token = None
     if creds:

@@ -430,6 +430,36 @@ def test_download_individual_signer_signature(client):
     assert "T-001_signature_1.p7s" in r.headers["content-disposition"]
 
 
+def test_current_user_accepts_token_query_parameter(no_override_client):
+    # Generate token
+    from portal.db import SessionLocal, User, UserRole
+    from portal.auth import _make_token
+    with SessionLocal() as session:
+        user = User(
+            email="query_test@org.local",
+            name="Test User",
+            password_hash=User.hash_password("password123"),
+            role=UserRole.ADMIN.value,
+        )
+        session.add(user)
+        session.commit()
+        token = _make_token(user)
+
+    # Create and submit document under authentication
+    headers = {"Authorization": f"Bearer {token}"}
+    no_override_client.post("/documents", json=_doc_payload(), headers=headers)
+    no_override_client.post("/documents/T-001/generate", headers=headers)
+    no_override_client.post("/documents/T-001/submit", headers=headers)
+
+    # Try retrieving without headers (401)
+    r = no_override_client.get("/documents/T-001/manifest")
+    assert r.status_code == 401
+
+    # Retry using query parameter
+    r_ok = no_override_client.get(f"/documents/T-001/manifest?token={token}")
+    assert r_ok.status_code == 200
+
+
 # --- ASiC-E ---
 def test_asice_assembled_and_downloadable(client):
     client.post("/documents", json=_doc_payload())
