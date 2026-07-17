@@ -408,3 +408,31 @@ def unarchive_document(
             _audit(session, doc, "unarchived", actor=current_user.get("name", ""))
             session.commit()
         return _doc_to_dict(doc)
+
+
+@router.get("/documents/{doc_id}/signers/{order_index}/download-signature")
+def download_signer_signature(
+    doc_id: str,
+    order_index: int,
+    current_user: dict = Depends(_current_user),
+):
+    from urllib.parse import quote
+    with SessionLocal() as session:
+        doc = _load(session, doc_id)
+        signer = next((s for s in doc.signers if s.order_index == order_index), None)
+        if not signer:
+            raise HTTPException(404, "Підписанта не знайдено")
+        if not signer.signature:
+            raise HTTPException(400, "Підпис ще не накладено")
+
+        filename = f"{doc_id}_signature_{order_index + 1}.p7s"
+        encoded_filename = quote(filename)
+        return Response(
+            content=signer.signature,
+            media_type="application/pkcs7-signature",
+            headers={
+                "Content-Disposition": f"attachment; filename=\"{filename}\"; filename*=UTF-8''{encoded_filename}",
+                "Access-Control-Expose-Headers": "Content-Disposition",
+            }
+        )
+

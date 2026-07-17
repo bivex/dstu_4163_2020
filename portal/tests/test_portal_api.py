@@ -407,6 +407,29 @@ def test_single_signer_lifecycle(client):
     assert d["status"] == "signed"
 
 
+def test_download_individual_signer_signature(client):
+    client.post("/documents", json=_doc_payload())
+    client.post("/documents/T-001/generate")
+    client.post("/documents/T-001/submit")
+
+    # 1. Signature not yet submitted
+    r = client.get("/documents/T-001/signers/0/download-signature")
+    assert r.status_code == 400
+
+    # 2. Submit signature
+    sig_b64 = _fake_cms()
+    client.post("/documents/T-001/sign", json={
+        "signer_order_index": 0, "signature_b64": sig_b64
+    })
+
+    # 3. Download
+    r = client.get("/documents/T-001/signers/0/download-signature")
+    assert r.status_code == 200
+    assert r.content == base64.b64decode(sig_b64)
+    assert r.headers["content-type"] == "application/pkcs7-signature"
+    assert "T-001_signature_1.p7s" in r.headers["content-disposition"]
+
+
 # --- ASiC-E ---
 def test_asice_assembled_and_downloadable(client):
     client.post("/documents", json=_doc_payload())
