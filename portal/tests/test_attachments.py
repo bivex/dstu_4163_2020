@@ -1199,3 +1199,64 @@ def test_merged_pdf_visa_facsimile_overlay(client):
     # With visa=true the facsimile PNG is overlaid on the visa page.
     on_imgs = _image_count(PdfReader(_io.BytesIO(res_on.content)).pages[0])
     assert on_imgs >= 1, "visa page should embed the facsimile image"
+
+
+def test_pack_attachment_asic_endpoint(client):
+    # 1. Create a document
+    payload = {
+        "doc_id": "ASIC-PACK-001",
+        "org_name": "Test Org",
+        "doc_type": "Наказ",
+        "title": "Test Title",
+        "reg_index": "01",
+        "date_text": "27 червня 2026 року",
+        "fmt": "pdf",
+        "is_electronic": True,
+        "body": ["body text"],
+        "signature_position": "Директор",
+        "signature_name": "І. Прізвище",
+        "signers": [],
+        "retention_years": 5,
+    }
+    assert client.post("/documents", json=payload).status_code == 200
+
+    # 2. Upload an attachment
+    files = {"file": ("att.pdf", b"%PDF-1.5 test content", "application/pdf")}
+    r = client.post("/documents/ASIC-PACK-001/attachments", files=files)
+    assert r.status_code == 200, r.text
+    att_id = r.json()["id"]
+
+    # 3. Request packing as ASiC-S
+    dummy_sig_b64 = "c2lnbmF0dXJlX2J5dGVzX2hlcmU="  # base64 for "signature_bytes_here"
+    r_s = client.post(
+        f"/documents/ASIC-PACK-001/attachments/{att_id}/pack-asic",
+        json={"signature_b64": dummy_sig_b64, "type": "asics"}
+    )
+    assert r_s.status_code == 200, r_s.text
+    assert r_s.headers["Content-Type"] == "application/zip"
+
+    import zipfile
+    import io as _io
+    with zipfile.ZipFile(_io.BytesIO(r_s.content)) as z:
+        names = z.namelist()
+        assert "mimetype" in names
+        assert "att.pdf" in names
+        assert "META-INF/signature.p7s" in names
+        assert z.read("META-INF/signature.p7s") == b"signature_bytes_here"
+
+    # 4. Request packing as ASiC-E
+    r_e = client.post(
+        f"/documents/ASIC-PACK-001/attachments/{att_id}/pack-asic",
+        json={"signature_b64": dummy_sig_b64, "type": "asice"}
+    )
+    assert r_e.status_code == 200, r_e.text
+    assert r_e.headers["Content-Type"] == "application/zip"
+
+    with zipfile.ZipFile(_io.BytesIO(r_e.content)) as z:
+        names = z.namelist()
+        assert "mimetype" in names
+        assert "att.pdf" in names
+        assert "META-INF/signature001.p7s" in names
+        assert "META-INF/ASiCManifest001.xml" in names
+        assert z.read("META-INF/signature001.p7s") == b"signature_bytes_here"
+

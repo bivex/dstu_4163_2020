@@ -643,3 +643,55 @@ def get_merged_pdf(
                 "Access-Control-Expose-Headers": "Content-Disposition",
             },
         )
+
+
+@router.post("/documents/{doc_id}/attachments/{att_id}/pack-asic")
+def pack_attachment_asic(
+    doc_id: str,
+    att_id: int,
+    payload: dict = Body(...),
+    current_user: dict = Depends(_current_user),
+):
+    import base64
+    import tempfile
+    import os
+    from dilovod4.infrastructure.asic import build_asic_s, build_asic_e, AsicSignature
+
+    with SessionLocal() as session:
+        doc = _load(session, doc_id)
+        att = session.query(Attachment).filter_by(id=att_id, document_id=doc.id).first()
+        if not att:
+            raise HTTPException(404, "Додаток не знайдено")
+
+        sig_bytes = base64.b64decode(payload["signature_b64"])
+        asic_type = payload.get("type", "asice")  # default to asice
+
+        with tempfile.NamedTemporaryFile(suffix=f".{asic_type}", delete=False) as tmp:
+            dest = tmp.name
+
+        try:
+            filename = att.original_filename or att.stored_filename
+            if asic_type == "asics":
+                build_asic_s(filename, att.blob, sig_bytes, dest)
+            else:
+                data_files = [(filename, att.blob)]
+                sigs = [AsicSignature(cms=sig_bytes)]
+                build_asic_e(data_files, sigs, dest)
+
+            with open(dest, "rb") as fh:
+                content = fh.read()
+        finally:
+            if os.path.exists(dest):
+                os.remove(dest)
+
+        out_name = f"{filename}.{asic_type}"
+        encoded_filename = quote(out_name)
+        return Response(
+            content=content,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f"attachment; filename=\"{out_name}\"; filename*=UTF-8''{encoded_filename}",
+                "Access-Control-Expose-Headers": "Content-Disposition",
+            },
+        )
+
