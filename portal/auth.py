@@ -33,10 +33,11 @@ def _current_user(
     token: str | None = Query(None),
 ) -> dict:
     jwt_token = None
-    if creds:
-        jwt_token = creds.credentials
-    elif token:
-        jwt_token = token
+    if creds and creds.credentials:
+        jwt_token = creds.credentials.strip()
+    
+    if not jwt_token and token:
+        jwt_token = token.strip()
 
     if not jwt_token:
         raise HTTPException(401, "Потрібна авторизація")
