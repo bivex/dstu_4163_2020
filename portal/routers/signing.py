@@ -436,3 +436,35 @@ def download_signer_signature(
             }
         )
 
+
+@router.get("/documents/{doc_id}/signers/{order_index}/download-manifest")
+def download_signer_manifest(
+    doc_id: str,
+    order_index: int,
+    current_user: dict = Depends(_current_user),
+):
+    from urllib.parse import quote
+    with SessionLocal() as session:
+        doc = _load(session, doc_id)
+        signer = next((s for s in doc.signers if s.order_index == order_index), None)
+        if not signer:
+            raise HTTPException(404, "Підписанта не знайдено")
+        if not doc.rendered:
+            raise HTTPException(409, "Документ ще не згенеровано")
+
+        atts = [(a.stored_filename, a.blob) for a in doc.attachments]
+        manifest = bridge.manifest_for_signer(
+            doc.doc_id, doc.fmt, doc.rendered, atts, order_index
+        )
+
+        filename = f"{doc_id}_manifest_{order_index + 1}.xml"
+        encoded_filename = quote(filename)
+        return Response(
+            content=manifest,
+            media_type="application/xml",
+            headers={
+                "Content-Disposition": f"attachment; filename=\"{filename}\"; filename*=UTF-8''{encoded_filename}",
+                "Access-Control-Expose-Headers": "Content-Disposition",
+            }
+        )
+

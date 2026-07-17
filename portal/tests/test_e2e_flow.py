@@ -148,6 +148,15 @@ def test_full_signing_e2e_flow(no_override_client):
     assert res_sig_dl.content == base64.b64decode(doc_sig)
     assert res_sig_dl.headers["content-type"] == "application/pkcs7-signature"
 
+    # E2E Test on Individual Manifest Retrieval:
+    #    Download the signed XML manifest of the first signer
+    res_man_dl = no_override_client.get(
+        "/documents/E2E-001/signers/0/download-manifest", headers=headers
+    )
+    assert res_man_dl.status_code == 200
+    assert b"ASiCManifest" in res_man_dl.content
+    assert res_man_dl.headers["content-type"] == "application/xml"
+
     # 9. E2E Test on Query Token Authentication:
     #    Download the fully compiled ASiC-E archive using query token auth (without headers)
     res_asice = no_override_client.get(
