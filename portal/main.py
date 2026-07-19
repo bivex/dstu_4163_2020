@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from .db import init_db
-from .routers import auth, documents, signing, folders, registry, counterparties, delivery, journals, approvals, resolutions, tasks, users, processes, attachments
+from .routers import auth, documents, signing, folders, registry, counterparties, delivery, journals, approvals, resolutions, tasks, users, processes, attachments, templates
 
 _cas_cache: dict = {"body": None, "ts": 0.0}
 
@@ -89,6 +89,7 @@ app.include_router(resolutions.router)
 app.include_router(tasks.router)
 app.include_router(users.router)
 app.include_router(processes.router)
+app.include_router(templates.router)
 
 
 # --- Proxy Handler for KEP (OCSP/TSP requests) ---
@@ -222,7 +223,7 @@ if _spa_shell():
         # Пропускаємо явно API/static-префікси (вже оброблені вище) — 404 як було.
         if (full_path.startswith(("auth/", "documents", "users", "folders",
                                    "counterparties", "registry", "journals",
-                                   "processes", "tasks"))
+                                   "processes", "tasks", "templates"))
                 or full_path in ("openapi.json", "docs", "redoc", "health")):
             raise HTTPException(404)
         # Якщо шлях збігає з реальним файлом у статиці — віддаємо файл (assets, _nuxt).
