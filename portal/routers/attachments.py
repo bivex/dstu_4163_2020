@@ -392,7 +392,7 @@ def get_merged_pdf(
             if doc_type and reg_index:
                 text_lines.append(f"до {get_genitive_doc_type(doc_type)} № {reg_index}")
             text_lines.append(f"Аркуш {page_num} з {total_pages}")
-            y = page_h - (62 if has_copy_stamp else 32)
+            y = page_h - (80 if has_copy_stamp else 60)
             can.setFont(FONT_REGULAR, 9)
             for line in text_lines:
                 can.drawRightString(page_w - 30, y, line)
