@@ -1093,7 +1093,7 @@ class _Layout:
             w = 26 * mm
             h = 8 * mm
             x = self.page_w - self.right_margin - w
-            y = self.page_h - self.top - 18 * mm
+            y = self.page_h - 19 * mm
             
             # Подвійна рамка
             self._draw_double_round_rect(x, y, w, h, 1.0 * mm, 0.7 * mm)
@@ -1201,7 +1201,7 @@ class _Layout:
             w = 30 * mm
             h = 8 * mm
             x = self.page_w - self.right_margin - w
-            y = self.page_h - self.top - 28 * mm
+            y = self.page_h - 10 * mm
             
             # Подвійна рамка
             self._draw_double_round_rect(x, y, w, h, 1.0 * mm, 0.7 * mm)
