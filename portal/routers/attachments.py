@@ -400,7 +400,7 @@ def get_merged_pdf(
                 y -= 9
 
         def _draw_identification(
-            can, *, idx, doc_type, reg_index, page_num, total_pages, page_w, page_h, has_copy_stamp=False
+            can, *, idx, doc_type, reg_index, page_num, total_pages, page_w, page_h, has_copy_stamp=False, depth_offset=0
         ):
             """Правий верхній кут: Додаток N / до ... № X / Аркуш Y з Z."""
             text_lines = [f"Додаток {idx}"]
@@ -408,10 +408,7 @@ def get_merged_pdf(
                 text_lines.append(f"до {get_genitive_doc_type(doc_type)} № {reg_index}")
             text_lines.append(f"Аркуш {page_num} з {total_pages}")
             
-            if page_num == 1:
-                base_y = 62 if has_copy_stamp else 40
-            else:
-                base_y = 95 if has_copy_stamp else 75
+            base_y = (62 if has_copy_stamp else 40) + (depth_offset * 35)
             y = page_h - base_y
             can.saveState()
             try:
@@ -600,12 +597,19 @@ def get_merged_pdf(
             if att.use_incoming_stamp:
                 matching_inc = session.query(Document).filter(Document.journal_id == 2).order_by(Document.id.desc()).first()
 
+            import re
             for page_num, page in enumerate(pages_to_add, start=1):
                 # Identification (top-right) + віза (bottom-left), один merge на сторінку
                 try:
+                    try:
+                        page_txt = page.extract_text() or ""
+                        depth_offset = len(re.findall(r"Додаток \d+", page_txt))
+                    except Exception:
+                        depth_offset = 0
+
                     has_copy_stamp = (att.use_copy_stamp and page_num == 1)
                     drawers = [
-                        lambda c, w, h, _idx=idx, _pn=page_num, _tp=total_pages, _hcs=has_copy_stamp: (
+                        lambda c, w, h, _idx=idx, _pn=page_num, _tp=total_pages, _hcs=has_copy_stamp, _do=depth_offset: (
                             _draw_identification(
                                 c,
                                 idx=_idx,
@@ -616,6 +620,7 @@ def get_merged_pdf(
                                 page_w=w,
                                 page_h=h,
                                 has_copy_stamp=_hcs,
+                                depth_offset=_do,
                             )
                         )
                     ]
