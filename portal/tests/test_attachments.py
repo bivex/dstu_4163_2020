@@ -1266,3 +1266,114 @@ def test_pack_attachment_asic_endpoint(client):
         assert "META-INF/ASiCManifest001.xml" in names
         assert z.read("META-INF/signature001.p7s") == b"signature_bytes_here"
 
+
+# 31. Nested attachments test — check genitive case formatting ("до скарги", "до заяви")
+#     and correct coordinates logic when building merged PDFs with attachments.
+def test_merged_pdf_nested_attachments_stamping(client):
+    import io as _io
+    from pypdf import PdfReader
+    from portal.db import SessionLocal, Document, DocStatus
+    from portal import domain_bridge as bridge
+
+    # 1. Create a sub-document ZAYAVA-T-01
+    payload_z = {
+        "doc_id": "ZAYAVA-T-01",
+        "org_name": "Гр. Петренко І.І.",
+        "doc_type": "Заява",
+        "title": "Тестова заява",
+        "reg_index": "123-ЗВ",
+        "date_text": "21 липня 2026 року",
+        "fmt": "pdf",
+        "is_electronic": True,
+        "body": ["Текст заяви"],
+        "signature_position": "Заявник",
+        "signature_name": "І. Петренко",
+        "signers": [],
+        "retention_years": 3,
+    }
+    
+    # Generate PDF for this sub-document
+    import tempfile
+    import os
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp_path = tmp.name
+    try:
+        bridge.generate(payload_z, "pdf", tmp_path)
+        with open(tmp_path, "rb") as f:
+            z_pdf_bytes = f.read()
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+    # Save to db as SIGNED
+    with SessionLocal() as session:
+        doc_z = Document(
+            doc_id="ZAYAVA-T-01",
+            title=payload_z["title"],
+            fmt=payload_z["fmt"],
+            status=DocStatus.SIGNED,
+            content_json=bridge.content_to_json(payload_z),
+            rendered=z_pdf_bytes,
+        )
+        session.add(doc_z)
+        session.commit()
+
+    # 2. Create parent document SKARGA-T-02
+    payload_s = {
+        "doc_id": "SKARGA-T-02",
+        "org_name": "Гр. Петренко І.І.",
+        "doc_type": "Скарга",
+        "title": "Тестова скарга",
+        "reg_index": "456-ЗВ",
+        "date_text": "21 липня 2026 року",
+        "fmt": "pdf",
+        "is_electronic": True,
+        "body": ["Текст скарги"],
+        "signature_position": "Скаржник",
+        "signature_name": "І. Петренко",
+        "signers": [],
+        "retention_years": 3,
+    }
+    
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp_path = tmp.name
+    try:
+        bridge.generate(payload_s, "pdf", tmp_path)
+        with open(tmp_path, "rb") as f:
+            s_pdf_bytes = f.read()
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+    with SessionLocal() as session:
+        doc_s = Document(
+            doc_id="SKARGA-T-02",
+            title=payload_s["title"],
+            fmt=payload_s["fmt"],
+            status=DocStatus.SIGNED,
+            content_json=bridge.content_to_json(payload_s),
+            rendered=s_pdf_bytes,
+        )
+        session.add(doc_s)
+        session.commit()
+
+    # 3. Upload ZAYAVA-T-01 as attachment to SKARGA-T-02
+    files = {"file": ("zayava_t_01.pdf", z_pdf_bytes, "application/pdf")}
+    r_att = client.post("/documents/SKARGA-T-02/attachments", files=files)
+    assert r_att.status_code == 200, r_att.text
+
+    # 4. Request merged PDF
+    res = client.get("/documents/SKARGA-T-02/merged-pdf")
+    assert res.status_code == 200, res.text
+
+    # 5. Verify text content in the merged PDF contains the genitive stamp "до скарги № 456-ЗВ"
+    reader = PdfReader(_io.BytesIO(res.content))
+    # Main document page + 1 attachment page = 2 pages
+    assert len(reader.pages) == 2
+    
+    p2_text = reader.pages[1].extract_text()
+    assert "Додаток 1" in p2_text
+    assert "до скарги № 456-ЗВ" in p2_text
+    assert "Аркуш 1 з 1" in p2_text
+
+
