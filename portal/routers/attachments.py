@@ -287,6 +287,8 @@ def get_merged_pdf(
                 "договір": "договору",
                 "акт": "акта",
                 "скарга": "скарги",
+                "заява": "заяви",
+                "запит": "запиту",
             }
             return mapping.get(dt_lower, dt_lower)
 
@@ -393,7 +395,7 @@ def get_merged_pdf(
                 text_lines.append(f"до {get_genitive_doc_type(doc_type)} № {reg_index}")
             text_lines.append(f"Аркуш {page_num} з {total_pages}")
             
-            y = page_h - (62 if has_copy_stamp else 40)
+            y = page_h - (95 if has_copy_stamp else 75)
             can.setFont(FONT_REGULAR, 8)
             for line in text_lines:
                 can.drawRightString(page_w - 20, y, line)
