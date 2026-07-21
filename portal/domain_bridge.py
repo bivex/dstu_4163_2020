@@ -51,6 +51,8 @@ _RULE_SET = DefaultRuleSetProvider()
 
 def _get_addressee_count(payload: dict[str, Any]) -> int:
     addrs = payload.get("addressees", [])
+    if isinstance(addrs, str):
+        addrs = [a.strip() for a in addrs.split("\n\n") if a.strip()]
     if not isinstance(addrs, (list, tuple)):
         return 1 if addrs else 0
     return len(addrs)
