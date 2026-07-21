@@ -408,7 +408,11 @@ def get_merged_pdf(
                 text_lines.append(f"до {get_genitive_doc_type(doc_type)} № {reg_index}")
             text_lines.append(f"Аркуш {page_num} з {total_pages}")
             
-            y = page_h - (95 if has_copy_stamp else 75)
+            if page_num == 1:
+                base_y = 62 if has_copy_stamp else 40
+            else:
+                base_y = 95 if has_copy_stamp else 75
+            y = page_h - base_y
             can.saveState()
             try:
                 can.setFillColorRGB(0.0, 0.2, 0.6)
