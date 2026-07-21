@@ -162,6 +162,7 @@ def _folder_to_dict(folder: Folder, doc_count: int | None = None) -> dict:
 
 def _regenerate(session, doc: Document, payload: dict) -> None:
     """Перегенерувати чистий документ + conformance після зміни даних."""
+    payload["_attachment_count"] = len(doc.attachments)
     with tempfile.NamedTemporaryFile(suffix=f".{doc.fmt}", delete=False) as tmp:
         dest = tmp.name
     try:

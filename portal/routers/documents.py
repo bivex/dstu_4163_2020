@@ -433,6 +433,7 @@ def generate_document(doc_id: str, current_user: dict = Depends(_current_user)) 
                 "(оригіналом є завантажений скан, його лишень підписують)",
             )
         payload = bridge.content_from_json(doc.content_json)
+        payload["_attachment_count"] = len(doc.attachments)
         if not payload.get("body"):
             raise HTTPException(400, "текст документа (body) не може бути порожнім")
         if not payload.get("org_name", "").strip():
