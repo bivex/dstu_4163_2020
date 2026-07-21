@@ -17,6 +17,9 @@ def _review_to_dict(doc: Document) -> dict:
     days_left = None
     days_overdue = None
     if expected:
+        # SQLite може зберігати naive datetimes — нормалізуємо до UTC
+        if expected.tzinfo is None:
+            expected = expected.replace(tzinfo=dt.timezone.utc)
         delta = (expected - now).days
         if delta >= 0:
             days_left = delta
