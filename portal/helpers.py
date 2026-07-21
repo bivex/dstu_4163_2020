@@ -111,6 +111,8 @@ def _doc_to_dict(doc: Document, brief: bool = False) -> dict:
         "folder_id": doc.folder_id,
         "journal_id": doc.journal_id,
         "org_name": _extract_org_name(doc),
+        "review_status": doc.review_status,
+        "expected_response_date": doc.expected_response_date.isoformat() if doc.expected_response_date else None,
         "approval_type": doc.approval_type.value if hasattr(doc.approval_type, "value") else doc.approval_type,
         "approvers": [
             {
