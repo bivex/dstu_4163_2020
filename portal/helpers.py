@@ -345,15 +345,13 @@ def _generate_inventory_pdf_bytes(doc: Document, real_attachments: list) -> byte
     c.line(85, 750, 567, 750)
 
     # 2. Таблиця додатків
-    col_x = [85, 115, 367, 467, 567]
+    col_x = [85, 125, 567]
 
     # Шапка таблиці
     y = 720
     c.setFont("TimesNewRoman-Bold", 10)
     c.drawString(col_x[0] + 5, y + 5, "№")
     c.drawString(col_x[1] + 5, y + 5, "Назва файлу додатку")
-    c.drawString(col_x[2] + 5, y + 5, "Розмір")
-    c.drawString(col_x[3] + 5, y + 5, "Формат")
 
     c.line(85, y, 567, y)
     c.line(85, y + 20, 567, y + 20)
@@ -361,13 +359,6 @@ def _generate_inventory_pdf_bytes(doc: Document, real_attachments: list) -> byte
         c.line(x, y, x, y + 20)
 
     c.setFont("TimesNewRoman-Regular", 10)
-
-    def fmt_bytes(size: int) -> str:
-        for unit in ['B', 'KB', 'MB', 'GB']:
-            if size < 1024.0:
-                return f"{size:.1f} {unit}" if unit != 'B' else f"{size} B"
-            size /= 1024.0
-        return f"{size:.1f} TB"
 
     for idx, att in enumerate(real_attachments):
         y -= 20
@@ -377,8 +368,6 @@ def _generate_inventory_pdf_bytes(doc: Document, real_attachments: list) -> byte
             c.setFont("TimesNewRoman-Bold", 10)
             c.drawString(col_x[0] + 5, y + 5, "№")
             c.drawString(col_x[1] + 5, y + 5, "Назва файлу додатку")
-            c.drawString(col_x[2] + 5, y + 5, "Розмір")
-            c.drawString(col_x[3] + 5, y + 5, "Формат")
             c.line(85, y, 567, y)
             c.line(85, y + 20, 567, y + 20)
             for x in col_x:
@@ -389,14 +378,9 @@ def _generate_inventory_pdf_bytes(doc: Document, real_attachments: list) -> byte
         c.drawString(col_x[0] + 5, y + 5, str(idx + 1))
         
         filename = att.original_filename
-        if len(filename) > 40:
-            filename = filename[:37] + "..."
+        if len(filename) > 75:
+            filename = filename[:72] + "..."
         c.drawString(col_x[1] + 5, y + 5, filename)
-        
-        c.drawString(col_x[2] + 5, y + 5, fmt_bytes(att.size))
-        
-        ext = filename.split(".")[-1].upper() if "." in filename else "ФАЙЛ"
-        c.drawString(col_x[3] + 5, y + 5, ext)
 
         c.line(85, y, 567, y)
         for x in col_x:
