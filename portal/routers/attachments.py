@@ -392,11 +392,12 @@ def get_merged_pdf(
             if doc_type and reg_index:
                 text_lines.append(f"до {get_genitive_doc_type(doc_type)} № {reg_index}")
             text_lines.append(f"Аркуш {page_num} з {total_pages}")
-            y = page_h - (80 if has_copy_stamp else 60)
-            can.setFont(FONT_REGULAR, 9)
+            
+            y = page_h - (62 if has_copy_stamp else 40)
+            can.setFont(FONT_REGULAR, 8)
             for line in text_lines:
-                can.drawRightString(page_w - 30, y, line)
-                y -= 11
+                can.drawRightString(page_w - 20, y, line)
+                y -= 9.5
 
         def _draw_copy_stamp(can, page_w, page_h):
             """Малює синій прямокутний штамп «КОПІЯ» у правому верхньому куті (подвійна рамка)."""
