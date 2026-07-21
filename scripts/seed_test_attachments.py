@@ -21,10 +21,21 @@ from portal import domain_bridge as bridge
 def main():
     init_db()
     with SessionLocal() as session:
+        # Спочатку видалимо будь-які потенційні конфліктні вкладення за іменами файлів
+        session.query(Attachment).filter(Attachment.stored_filename.in_([
+            "spec_draft_final.pdf",
+            "budget_2026.xlsx",
+            "schema_v1.png",
+            "technical_requirements.pdf"
+        ])).delete(synchronize_session=False)
+        session.flush()
+
         # 1. Створимо Наказ NAKAZ-SEED-01
         doc1_id = "NAKAZ-SEED-01"
         existing1 = session.query(Document).filter_by(doc_id=doc1_id).first()
         if existing1:
+            session.query(Attachment).filter_by(document_id=existing1.id).delete()
+            session.query(Signer).filter_by(document_id=existing1.id).delete()
             session.delete(existing1)
             session.flush()
 
