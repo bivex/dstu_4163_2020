@@ -25,6 +25,7 @@ from .fonts import FontPaths, resolve_times_new_roman
 
 _FONT_REGULAR = "DSTU-Serif"
 _FONT_BOLD = "DSTU-Serif-Bold"
+_FONT_HANDWRITTEN = "MarckScript"
 
 _PAGE_SIZES = {"A4": A4, "A5": A5, "A3": A3}
 
@@ -40,13 +41,14 @@ class PdfDocumentWriter:
     """Записує доменний документ у файл .pdf за правилами ДСТУ 4163:2020."""
 
     def __init__(
-        self, fonts: FontPaths | None = None, *, pagination_barcode: bool = False
+        self, fonts: FontPaths | None = None, *, pagination_barcode: bool = False, use_handwritten_date_index: bool = False
     ) -> None:
         self._fonts = fonts or resolve_times_new_roman()
         self._fonts_registered = False
         # Службовий штрихкод машинної пагінації (Code128) — за замовчуванням
         # вимкнено; вмикається явно для документообігу з потоковим скануванням.
         self._pagination_barcode = pagination_barcode
+        self._use_handwritten_date_index = use_handwritten_date_index
 
     def _ensure_fonts(self) -> None:
         if self._fonts_registered:
@@ -56,6 +58,11 @@ class PdfDocumentWriter:
         pdfmetrics.registerFontFamily(
             _FONT_REGULAR, normal=_FONT_REGULAR, bold=_FONT_BOLD
         )
+        # Реєструємо рукописний шрифт MarckScript
+        from pathlib import Path
+        marck_path = Path(__file__).parent / "data" / "MarckScript-Regular.ttf"
+        if marck_path.is_file():
+            pdfmetrics.registerFont(TTFont(_FONT_HANDWRITTEN, str(marck_path)))
         self._fonts_registered = True
 
     def write(self, document: Document, content: DocumentContent, destination: str) -> str:
@@ -71,7 +78,7 @@ class PdfDocumentWriter:
             # штрихкод ніс «<стор.>/<усього>» для звірки комплектності пачки.
             counter = canvas.Canvas(io.BytesIO(), pagesize=page_size,
                                     initialFontName=_FONT_REGULAR)
-            probe = _Layout(counter, document, content, page_size)
+            probe = _Layout(counter, document, content, page_size, use_handwritten_date_index=self._use_handwritten_date_index)
             probe.render()
             total_pages = probe.page_no
 
@@ -87,6 +94,7 @@ class PdfDocumentWriter:
             page_size,
             total_pages=total_pages,
             pagination_barcode=self._pagination_barcode,
+            use_handwritten_date_index=self._use_handwritten_date_index,
         )
         layout.render()
         c.save()
@@ -105,6 +113,7 @@ class _Layout:
         total_pages: int | None = None,
         *,
         pagination_barcode: bool = False,
+        use_handwritten_date_index: bool = False,
     ) -> None:
         self.c = c
         self.doc = document
@@ -114,6 +123,7 @@ class _Layout:
         self.total_pages = total_pages
         # Чи малювати службовий штрихкод пагінації.
         self.pagination_barcode = pagination_barcode
+        self.use_handwritten_date_index = use_handwritten_date_index
 
         m = document.geometry.margins
         self.left = m.left * mm
@@ -348,7 +358,13 @@ class _Layout:
             date_idx_str = f"{self.content.date_text} № {self.content.reg_index}"
             if place:
                 y_left = self._wrapped_col(place, self.left, left_col_w, font=_FONT_REGULAR, size=10, y_pos=y_left)
-            y_left = self._wrapped_col(date_idx_str, self.left, left_col_w, font=_FONT_REGULAR, size=10, y_pos=y_left)
+            if self.use_handwritten_date_index:
+                self.c.saveState()
+                self.c.setFillColorRGB(0.08, 0.15, 0.49) # Blue ink
+                y_left = self._wrapped_col(date_idx_str, self.left + 1 * mm, left_col_w, font=_FONT_HANDWRITTEN, size=11, y_pos=y_left)
+                self.c.restoreState()
+            else:
+                y_left = self._wrapped_col(date_idx_str, self.left, left_col_w, font=_FONT_REGULAR, size=10, y_pos=y_left)
 
             # 2. Рендеримо праву колонку
             y_right = start_y
@@ -442,7 +458,19 @@ class _Layout:
             self._gap()
             place = self.content.place.strip()
             prefix = f"{place}    " if place else ""
-            self._line(f"{prefix}{self.content.date_text}    № {self.content.reg_index}")
+            if self.use_handwritten_date_index:
+                if place:
+                    self.c.setFont(_FONT_REGULAR, 10)
+                    self.c.drawString(self.left, self.y, place)
+                self.c.saveState()
+                self.c.setFillColorRGB(0.08, 0.15, 0.49) # Blue ink
+                self.c.setFont(_FONT_HANDWRITTEN, 11)
+                x_offset = self.c.stringWidth(prefix, _FONT_REGULAR, 10) if prefix else 0
+                self.c.drawString(self.left + x_offset, self.y, f"{self.content.date_text}    № {self.content.reg_index}")
+                self.c.restoreState()
+                self.y -= self.body_pt * 1.2
+            else:
+                self._line(f"{prefix}{self.content.date_text}    № {self.content.reg_index}")
 
 
 

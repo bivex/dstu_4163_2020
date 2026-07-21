@@ -207,7 +207,11 @@ def generate(payload: dict[str, Any], fmt: str, dest_path: str) -> dict[str, Any
     )
     clean_content = build_content(payload, with_marks=False)
 
-    writer = _writer_for(fmt, pagination_barcode=bool(payload.get("pagination_barcode", False)))
+    writer = _writer_for(
+        fmt,
+        pagination_barcode=bool(payload.get("pagination_barcode", False)),
+        use_handwritten_date_index=bool(payload.get("use_handwritten_date_index", True))
+    )
 
     # рендер чистого документа (без e_signatures)
     path = writer.write(doc, clean_content, dest_path)
@@ -251,15 +255,19 @@ def render_marked(payload: dict[str, Any], fmt: str, dest_path: str) -> str:
         tags=frozenset(tags_list),
     )
     marked_content = build_content(payload, with_marks=True)
-    writer = _writer_for(fmt, pagination_barcode=bool(payload.get("pagination_barcode", False)))
+    writer = _writer_for(
+        fmt,
+        pagination_barcode=bool(payload.get("pagination_barcode", False)),
+        use_handwritten_date_index=bool(payload.get("use_handwritten_date_index", True))
+    )
     return writer.write(doc, marked_content, dest_path)
 
 
-def _writer_for(fmt: str, *, pagination_barcode: bool = False):
+def _writer_for(fmt: str, *, pagination_barcode: bool = False, use_handwritten_date_index: bool = False):
     if fmt == "pdf":
         from dilovod4.infrastructure.pdf_writer import PdfDocumentWriter
 
-        return PdfDocumentWriter(pagination_barcode=pagination_barcode)
+        return PdfDocumentWriter(pagination_barcode=pagination_barcode, use_handwritten_date_index=use_handwritten_date_index)
     from dilovod4.infrastructure.docx_writer import DocxDocumentWriter
 
     return DocxDocumentWriter()
