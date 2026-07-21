@@ -171,6 +171,16 @@ class Document(Base):
         ForeignKey("journals.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
+    # === Трекінг розгляду вихідного документа (відповідь від адресата) ===
+    # review_status: 'pending' - відправлено, чекаємо | 'responded' - відповідь отримана | 'overdue' - строк минув | 'not_applicable' - трекінг не потрібен
+    review_status: Mapped[str | None] = mapped_column(String(32), nullable=True, default=None)
+    # дата очікуваної відповіді (за замовчуванням = registered_at + 30 днів)
+    expected_response_date: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # дата фактичного отримання відповіді
+    response_received_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # нотатка до трекінгу (наприклад, опис отриманої відповіді)
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     signers: Mapped[list["Signer"]] = relationship(
         back_populates="document", cascade="all, delete-orphan", order_by="Signer.order_index"
     )

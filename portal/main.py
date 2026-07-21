@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .db import init_db
 from .routers import auth, documents, signing, folders, registry, counterparties, delivery, journals, approvals, resolutions, tasks, users, processes, attachments, templates
+from .routers.review_tracking import router as review_tracking_router
 
 _cas_cache: dict = {"body": None, "ts": 0.0}
 
@@ -90,6 +91,7 @@ app.include_router(tasks.router)
 app.include_router(users.router)
 app.include_router(processes.router)
 app.include_router(templates.router)
+app.include_router(review_tracking_router)
 
 
 # --- Proxy Handler for KEP (OCSP/TSP requests) ---
