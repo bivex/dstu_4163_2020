@@ -63,6 +63,7 @@ def _payload_with_signatures(doc: Document) -> dict:
         if s.status == SignerStatus.SIGNED
     ]
     payload["_attachment_count"] = len(doc.attachments)
+    payload["has_attachments_inventory"] = any(a.stored_filename == "опис_додатків.pdf" for a in doc.attachments)
     return payload
 
 
@@ -163,6 +164,7 @@ def _folder_to_dict(folder: Folder, doc_count: int | None = None) -> dict:
 def _regenerate(session, doc: Document, payload: dict) -> None:
     """Перегенерувати чистий документ + conformance після зміни даних."""
     payload["_attachment_count"] = len(doc.attachments)
+    payload["has_attachments_inventory"] = any(a.stored_filename == "опис_додатків.pdf" for a in doc.attachments)
     with tempfile.NamedTemporaryFile(suffix=f".{doc.fmt}", delete=False) as tmp:
         dest = tmp.name
     try:
@@ -259,3 +261,147 @@ def _assemble_asice(session, doc: Document) -> None:
     finally:
         if os.path.exists(dest):
             os.remove(dest)
+
+
+def ensure_attachments_inventory(session, doc: Document) -> None:
+    """Автоматично генерує та підтримує в актуальному стані опис додатків.
+    
+    Якщо кількість реальних додатків > 10, створює/оновлює файл 'Опис додатків.pdf'.
+    Якщо <= 10, видаляє 'Опис додатків.pdf', якщо він існував.
+    """
+    # Відфільтровуємо сам опис додатків, щоб не рахувати його рекурсивно
+    real_atts = [a for a in doc.attachments if a.stored_filename != "опис_додатків.pdf"]
+    real_atts.sort(key=lambda x: x.order_index)
+
+    existing_inv = next((a for a in doc.attachments if a.stored_filename == "опис_додатків.pdf"), None)
+
+    if len(real_atts) > 10:
+        pdf_bytes = _generate_inventory_pdf_bytes(doc, real_atts)
+        
+        if existing_inv:
+            existing_inv.blob = pdf_bytes
+            existing_inv.size = len(pdf_bytes)
+            existing_inv.original_filename = "Опис додатків.pdf"
+            existing_inv.mime = "application/pdf"
+            # Опис додатків завжди має бути останнім
+            max_order = max([a.order_index for a in real_atts], default=-1)
+            existing_inv.order_index = max_order + 1
+        else:
+            max_order = max([a.order_index for a in real_atts], default=-1)
+            from .db import Attachment
+            inv = Attachment(
+                document_id=doc.id,
+                order_index=max_order + 1,
+                original_filename="Опис додатків.pdf",
+                stored_filename="опис_додатків.pdf",
+                mime="application/pdf",
+                size=len(pdf_bytes),
+                blob=pdf_bytes
+            )
+            session.add(inv)
+            doc.attachments.append(inv)
+        session.flush()
+    else:
+        if existing_inv:
+            session.delete(existing_inv)
+            doc.attachments = [a for a in doc.attachments if a.id != existing_inv.id]
+            session.flush()
+
+
+def _generate_inventory_pdf_bytes(doc: Document, real_attachments: list) -> bytes:
+    import io
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    from dilovod4.infrastructure.fonts import resolve_times_new_roman
+
+    fonts = resolve_times_new_roman()
+    pdfmetrics.registerFont(TTFont("TimesNewRoman-Regular", fonts.regular))
+    pdfmetrics.registerFont(TTFont("TimesNewRoman-Bold", fonts.bold))
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+
+    # 1. Заголовок
+    c.setFont("TimesNewRoman-Bold", 14)
+    c.drawCentredString(595.27 / 2, 800, "ОПИС ДОДАТКІВ")
+
+    c.setFont("TimesNewRoman-Regular", 12)
+    c.drawCentredString(595.27 / 2, 782, f"до документа «{doc.title}»")
+
+    reg_info = []
+    if doc.reg_index:
+        reg_info.append(f"№ {doc.reg_index}")
+    if doc.reg_date:
+        reg_info.append(f"від {doc.reg_date}")
+    if reg_info:
+        c.drawCentredString(595.27 / 2, 765, f"Реєстрація: {' '.join(reg_info)}")
+    else:
+        c.drawCentredString(595.27 / 2, 765, f"Ідентифікатор: {doc.doc_id}")
+
+    # Лінія розділення
+    c.setLineWidth(0.5)
+    c.line(85, 750, 567, 750)
+
+    # 2. Таблиця додатків
+    col_x = [85, 115, 367, 467, 567]
+
+    # Шапка таблиці
+    y = 720
+    c.setFont("TimesNewRoman-Bold", 10)
+    c.drawString(col_x[0] + 5, y + 5, "№")
+    c.drawString(col_x[1] + 5, y + 5, "Назва файлу додатку")
+    c.drawString(col_x[2] + 5, y + 5, "Розмір")
+    c.drawString(col_x[3] + 5, y + 5, "Формат")
+
+    c.line(85, y, 567, y)
+    c.line(85, y + 20, 567, y + 20)
+    for x in col_x:
+        c.line(x, y, x, y + 20)
+
+    c.setFont("TimesNewRoman-Regular", 10)
+
+    def fmt_bytes(size: int) -> str:
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size < 1024.0:
+                return f"{size:.1f} {unit}" if unit != 'B' else f"{size} B"
+            size /= 1024.0
+        return f"{size:.1f} TB"
+
+    for idx, att in enumerate(real_attachments):
+        y -= 20
+        if y < 60:
+            c.showPage()
+            y = 780
+            c.setFont("TimesNewRoman-Bold", 10)
+            c.drawString(col_x[0] + 5, y + 5, "№")
+            c.drawString(col_x[1] + 5, y + 5, "Назва файлу додатку")
+            c.drawString(col_x[2] + 5, y + 5, "Розмір")
+            c.drawString(col_x[3] + 5, y + 5, "Формат")
+            c.line(85, y, 567, y)
+            c.line(85, y + 20, 567, y + 20)
+            for x in col_x:
+                c.line(x, y, x, y + 20)
+            c.setFont("TimesNewRoman-Regular", 10)
+            y -= 20
+
+        c.drawString(col_x[0] + 5, y + 5, str(idx + 1))
+        
+        filename = att.original_filename
+        if len(filename) > 40:
+            filename = filename[:37] + "..."
+        c.drawString(col_x[1] + 5, y + 5, filename)
+        
+        c.drawString(col_x[2] + 5, y + 5, fmt_bytes(att.size))
+        
+        ext = filename.split(".")[-1].upper() if "." in filename else "ФАЙЛ"
+        c.drawString(col_x[3] + 5, y + 5, ext)
+
+        c.line(85, y, 567, y)
+        for x in col_x:
+            c.line(x, y, x, y + 20)
+
+    c.showPage()
+    c.save()
+    return buf.getvalue()

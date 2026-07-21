@@ -71,7 +71,7 @@ class AppendixRule(ConformanceRule):
     clause = "§5.21"
 
     def evaluate(self, document: Document) -> RuleResult:
-        if document.appendix_count > _MAX_APPENDICES:
+        if document.appendix_count > _MAX_APPENDICES and "has_attachments_inventory" not in document.tags:
             return RuleResult.fail(
                 self.rule_id,
                 self.clause,

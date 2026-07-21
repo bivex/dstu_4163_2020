@@ -58,7 +58,7 @@ def _get_addressee_count(payload: dict[str, Any]) -> int:
     return len(addrs)
 
 
-def _conformant_document(doc_id: str, is_electronic: bool, addressee_count: int = 0, appendix_count: int = 0) -> Document:
+def _conformant_document(doc_id: str, is_electronic: bool, addressee_count: int = 0, appendix_count: int = 0, tags: frozenset[str] = frozenset()) -> Document:
     """Повністю конформний за ДСТУ 4163:2020 Document (загальний бланк, A4)."""
     is_letter = addressee_count > 0
     return Document(
@@ -91,6 +91,7 @@ def _conformant_document(doc_id: str, is_electronic: bool, addressee_count: int 
             coat_of_arms_height_mm=17, coat_of_arms_width_mm=12, emblem_height_mm=15,
             qr_side_mm=21, registration_zone_height_mm=60, registration_zone_width_mm=100,
         ),
+        tags=tags,
     )
 
 
@@ -194,11 +195,15 @@ def generate(payload: dict[str, Any], fmt: str, dest_path: str) -> dict[str, Any
     документа, а сам згенерований файл лишається чистим.
     """
     is_electronic = bool(payload.get("is_electronic", True))
+    tags_list = []
+    if payload.get("has_attachments_inventory"):
+        tags_list.append("has_attachments_inventory")
     doc = _conformant_document(
         str(payload["doc_id"]),
         is_electronic,
         addressee_count=_get_addressee_count(payload),
         appendix_count=int(payload.get("_attachment_count", 0)),
+        tags=frozenset(tags_list),
     )
     clean_content = build_content(payload, with_marks=False)
 
@@ -235,11 +240,15 @@ def render_marked(payload: dict[str, Any], fmt: str, dest_path: str) -> str:
     (ПІБ, серійник, видавець, чинність, час). Повертає шлях до файлу.
     """
     is_electronic = bool(payload.get("is_electronic", True))
+    tags_list = []
+    if payload.get("has_attachments_inventory"):
+        tags_list.append("has_attachments_inventory")
     doc = _conformant_document(
         str(payload["doc_id"]),
         is_electronic,
         addressee_count=_get_addressee_count(payload),
         appendix_count=int(payload.get("_attachment_count", 0)),
+        tags=frozenset(tags_list),
     )
     marked_content = build_content(payload, with_marks=True)
     writer = _writer_for(fmt, pagination_barcode=bool(payload.get("pagination_barcode", False)))
@@ -259,11 +268,15 @@ def _writer_for(fmt: str, *, pagination_barcode: bool = False):
 def validate(payload: dict[str, Any]) -> dict[str, Any]:
     """Перевірити документ за ДСТУ 4163 + content-aware правилами (ст.7/21)."""
     is_electronic = bool(payload.get("is_electronic", True))
+    tags_list = []
+    if payload.get("has_attachments_inventory"):
+        tags_list.append("has_attachments_inventory")
     doc = _conformant_document(
         str(payload["doc_id"]),
         is_electronic,
         addressee_count=_get_addressee_count(payload),
         appendix_count=int(payload.get("_attachment_count", 0)),
+        tags=frozenset(tags_list),
     )
     content = build_content(payload, with_marks=True)
     report = ValidateDocument(rule_set=_RULE_SET).execute(doc, content)

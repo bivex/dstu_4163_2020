@@ -345,7 +345,7 @@ def test_manifest_byte_identity(client):
     assert before_manifest_bytes == zf_manifest_bytes
 
 
-# 8. appendix_count -> AppendixRule — 11 додатків → validate → finding «потрібен опис».
+# 8. appendix_count -> AppendixRule — 11 додатків → validate → опис додатків автогенеровано → APPENDIX rule passes.
 def test_appendix_count_rule(client):
     client.post("/documents", json=_doc_payload("T-001"))
     client.post("/documents/T-001/generate")
@@ -357,19 +357,25 @@ def test_appendix_count_rule(client):
             files={"file": (f"scan-{i}.pdf", b"%PDF-1.4", "application/pdf")},
         )
 
+    # Get document to check attachments
+    res_get = client.get("/documents/T-001")
+    assert res_get.status_code == 200
+    doc_data = res_get.json()
+    # Should have 12 attachments (11 uploaded + 1 auto-generated inventory)
+    assert len(doc_data["attachments"]) == 12
+    # Verify inventory file is in the list
+    filenames = [a["stored_filename"] for a in doc_data["attachments"]]
+    assert "опис_додатків.pdf" in filenames
+
     # Validate
     res = client.post("/documents/T-001/validate")
     assert res.status_code == 200
     report = res.json()
-    assert report["conforms"] is False
-    # Check if there is a finding about appendix description (AppendixRule clause 5.21)
-    findings = []
-    for r in report["results"]:
-        findings.extend(r["findings"])
-
-    # Let's search if any finding mentiones "додат"
-    has_finding = any("додат" in f["message"].lower() for f in findings)
-    assert has_finding, f"Expected finding for 11 attachments, got: {findings}"
+    
+    # Check if APPENDIX rule passed (conforms = True for clause 5.21)
+    appendix_res = next((r for r in report["results"] if r["rule_id"] == "APPENDIX"), None)
+    assert appendix_res is not None
+    assert appendix_res["conforms"] is True, f"Expected APPENDIX rule to pass, got results: {report['results']}"
 
 
 # 9. cascade deletion — delete document -> Attachment rows are gone.

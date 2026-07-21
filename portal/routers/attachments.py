@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Respons
 
 from portal.db import Attachment, Document, SessionLocal
 from portal.auth import _current_user
-from portal.helpers import _audit, _assert_editable, _load
+from portal.helpers import _audit, _assert_editable, _load, ensure_attachments_inventory
 
 router = APIRouter(tags=["attachments"])
 
@@ -137,6 +137,7 @@ async def upload_attachment(
             actor=current_user.get("email", ""),
             detail=stored_name,
         )
+        ensure_attachments_inventory(session, doc)
         session.commit()
 
         return {
@@ -234,6 +235,8 @@ def delete_attachment(
 
         stored_name = att.stored_filename
         session.delete(att)
+        doc.attachments = [a for a in doc.attachments if a.id != att_id]
+        ensure_attachments_inventory(session, doc)
         _audit(
             session,
             doc,

@@ -434,6 +434,7 @@ def generate_document(doc_id: str, current_user: dict = Depends(_current_user)) 
             )
         payload = bridge.content_from_json(doc.content_json)
         payload["_attachment_count"] = len(doc.attachments)
+        payload["has_attachments_inventory"] = any(a.stored_filename == "опис_додатків.pdf" for a in doc.attachments)
         if not payload.get("body"):
             raise HTTPException(400, "текст документа (body) не може бути порожнім")
         if not payload.get("org_name", "").strip():
