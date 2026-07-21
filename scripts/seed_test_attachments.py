@@ -101,6 +101,8 @@ def main():
         doc2_id = "LIST-SEED-02"
         existing2 = session.query(Document).filter_by(doc_id=doc2_id).first()
         if existing2:
+            session.query(Attachment).filter_by(document_id=existing2.id).delete()
+            session.query(Signer).filter_by(document_id=existing2.id).delete()
             session.delete(existing2)
             session.flush()
 
