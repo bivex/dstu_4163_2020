@@ -207,6 +207,35 @@ class _Layout:
         self.c.setFont(_FONT_REGULAR, 6)
         self.c.drawRightString(right_edge, y - 2.5 * mm, caption)
 
+    def _gap(self, factor: float = 1.0) -> None:
+        self.y -= self.leading * factor
+
+    def _wrapped_col(self, text: str, x_start: float, col_width: float, font: str = _FONT_REGULAR, size: float | None = None, align: str = _ALIGN_FLAG, y_pos: float | None = None) -> float:
+        size = size or self.body_pt
+        self.c.setFont(font, size)
+        current_y = y_pos if y_pos is not None else self.y
+        words = text.split()
+        line = ""
+        leading = size * 1.2
+        for word in words:
+            trial = f"{line} {word}".strip()
+            if pdfmetrics.stringWidth(trial, font, size) <= col_width:
+                line = trial
+            else:
+                current_y -= leading
+                if align == _ALIGN_CENTER:
+                    self.c.drawCentredString(x_start + col_width / 2, current_y, line)
+                else:
+                    self.c.drawString(x_start, current_y, line)
+                line = word
+        if line:
+            current_y -= leading
+            if align == _ALIGN_CENTER:
+                self.c.drawCentredString(x_start + col_width / 2, current_y, line)
+            else:
+                self.c.drawString(x_start, current_y, line)
+        return current_y
+
     def _line(self, text: str, *, font=_FONT_REGULAR, size=None, align=_ALIGN_FLAG,
               indent_mm: float = 0.0) -> None:
         size = size or self.body_pt
@@ -246,9 +275,6 @@ class _Layout:
                 indent_mm=first_indent_mm if first else indent_mm, align=align,
             )
 
-    def _gap(self, factor: float = 1.0) -> None:
-        self.y -= self.leading * factor
-
     # --- реквізити ---
     def render(self) -> None:
         # QR-коди КЕП малюються поряд із кожною відміткою підписувача (внизу),
@@ -283,124 +309,142 @@ class _Layout:
                 self._draw_generic_stamp(stamp_text, y, loc, color)
                 left_margin_count += 1
 
-        # робоча позначка (напр. «ПРОЕКТ») — праворуч угорі, над реквізитами
-        if self.content.marking.strip():
-            self._line(
-                self.content.marking.upper(),
-                indent_mm=self.doc.left_indents.approval_mm,
-                font=_FONT_BOLD,
+        # Робоча кутова чи поздовжня верстка бланка (§6.7 ДСТУ 4163:2020)
+        is_corner_layout = bool(self.content.addressees) or self.doc.is_letter
+
+        if is_corner_layout:
+            # --- КУТОВИЙ БЛАНК ---
+            start_y = self.y
+            left_col_w = 80 * mm
+            right_col_w = 80 * mm
+            right_col_x = self.left + 100 * mm
+
+            # 1. Рендеримо ліву колонку
+            y_left = start_y
+            is_state_org = any(
+                word in self.content.org_name.upper()
+                for word in ["ДЕРЖАВН", "МІНІСТЕРСТВ", "НАЦІОНАЛЬН", "ПРОКУР", "СЛУЖБ"]
             )
+            if (
+                is_state_org
+                and self.doc.symbols
+                and self.doc.symbols.coat_of_arms_height_mm > 0
+                and self.doc.symbols.coat_of_arms_width_mm > 0
+            ):
+                w = self.doc.symbols.coat_of_arms_width_mm * mm
+                h = self.doc.symbols.coat_of_arms_height_mm * mm
+                x = self.left + left_col_w / 2
+                self.c.saveState()
+                try:
+                    self._draw_coat_of_arms(x, y_left - h, w, h)
+                finally:
+                    self.c.restoreState()
+                y_left -= h + 2 * mm
 
-        # 01 Державний Герб України — лише для державних органів/підприємств
-        is_state_org = any(
-            word in self.content.org_name.upper()
-            for word in ["ДЕРЖАВН", "МІНІСТЕРСТВ", "НАЦІОНАЛЬН", "ПРОКУР", "СЛУЖБ"]
-        )
-        if (
-            is_state_org
-            and self.doc.symbols
-            and self.doc.symbols.coat_of_arms_height_mm > 0
-            and self.doc.symbols.coat_of_arms_width_mm > 0
-        ):
-            w = self.doc.symbols.coat_of_arms_width_mm * mm
-            h = self.doc.symbols.coat_of_arms_height_mm * mm
-            x = self.page_w / 2
-            # Зберігаємо графічний стан canvas
-            self.c.saveState()
-            try:
-                self._draw_coat_of_arms(x, self.y - h, w, h)
-            finally:
-                self.c.restoreState()
-            self.y -= h
-            self._gap(0.6)
-
-        # 04 найменування юридичної особи — центрований, напівжирний, з перенесенням
-        self._wrapped(self.content.org_name, align=_ALIGN_CENTER, font=_FONT_BOLD)
-
-
-        # реквізит 15 — гриф обмеження доступу (ст.21 З-ну 2657-XII), праворуч угорі
-        if self.content.restriction_stamp and self.content.restriction_stamp != "none":
-            self._draw_restriction_stamp(self.content.restriction_stamp)
-        elif self.content.access_restriction is not None:
-            self._line(
-                self.content.access_restriction.heading,
-                indent_mm=self.doc.left_indents.restriction_mm,
-                font=_FONT_BOLD,
-            )
-
-        # 09 назва виду — не на листах (§4.4), збільшений кегль (§7.2)
-        if not self.doc.is_letter and self.content.doc_type.strip():
-            self._gap(0.5)
-            self._wrapped(
-                self.content.doc_type.upper(),
-                align=_ALIGN_CENTER,
-                font=_FONT_BOLD,
-                size=self.doc_type_pt,
-            )
-
-        # 08 місце складання + 10 дата + 11 реєстраційний індекс
-        self._gap()
-        place = self.content.place.strip()
-        prefix = f"{place}    " if place else ""
-        self._line(f"{prefix}{self.content.date_text}    № {self.content.reg_index}")
-
-        # Запобігання накладанню грифів затвердження та адресатів на штампи у правому верхньому куті
-        max_stamp_y_offset = 0.0
-        if self.content.use_copy_mark:
-            max_stamp_y_offset = max(max_stamp_y_offset, 18 * mm + 8 * mm)
-        if self.content.use_urgent_stamp:
-            max_stamp_y_offset = max(max_stamp_y_offset, 28 * mm + 8 * mm)
-        
-        top_right_count = 0
-        for stamp_text in self.content.extra_stamps:
-            loc, _ = self._classify_extra_stamp(stamp_text)
-            if loc == "top_right":
-                top_right_count += 1
-        if top_right_count > 0:
-            max_stamp_y_offset = max(max_stamp_y_offset, 38 * mm + top_right_count * 10 * mm)
+            y_left = self._wrapped_col(self.content.org_name, self.left, left_col_w, font=_FONT_BOLD, size=11, y_pos=y_left)
+            y_left -= 4 * mm 
             
-        if max_stamp_y_offset > 0.0:
-            limit_y = self.page_h - self.top - max_stamp_y_offset - 2 * mm
-            if self.y > limit_y:
-                self.y = limit_y
+            place = self.content.place.strip()
+            date_idx_str = f"{self.content.date_text} № {self.content.reg_index}"
+            if place:
+                y_left = self._wrapped_col(place, self.left, left_col_w, font=_FONT_REGULAR, size=10, y_pos=y_left)
+            y_left = self._wrapped_col(date_idx_str, self.left, left_col_w, font=_FONT_REGULAR, size=10, y_pos=y_left)
 
-        # 21 гриф затвердження — праворуч угорі, відступ 100 мм (§7.7)
-        if self.content.approval is not None:
-            self._gap()
-            self._draw_approval_grant(self.content.approval)
+            # 2. Рендеримо праву колонку
+            y_right = start_y
 
-        # адресати — відступ 90 мм (§7.7), з перенесенням за шириною
-        if self.content.addressees:
-            self._gap()
-            for addressee in self.content.addressees:
-                for part in addressee.split("\n"):
-                    self._wrapped(
-                        part,
-                        indent_mm=self.doc.left_indents.addressee_mm,
-                        first_indent_mm=self.doc.left_indents.addressee_mm,
-                    )
+            if self.content.marking.strip():
+                y_right = self._wrapped_col(self.content.marking.upper(), right_col_x, right_col_w, font=_FONT_BOLD, size=11, y_pos=y_right)
+                y_right -= 2 * mm
 
-        # Контактні дані відправника-фізособи — праворуч, під адресатом.
-        # Формат: «від [ПІБ],» (береться з org_name) + рядки адреси/тел./email.
-        # Відповідає практиці держорганів (Закон №393/96-ВР, ст.5).
-        if self.content.sender_contacts.strip():
-            self._gap(0.3)
-            # Рядок «від [ПІБ],» — береться з org_name, прибираємо префікс «Гр. »
-            sender_name = self.content.org_name.removeprefix("Гр. ").strip()
-            self._wrapped(
-                f"від {sender_name},",
-                indent_mm=self.doc.left_indents.addressee_mm,
-                first_indent_mm=self.doc.left_indents.addressee_mm,
-                size=12,
+            if self.content.restriction_stamp and self.content.restriction_stamp != "none":
+                y_right = self._wrapped_col(self.content.restriction_stamp.upper(), right_col_x, right_col_w, font=_FONT_BOLD, size=11, y_pos=y_right)
+                y_right -= 2 * mm
+            elif self.content.access_restriction is not None:
+                y_right = self._wrapped_col(self.content.access_restriction.heading.upper(), right_col_x, right_col_w, font=_FONT_BOLD, size=11, y_pos=y_right)
+                y_right -= 2 * mm
+
+            if self.content.addressees:
+                for addressee in self.content.addressees:
+                    for part in addressee.split("\n"):
+                        if part.strip():
+                            y_right = self._wrapped_col(part.strip(), right_col_x, right_col_w, font=_FONT_REGULAR, size=11, y_pos=y_right)
+                    y_right -= 3 * mm
+
+            if self.content.sender_contacts.strip():
+                sender_name = self.content.org_name.removeprefix("Гр. ").strip()
+                y_right = self._wrapped_col(f"від {sender_name},", right_col_x, right_col_w, font=_FONT_REGULAR, size=11, y_pos=y_right)
+                for contact_line in self.content.sender_contacts.split("\n"):
+                    if contact_line.strip():
+                        y_right = self._wrapped_col(contact_line.strip(), right_col_x, right_col_w, font=_FONT_REGULAR, size=10, y_pos=y_right)
+
+            if self.content.approval is not None:
+                y_right -= 3 * mm
+                grant = self.content.approval
+                y_right = self._wrapped_col(grant.heading, right_col_x, right_col_w, font=_FONT_BOLD, size=11, y_pos=y_right)
+                if grant.is_by_document:
+                    for part in grant.document_reference.split("\n"):
+                        if part.strip():
+                            y_right = self._wrapped_col(part.strip(), right_col_x, right_col_w, font=_FONT_REGULAR, size=11, y_pos=y_right)
+                else:
+                    if grant.position:
+                        y_right = self._wrapped_col(grant.position, right_col_x, right_col_w, font=_FONT_REGULAR, size=11, y_pos=y_right)
+                    if grant.name:
+                        y_right = self._wrapped_col(grant.name, right_col_x, right_col_w, font=_FONT_REGULAR, size=11, y_pos=y_right)
+                    if grant.date:
+                        y_right = self._wrapped_col(grant.date, right_col_x, right_col_w, font=_FONT_REGULAR, size=11, y_pos=y_right)
+
+            self.y = min(y_left, y_right) - 8 * mm
+
+        else:
+            # --- ПОЗДОВЖНІЙ БЛАНК ---
+            is_state_org = any(
+                word in self.content.org_name.upper()
+                for word in ["ДЕРЖАВН", "МІНІСТЕРСТВ", "НАЦІОНАЛЬН", "ПРОКУР", "СЛУЖБ"]
             )
-            for contact_line in self.content.sender_contacts.split("\n"):
-                if contact_line.strip():
-                    self._wrapped(
-                        contact_line.strip(),
-                        indent_mm=self.doc.left_indents.addressee_mm,
-                        first_indent_mm=self.doc.left_indents.addressee_mm,
-                        size=12,
-                    )
+            if (
+                is_state_org
+                and self.doc.symbols
+                and self.doc.symbols.coat_of_arms_height_mm > 0
+                and self.doc.symbols.coat_of_arms_width_mm > 0
+            ):
+                w = self.doc.symbols.coat_of_arms_width_mm * mm
+                h = self.doc.symbols.coat_of_arms_height_mm * mm
+                x = self.page_w / 2
+                self.c.saveState()
+                try:
+                    self._draw_coat_of_arms(x, self.y - h, w, h)
+                finally:
+                    self.c.restoreState()
+                self.y -= h
+                self._gap(0.6)
+
+            self._wrapped(self.content.org_name, align=_ALIGN_CENTER, font=_FONT_BOLD)
+
+            if self.content.restriction_stamp and self.content.restriction_stamp != "none":
+                self._draw_restriction_stamp(self.content.restriction_stamp)
+            elif self.content.access_restriction is not None:
+                self._line(
+                    self.content.access_restriction.heading,
+                    indent_mm=self.doc.left_indents.restriction_mm,
+                    font=_FONT_BOLD,
+                )
+
+            if not self.doc.is_letter and self.content.doc_type.strip():
+                self._gap(0.5)
+                self._wrapped(
+                    self.content.doc_type.upper(),
+                    align=_ALIGN_CENTER,
+                    font=_FONT_BOLD,
+                    size=self.doc_type_pt,
+                )
+
+            self._gap()
+            place = self.content.place.strip()
+            prefix = f"{place}    " if place else ""
+            self._line(f"{prefix}{self.content.date_text}    № {self.content.reg_index}")
+
+
 
         # 19 заголовок до тексту — центрований, напівжирний
         if self.content.title.strip():
