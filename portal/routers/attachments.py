@@ -471,15 +471,33 @@ def get_merged_pdf(
                 can.setLineWidth(0.4)
                 can.rect(x + 1.5, y + 1.5, w - 3, h - 3, stroke=True, fill=False)
                 can.line(x + 1.5, y + 8.5 * mm, x + w - 1.5, y + 8.5 * mm)
-                can.line(x + 30 * mm, y + 1.5, x + 30 * mm, y + 8.5 * mm)
+                
                 can.setFont(FONT_BOLD, 7.0)
                 org = org_name.removeprefix("Гр. ").removeprefix("АТ ").strip()
                 if len(org) > 40:
                     org = org[:37] + "..."
                 can.drawCentredString(x + w / 2, y + 11.5 * mm, org)
-                can.setFont(FONT_REGULAR, 6.5)
-                can.drawString(x + 3.5 * mm, y + 4.0 * mm, f"Вх. № {reg_index}")
-                can.drawString(x + 32.5 * mm, y + 4.0 * mm, f"від {reg_date}")
+                
+                left_text = f"Вх. № {reg_index}"
+                right_text = f"від {reg_date}"
+                
+                from reportlab.pdfbase.pdfmetrics import stringWidth
+                w_left = stringWidth(left_text, FONT_REGULAR, 6.5)
+                w_right = stringWidth(right_text, FONT_REGULAR, 6.5)
+                
+                f_size = 6.5
+                if w_left + w_right > (w - 7 * mm):
+                    f_size = 6.0
+                    w_left = stringWidth(left_text, FONT_REGULAR, 6.0)
+                    w_right = stringWidth(right_text, FONT_REGULAR, 6.0)
+                
+                sep_x = 3.5 * mm + w_left + 1.5 * mm
+                sep_x = max(30 * mm, min(sep_x, w - w_right - 4.5 * mm))
+                
+                can.setFont(FONT_REGULAR, f_size)
+                can.drawString(x + 3.5 * mm, y + 4.0 * mm, left_text)
+                can.drawString(x + sep_x + 2.0 * mm, y + 4.0 * mm, right_text)
+                can.line(x + sep_x, y + 1.5, x + sep_x, y + 8.5 * mm)
             finally:
                 can.restoreState()
 
