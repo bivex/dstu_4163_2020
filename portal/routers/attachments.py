@@ -408,7 +408,13 @@ def get_merged_pdf(
                 text_lines.append(f"до {get_genitive_doc_type(doc_type)} № {reg_index}")
             text_lines.append(f"Аркуш {page_num} з {total_pages}")
             
-            base_y = (62 if has_copy_stamp else 40) + (depth_offset * 35)
+            # Автоматичний багатоколонковий розподіл штампів при ультра-глибокій рекурсії (>20 рівнів)
+            max_rows_per_col = 20
+            col = depth_offset // max_rows_per_col
+            row = depth_offset % max_rows_per_col
+            
+            x_pos = page_w - 20 - (col * 135)
+            base_y = (62 if has_copy_stamp else 40) + (row * 35)
             y = page_h - base_y
             can.saveState()
             try:
@@ -416,7 +422,7 @@ def get_merged_pdf(
                 can.setFillAlpha(0.8)
                 can.setFont(FONT_REGULAR, 8)
                 for line in text_lines:
-                    can.drawRightString(page_w - 20, y, line)
+                    can.drawRightString(x_pos, y, line)
                     y -= 9.5
             finally:
                 can.restoreState()
