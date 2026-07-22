@@ -370,13 +370,13 @@ class _Layout:
                     self.c.restoreState()
                 y_left -= h + 2 * mm
 
-            y_left = self._wrapped_col(self.content.org_name, self.left, left_col_w, font=_FONT_BOLD, size=11, y_pos=y_left)
+            y_left = self._wrapped_col(self.content.org_name, self.left, left_col_w, font=_FONT_BOLD, size=11, align=_ALIGN_CENTER, y_pos=y_left)
             y_left -= 4 * mm 
             
             place = self.content.place.strip()
             date_idx_str = f"{self.content.date_text} № {self.content.reg_index}"
             if place:
-                y_left = self._wrapped_col(place, self.left, left_col_w, font=_FONT_REGULAR, size=10, y_pos=y_left)
+                y_left = self._wrapped_col(place, self.left, left_col_w, font=_FONT_REGULAR, size=10, align=_ALIGN_CENTER, y_pos=y_left)
             if self.use_handwritten_date_index:
                 self.c.saveState()
                 try:
