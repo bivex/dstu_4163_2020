@@ -692,7 +692,10 @@ class _Layout:
         import segno  # локальний імпорт: залежність потрібна лише за наявності QR
 
         payload = build_signature_qr_payload(mark)
-        qr = segno.make(payload, error="m")
+        # Адаптивний рівень корекції: при довгому payload беремо "l" (7%),
+        # щоб розмір модуля на 21 мм не опускався нижче порогу зчитування (≥0.35 мм)
+        err_lvl = "l" if len(payload) > 120 else "m"
+        qr = segno.make(payload, error=err_lvl)
         buf = io.BytesIO()
         qr.save(buf, kind="png", scale=10, border=0)
         buf.seek(0)
@@ -736,6 +739,13 @@ class _Layout:
         # Малюємо герб від y_bottom (нижній лівий кут обмежувального боксу)
         x = x_center - w / 2
         drawing.drawOn(self.c, x, y_bottom)
+
+    def _calculate_baseline(self, y: float, h: float, font_name: str, font_size: float, offset: float = 0.3 * mm) -> float:
+        """Обчислити вертикальну базову лінію для центрованого тексту у рамці заданої висоти h."""
+        font_obj = pdfmetrics.getFont(font_name)
+        ascent = font_obj.face.ascent * font_size / 1000.0
+        descent = abs(font_obj.face.descent) * font_size / 1000.0
+        return y + (h - (ascent - descent)) / 2.0 - descent + offset
 
     def _draw_double_round_rect(self, x: float, y: float, w: float, h: float, radius: float, offset: float = 0.8 * mm) -> None:
         """Малює преміальну подвійну рамку з округленими кутами."""
