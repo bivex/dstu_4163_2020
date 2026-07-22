@@ -210,15 +210,25 @@ class _Layout:
             bar_w -= 0.02 * mm
             barcode = code128.Code128(value, barHeight=bar_h, barWidth=bar_w,
                                       humanReadable=0)
-        x = right_edge - barcode.width
-        y = self.page_h - self.top / 2 - bar_h / 2
-        barcode.drawOn(self.c, x, y)
-        # людиночитна підпис під штрихкодом: дата, номер аркуша, тип (без
-        # doc_id/реєстр. індексу — вони лишаються у машинному payload)
-        kind_label = "ел." if self.doc.is_electronic else "пап."
-        caption = f"{self.content.date_text}  {self.page_no}/{total}  {kind_label}"
-        self.c.setFont(_FONT_REGULAR, 6)
-        self.c.drawRightString(right_edge, y - 2.5 * mm, caption)
+        
+        # Перевірка низу сжаття: якщо навіть при 0.16мм ширини недостатньо — короткий payload
+        if barcode.width > avail_w:
+            short_val = f"{self.doc.doc_id[:12]}|{self.page_no}/{total}|{kind}"
+            barcode = code128.Code128(short_val, barHeight=bar_h, barWidth=0.16 * mm, humanReadable=0)
+
+        if barcode.width <= avail_w:
+            x = right_edge - barcode.width
+            y = self.page_h - self.top / 2 - bar_h / 2
+            barcode.drawOn(self.c, x, y)
+            
+            # Людиночитна підпис під штрихкодом
+            kind_label = "ел." if self.doc.is_electronic else "пап."
+            caption = f"{self.content.date_text}  {self.page_no}/{total}  {kind_label}".strip()
+            caption_w = pdfmetrics.stringWidth(caption, _FONT_REGULAR, 6)
+            if caption_w > avail_w:
+                caption = f"{self.page_no}/{total} {kind_label}"
+            self.c.setFont(_FONT_REGULAR, 6)
+            self.c.drawRightString(right_edge, y - 2.5 * mm, caption)
 
     def _gap(self, factor: float = 1.0) -> None:
         self.y -= self.leading * factor
@@ -517,7 +527,9 @@ class _Layout:
                 self.c.setFont(_FONT_REGULAR, self.body_pt)
                 self.c.drawString(decode_x, self.y, name)
                 if self.content.use_stamp or self.content.stamp_type:
-                    # Печатка перекриває частину назви посади та підпису
+                    # Печатка — коло радіусом 20 мм (діаметр 40 мм). Забезпечуємо простір
+                    stamp_r = 20 * mm
+                    self._ensure_space(stamp_r)
                     self._draw_stamp(self.left + 95 * mm, self.y + 2 * mm)
 
         # 23 грифи погодження (ПОГОДЖЕНО) — зовнішнє, нижче підпису, від лівого поля
@@ -1296,7 +1308,7 @@ class _Layout:
                 x = (self.page_w - w) / 2
             else:  # left_margin
                 x = 4 * mm
-                w = 26 * mm  # фіксована ширина для лівого поля
+                w = max(w, 26 * mm)  # зберігаємо розраховану ширину тексту
                 
             self._draw_double_round_rect(x, y, w, h, 1.0 * mm, 0.7 * mm)
             
