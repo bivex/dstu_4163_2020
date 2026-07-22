@@ -326,11 +326,18 @@ class _Layout:
         is_corner_layout = bool(self.content.addressees) or self.doc.is_letter
 
         if is_corner_layout:
-            # --- КУТОВИЙ БЛАНК ---
+            # --- КУТОВИЙ БЛАНК (§6.7, Додаток А ДСТУ 4163:2020) ---
             start_y = self.y
-            left_col_w = 80 * mm
-            right_col_w = 80 * mm
+            left_col_w = min(80 * mm, self.text_width / 2)
+            
+            # Відступи від лівого поля бланка:
+            # 100 мм — для Грифу затвердження та Грифу обмеження доступу
+            # 90 мм — для блоку Адресата (§7.6: довжина рядка ≤ 73 мм)
             right_col_x = self.left + 100 * mm
+            right_col_w = min(73 * mm, max(30 * mm, (self.left + self.text_width) - right_col_x))
+
+            addressee_x = self.left + 90 * mm
+            addressee_w = min(73 * mm, max(30 * mm, (self.left + self.text_width) - addressee_x))
 
             # 1. Рендеримо ліву колонку
             y_left = start_y
@@ -338,14 +345,15 @@ class _Layout:
                 word in self.content.org_name.upper()
                 for word in ["ДЕРЖАВН", "МІНІСТЕРСТВ", "НАЦІОНАЛЬН", "ПРОКУР", "СЛУЖБ"]
             )
-            if (
-                is_state_org
-                and self.doc.symbols
-                and self.doc.symbols.coat_of_arms_height_mm > 0
-                and self.doc.symbols.coat_of_arms_width_mm > 0
-            ):
-                w = self.doc.symbols.coat_of_arms_width_mm * mm
-                h = self.doc.symbols.coat_of_arms_height_mm * mm
+            if is_state_org:
+                # Нормативний розмір герба за ДСТУ 4163:2020: 17 мм (висота) × 12 мм (ширина)
+                w = 12 * mm
+                h = 17 * mm
+                if self.doc.symbols and self.doc.symbols.coat_of_arms_height_mm > 0:
+                    h = self.doc.symbols.coat_of_arms_height_mm * mm
+                if self.doc.symbols and self.doc.symbols.coat_of_arms_width_mm > 0:
+                    w = self.doc.symbols.coat_of_arms_width_mm * mm
+                
                 x = self.left + left_col_w / 2
                 self.c.saveState()
                 try:
@@ -383,19 +391,20 @@ class _Layout:
                 y_right = self._wrapped_col(self.content.access_restriction.heading.upper(), right_col_x, right_col_w, font=_FONT_BOLD, size=11, y_pos=y_right)
                 y_right -= 2 * mm
 
+            # Адресат рендериться від 90 мм від лівого поля (Додаток А ДСТУ 4163:2020)
             if self.content.addressees:
                 for addressee in self.content.addressees:
                     for part in addressee.split("\n"):
                         if part.strip():
-                            y_right = self._wrapped_col(part.strip(), right_col_x, right_col_w, font=_FONT_REGULAR, size=11, y_pos=y_right)
+                            y_right = self._wrapped_col(part.strip(), addressee_x, addressee_w, font=_FONT_REGULAR, size=11, y_pos=y_right)
                     y_right -= 3 * mm
 
             if self.content.sender_contacts.strip():
                 sender_name = self.content.org_name.removeprefix("Гр. ").strip()
-                y_right = self._wrapped_col(f"від {sender_name},", right_col_x, right_col_w, font=_FONT_REGULAR, size=11, y_pos=y_right)
+                y_right = self._wrapped_col(f"від {sender_name},", addressee_x, addressee_w, font=_FONT_REGULAR, size=11, y_pos=y_right)
                 for contact_line in self.content.sender_contacts.split("\n"):
                     if contact_line.strip():
-                        y_right = self._wrapped_col(contact_line.strip(), right_col_x, right_col_w, font=_FONT_REGULAR, size=10, y_pos=y_right)
+                        y_right = self._wrapped_col(contact_line.strip(), addressee_x, addressee_w, font=_FONT_REGULAR, size=10, y_pos=y_right)
 
             if self.content.approval is not None:
                 y_right -= 3 * mm
