@@ -70,7 +70,10 @@ class PdfDocumentWriter:
         if not destination.endswith(".pdf"):
             destination = f"{destination}.pdf"
 
-        page_size = _PAGE_SIZES[document.geometry.paper_format.value]
+        fmt_val = document.geometry.paper_format.value
+        if fmt_val not in _PAGE_SIZES:
+            raise ValueError(f"Непідтримуваний формат аркуша: '{fmt_val}'. Підтримуються: {list(_PAGE_SIZES.keys())}")
+        page_size = _PAGE_SIZES[fmt_val]
 
         total_pages: int | None = None
         if self._pagination_barcode:
@@ -622,10 +625,13 @@ class _Layout:
                 wrapped.append((piece, font))
 
         box_h = line_h * len(wrapped) + 2 * pad
-        # запас лише піврядка: рамка самодостатня, зайвий рядок виштовхував
-        # другу відмітку на наступну сторінку дарма.
-        self._ensure_space(box_h + line_h * 0.4)
-        top = self.y
+        side = _QR_SIDE_MM * mm
+        required_h = max(box_h, side)
+        offset_top = max(0.0, (side - box_h) / 2)
+
+        # Гарантуємо вільне місце під весь блок (рамка КЕП або QR — що вище)
+        self._ensure_space(required_h + line_h * 0.4)
+        top = self.y - offset_top
         bottom = top - box_h
         self.c.setLineWidth(0.6)
         self.c.rect(self.left, bottom, box_w, box_h, stroke=1, fill=0)
@@ -642,7 +648,7 @@ class _Layout:
         if self.content.use_stamp or self.content.stamp_type:
             # Накладаємо печатку поверх електронного підпису/QR
             self._draw_stamp(self.left + 50 * mm, bottom + box_h / 2)
-        self.y = bottom - line_h
+        self.y = min(bottom, top + box_h / 2 - side / 2) - line_h
 
     def _wrap_to_width(self, text: str, font: str, size: float, avail_pt: float) -> list[str]:
         """Розбити рядок на частини за доступною шириною (у пунктах).
