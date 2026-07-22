@@ -338,16 +338,14 @@ class _Layout:
         if is_corner_layout:
             # --- КУТОВИЙ БЛАНК (§6.7, Додаток А ДСТУ 4163:2020) ---
             start_y = self.y
-            left_col_w = min(80 * mm, self.text_width / 2)
-            
-            # Відступи від лівого поля бланка:
-            # 100 мм — для Грифу затвердження та Грифу обмеження доступу
-            # 90 мм — для блоку Адресата (§7.6: довжина рядка ≤ 73 мм)
-            right_col_x = self.left + 100 * mm
-            right_col_w = min(73 * mm, max(30 * mm, (self.left + self.text_width) - right_col_x))
+            # Ліву колонку обмежуємо відступами правої колонки (90 мм від краю), щоб усунути накладання
+            addressee_x = max(self.left, 90 * mm)
+            addressee_w = min(73 * mm, max(30 * mm, (self.page_w - self.right_margin) - addressee_x))
 
-            addressee_x = self.left + 90 * mm
-            addressee_w = min(73 * mm, max(30 * mm, (self.left + self.text_width) - addressee_x))
+            right_col_x = max(self.left, 100 * mm)
+            right_col_w = min(73 * mm, max(30 * mm, (self.page_w - self.right_margin) - right_col_x))
+
+            left_col_w = max(30 * mm, (addressee_x - self.left) - 5 * mm)
 
             # 1. Рендеримо ліву колонку
             y_left = start_y
