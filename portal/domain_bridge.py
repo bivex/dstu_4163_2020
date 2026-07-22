@@ -158,13 +158,39 @@ def build_content(payload: dict[str, Any], *, with_marks: bool = False) -> Docum
     if addressee and not addrs:
         addrs = [addressee]
 
+    # §5.21 ДСТУ 4163:2020 — реквізит «Відмітка про наявність додатків»
+    # Якщо вказано список attachments (масив рядків):
+    #   ≤10 позицій → розгортаємо нумерований список у тіло документа
+    #   >10 позицій → вставляємо короткий рядок «Додатки: на __ арк. (опис додатків додається)»
+    #               та виставляємо has_attachments_inventory=True (опис формується окремо)
+    raw_body = list(payload.get("body", ()))
+    attachments = payload.get("attachments", [])
+    if isinstance(attachments, (list, tuple)) and attachments:
+        if len(attachments) <= 10:
+            att_lines = ["Додатки:"]
+            for idx, item in enumerate(attachments, 1):
+                att_lines.append(f"{idx}. {item}")
+            raw_body.extend(att_lines)
+        else:
+            # Опис додатків виноситься в окремий аркуш (опис додатків)
+            total_att = len(attachments)
+            raw_body.append(
+                f"Додатки: на {total_att} позиц. (опис додатків додається)."
+            )
+            # Сигналізуємо domain_bridge, що потрібен окремий аркуш опису
+            payload = {**payload, "has_attachments_inventory": True, "_attachment_count": total_att}
+    # Обробка attachments_inventory (вже сформований текст опису — передається напряму)
+    attachments_inventory = str(payload.get("attachments_inventory", "")).strip()
+    if attachments_inventory and attachments_inventory not in raw_body:
+        raw_body.append(attachments_inventory)
+
     return DocumentContent(
         org_name=_subject_name(payload),
         doc_type=doc_type,
         date_text=str(payload.get("date_text", "")),
         reg_index=str(payload.get("reg_index", "")),
         title=title,
-        body=tuple(payload.get("body", ())),
+        body=tuple(raw_body),
         signature_position=str(payload.get("signature_position", "")),
         signature_name=str(payload.get("signature_name", "")),
         e_signatures=e_sigs,

@@ -381,9 +381,11 @@ class _Layout:
                 y_left = self._wrapped_col(place, self.left, left_col_w, font=_FONT_REGULAR, size=10, y_pos=y_left)
             if self.use_handwritten_date_index:
                 self.c.saveState()
-                self.c.setFillColorRGB(0.08, 0.15, 0.49) # Blue ink
-                y_left = self._wrapped_col(date_idx_str, self.left + 1 * mm, left_col_w, font=_FONT_HANDWRITTEN, size=11, y_pos=y_left)
-                self.c.restoreState()
+                try:
+                    self.c.setFillColorRGB(0.08, 0.15, 0.49) # Blue ink
+                    y_left = self._wrapped_col(date_idx_str, self.left + 1 * mm, left_col_w, font=_FONT_HANDWRITTEN, size=11, y_pos=y_left)
+                finally:
+                    self.c.restoreState()
             else:
                 y_left = self._wrapped_col(date_idx_str, self.left, left_col_w, font=_FONT_REGULAR, size=10, y_pos=y_left)
 
@@ -402,11 +404,19 @@ class _Layout:
                 y_right -= 2 * mm
 
             # Адресат рендериться від 90 мм від лівого поля (Додаток А ДСТУ 4163:2020)
+            # §5.15: При наявності понад 4 адресатів зазначаються перші 4 з приміткою "(за списком розсилання)"
             if self.content.addressees:
-                for addressee in self.content.addressees:
-                    for part in addressee.split("\n"):
-                        if part.strip():
-                            y_right = self._wrapped_col(part.strip(), addressee_x, addressee_w, font=_FONT_REGULAR, size=11, y_pos=y_right)
+                target_addressees = list(self.content.addressees)
+                is_distribution_list = len(target_addressees) > 4
+                if is_distribution_list:
+                    target_addressees = target_addressees[:4]
+
+                for idx, addressee in enumerate(target_addressees):
+                    text_lines = [p.strip() for p in addressee.split("\n") if p.strip()]
+                    if is_distribution_list and idx == len(target_addressees) - 1:
+                        text_lines.append("(за списком розсилання)")
+                    for part in text_lines:
+                        y_right = self._wrapped_col(part, addressee_x, addressee_w, font=_FONT_REGULAR, size=11, y_pos=y_right)
                     y_right -= 3 * mm
 
             if self.content.sender_contacts.strip():
@@ -511,6 +521,8 @@ class _Layout:
         #   е-документ із відміткою КЕП → рамка-відмітка по ключу (Art.18/24);
         #   інакше → рукописний реквізит «посада + розшифрування».
         self._gap(0.6)
+        # Атомарне резервування місця під весь блок підпису (Orphan Signature Control)
+        self._ensure_space(28 * mm)
         if self.doc.is_electronic and self.content.signatures:
             for i, mark in enumerate(self.content.signatures):
                 if i:
