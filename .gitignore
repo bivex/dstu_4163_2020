@@ -56,3 +56,4 @@ samples/appeals/oschadbank_appeal*
 # Fonts and generated images
 portal/*.ttf
 admin_facsimile.png
+scratch/create_multi_addressee_example.py
