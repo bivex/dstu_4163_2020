@@ -53,8 +53,17 @@ def _get_addressee_count(payload: dict[str, Any]) -> int:
     addrs = payload.get("addressees", [])
     if isinstance(addrs, str):
         addrs = [a.strip() for a in addrs.split("\n\n") if a.strip()]
-    if not isinstance(addrs, (list, tuple)):
-        return 1 if addrs else 0
+    elif isinstance(addrs, (list, tuple)):
+        res = []
+        for a in addrs:
+            for sub in str(a).split("\n\n"):
+                if sub.strip():
+                    res.append(sub.strip())
+        addrs = res
+    elif not isinstance(addrs, (list, tuple)):
+        addrs = [str(addrs).strip()] if addrs else []
+    if not addrs and payload.get("addressee"):
+        addrs = [a.strip() for a in str(payload.get("addressee")).split("\n\n") if a.strip()]
     return len(addrs)
 
 
@@ -147,16 +156,21 @@ def build_content(payload: dict[str, Any], *, with_marks: bool = False) -> Docum
     title = str(payload.get("title", ""))
     if title.strip().lower() == doc_type.strip().lower():
         title = ""
-    addrs = payload.get("addressees", [])
-    if not isinstance(addrs, (list, tuple)):
-        if addrs:
-            addrs = [str(addrs)]
-        else:
-            addrs = []
-    
+    addrs_raw = payload.get("addressees", [])
+    if isinstance(addrs_raw, str):
+        addrs = [a.strip() for a in addrs_raw.split("\n\n") if a.strip()]
+    elif isinstance(addrs_raw, (list, tuple)):
+        addrs = []
+        for a in addrs_raw:
+            for sub in str(a).split("\n\n"):
+                if sub.strip():
+                    addrs.append(sub.strip())
+    else:
+        addrs = [str(addrs_raw).strip()] if addrs_raw else []
+
     addressee = payload.get("addressee", "")
     if addressee and not addrs:
-        addrs = [addressee]
+        addrs = [a.strip() for a in str(addressee).split("\n\n") if a.strip()]
 
     # §5.21 ДСТУ 4163:2020 — реквізит «Відмітка про наявність додатків»
     # Якщо вказано список attachments (масив рядків):

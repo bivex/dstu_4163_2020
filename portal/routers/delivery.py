@@ -45,26 +45,79 @@ def get_document_delivery(doc_id: str) -> dict:
             doc_date = "—"
             doc_num = "—"
 
-        # Default recipient info from document
-        recipient_name = payload.get("org_name", "").strip()
-        recipient_address = ""
-        recipient_phone = ""
-        recipient_code = ""
-        recipient_type = payload.get("subject_type", "legal")
+        # Extract addressees from document
+        raw_addressees = payload.get("addressees", [])
+        if isinstance(raw_addressees, str):
+            addressee_list = [a.strip() for a in raw_addressees.split("\n\n") if a.strip()]
+        elif isinstance(raw_addressees, (list, tuple)):
+            addressee_list = []
+            for a in raw_addressees:
+                for sub in str(a).split("\n\n"):
+                    if sub.strip():
+                        addressee_list.append(sub.strip())
+        else:
+            addressee_list = []
+        if not addressee_list and payload.get("addressee"):
+            addressee_list = [a.strip() for a in str(payload.get("addressee")).split("\n\n") if a.strip()]
 
-        # Try to find matching counterparty by name
-        cp = None
-        if recipient_name:
-            cp = session.query(Counterparty).filter(Counterparty.name == recipient_name).first()
-            if not cp:
-                cp = session.query(Counterparty).filter(Counterparty.name.like(f"%{recipient_name}%")).first()
+        recipients = []
+        for addr_text in addressee_list:
+            lines = [ln.strip() for ln in addr_text.splitlines() if ln.strip()]
+            first_line = lines[0] if lines else ""
 
-        if cp:
-            recipient_name = cp.name
-            recipient_address = cp.address or ""
-            recipient_phone = cp.phone or ""
-            recipient_code = cp.code or ""
-            recipient_type = cp.subject_type
+            cp = None
+            if first_line:
+                cp = session.query(Counterparty).filter(Counterparty.name == first_line).first()
+                if not cp:
+                    cp = session.query(Counterparty).filter(Counterparty.name.like(f"%{first_line}%")).first()
+                if not cp and len(lines) > 1:
+                    second_line = lines[1]
+                    cp = session.query(Counterparty).filter(Counterparty.name.like(f"%{second_line}%")).first()
+
+            if cp:
+                recipients.append({
+                    "name": cp.name,
+                    "address": cp.address or (lines[1] if len(lines) > 1 else ""),
+                    "phone": cp.phone or "",
+                    "code": cp.code or "",
+                    "subject_type": cp.subject_type,
+                    "raw_text": addr_text,
+                })
+            else:
+                addr_parts = []
+                phone_val = ""
+                for ln in lines[1:]:
+                    if "тел" in ln.lower() or ln.startswith("+380") or ln.startswith("0"):
+                        phone_val = ln.split(":", 1)[-1].strip() if ":" in ln else ln
+                    elif not ln.lower().startswith("email:"):
+                        addr_parts.append(ln)
+                recipients.append({
+                    "name": first_line,
+                    "address": ", ".join(addr_parts),
+                    "phone": phone_val,
+                    "code": "",
+                    "subject_type": "legal",
+                    "raw_text": addr_text,
+                })
+
+        if recipients:
+            primary_recipient = recipients[0]
+        else:
+            recipient_name = payload.get("org_name", "").strip()
+            cp = None
+            if recipient_name:
+                cp = session.query(Counterparty).filter(Counterparty.name == recipient_name).first()
+                if not cp:
+                    cp = session.query(Counterparty).filter(Counterparty.name.like(f"%{recipient_name}%")).first()
+            primary_recipient = {
+                "name": cp.name if cp else recipient_name,
+                "address": (cp.address if cp else "") or "",
+                "phone": (cp.phone if cp else "") or "",
+                "code": (cp.code if cp else "") or "",
+                "subject_type": cp.subject_type if cp else payload.get("subject_type", "legal"),
+                "raw_text": "",
+            }
+            recipients = [primary_recipient]
 
         # Default sender info (our organization)
         sender_name = "ДЕРЖАВНЕ ПІДПРИЄМСТВО «ДІЛОВОД»"
@@ -122,13 +175,8 @@ def get_document_delivery(doc_id: str) -> dict:
                 "phone": sender_phone,
                 "code": sender_code
             },
-            "recipient": {
-                "name": recipient_name,
-                "address": recipient_address,
-                "phone": recipient_phone,
-                "code": recipient_code,
-                "subject_type": recipient_type
-            },
+            "recipient": primary_recipient,
+            "recipients": recipients,
             "items": items
         }
 
@@ -322,6 +370,8 @@ def export_delivery_pdf(
 ) -> Response:
     sender = payload.get("sender", {})
     recipient = payload.get("recipient", {})
+    recipients = payload.get("recipients", [])
+    export_all = bool(payload.get("export_all_recipients", False))
     items = payload.get("items", [])
     generate_f107 = bool(payload.get("generate_f107", True))
     generate_label = bool(payload.get("generate_label", True))
@@ -329,28 +379,41 @@ def export_delivery_pdf(
     if not items:
         items = [{"name": "Документ", "quantity": 1, "declared_value": 1.0}]
 
+    if export_all and recipients:
+        target_recipients = recipients
+    elif recipient:
+        target_recipients = [recipient]
+    elif recipients:
+        target_recipients = [recipients[0]]
+    else:
+        target_recipients = [{}]
+
     pdf_buffer = BytesIO()
     c = canvas.Canvas(pdf_buffer, pagesize=A4)
 
-    if generate_f107:
-        # Top half copy
-        draw_f107_copy(c, 148.5 * mm, sender, recipient, items)
+    for r_idx, cur_recipient in enumerate(target_recipients):
+        if generate_f107:
+            # Top half copy
+            draw_f107_copy(c, 148.5 * mm, sender, cur_recipient, items)
 
-        # Dashed cut line
-        c.setDash([3, 3])
-        c.line(0, 148.5 * mm, 210 * mm, 148.5 * mm)
-        c.setFont(FONT_REGULAR, 7)
-        c.drawCentredString(105 * mm, 149.5 * mm, "----------------- лінія відрізу -----------------")
-        c.setDash([])  # Reset
+            # Dashed cut line
+            c.setDash([3, 3])
+            c.line(0, 148.5 * mm, 210 * mm, 148.5 * mm)
+            c.setFont(FONT_REGULAR, 7)
+            c.drawCentredString(105 * mm, 149.5 * mm, "----------------- лінія відрізу -----------------")
+            c.setDash([])  # Reset
 
-        # Bottom half copy
-        draw_f107_copy(c, 0 * mm, sender, recipient, items)
+            # Bottom half copy
+            draw_f107_copy(c, 0 * mm, sender, cur_recipient, items)
+
+            if generate_label:
+                c.showPage()
 
         if generate_label:
-            c.showPage()
+            draw_address_label(c, sender, cur_recipient, items)
 
-    if generate_label:
-        draw_address_label(c, sender, recipient, items)
+        if r_idx < len(target_recipients) - 1:
+            c.showPage()
 
     c.save()
     pdf_buffer.seek(0)

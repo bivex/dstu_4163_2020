@@ -206,11 +206,27 @@ class DocxDocumentWriter:
     def _add_addressees(self, doc, document: Document, content: DocumentContent) -> None:
         if not content.addressees:
             return
+        target_addressees = list(content.addressees)
+        is_distribution_list = len(target_addressees) > 4
+        if is_distribution_list:
+            target_addressees = target_addressees[:4]
+
         # §7.7: «Адресат» — відступ 90 мм від лівого поля
-        for addressee in content.addressees:
-            p = doc.add_paragraph()
-            p.paragraph_format.left_indent = Mm(document.left_indents.addressee_mm)
-            p.add_run(addressee)
+        for idx, addressee in enumerate(target_addressees):
+            lines = [line.strip() for line in addressee.split("\n") if line.strip()]
+            if is_distribution_list and idx == len(target_addressees) - 1:
+                lines.append("(за списком розсилання)")
+            for line in lines:
+                p = doc.add_paragraph()
+                p.paragraph_format.left_indent = Mm(document.left_indents.addressee_mm)
+                p.paragraph_format.space_after = Pt(0)
+                p.paragraph_format.space_before = Pt(0)
+                p.paragraph_format.line_spacing = 1.0
+                p.add_run(line)
+            if idx < len(target_addressees) - 1:
+                p_gap = doc.add_paragraph()
+                p_gap.paragraph_format.space_before = Pt(4)
+                p_gap.paragraph_format.space_after = Pt(0)
 
     def _add_title(self, doc, document: Document, content: DocumentContent) -> None:
         if not content.title.strip():
