@@ -144,3 +144,105 @@ def list_pending(current_user: dict = Depends(_current_user)) -> list:
             .all()
         )
         return [_review_to_dict(d) for d in docs]
+
+
+@router.post("/documents/{doc_id}/decontrol")
+def decontrol_document(
+    doc_id: str,
+    payload: dict = Body(...),
+    current_user: dict = Depends(_current_user),
+) -> dict:
+    """Зняття документа з контролю.
+    Підстави:
+    - reason_type == 'reply_letter': номер вихідного листа-відповіді
+    - reason_type == 'resolution': резолюція керівника про виконання документа
+    """
+    with SessionLocal() as session:
+        doc = _load(session, doc_id)
+        reason_type = payload.get("reason_type", "reply_letter")
+        reply_number = (payload.get("reply_number") or "").strip()
+        resolution_text = (payload.get("resolution_text") or "").strip()
+        resolution_author = (payload.get("resolution_author") or current_user.get("name") or "Керівник").strip()
+        decontrol_date_raw = payload.get("decontrol_date")
+        note = (payload.get("note") or "").strip()
+
+        if decontrol_date_raw:
+            try:
+                rec_date = dt.datetime.fromisoformat(decontrol_date_raw).replace(tzinfo=dt.timezone.utc)
+            except Exception:
+                rec_date = dt.datetime.now(dt.timezone.utc)
+        else:
+            rec_date = dt.datetime.now(dt.timezone.utc)
+
+        if reason_type == "reply_letter":
+            if not reply_number:
+                raise HTTPException(400, "Необхідно вказати номер вихідного листа-відповіді")
+            constructed_note = f"Вихідний лист-відповідь: {reply_number}"
+        elif reason_type == "resolution":
+            if not resolution_text:
+                raise HTTPException(400, "Необхідно вказати текст резолюції про виконання")
+            constructed_note = f"Резолюція ({resolution_author}): {resolution_text}"
+        else:
+            constructed_note = note or "Виконано"
+
+        if note and reason_type != "other" and note != constructed_note:
+            constructed_note += f" (Примітка: {note})"
+
+        doc.review_status = "responded"
+        doc.response_received_at = rec_date
+        doc.review_note = constructed_note
+
+        from portal.db import AuditEvent
+        actor_name = (
+            current_user.get("full_name") or current_user.get("email") or "користувач"
+            if isinstance(current_user, dict)
+            else "користувач"
+        )
+        event = AuditEvent(
+            document_id=doc.id,
+            kind="decontrol",
+            actor=actor_name,
+            detail=f"Знято з контролю. Підстава: {constructed_note}",
+        )
+        session.add(event)
+        session.commit()
+        return _review_to_dict(doc)
+
+
+@router.post("/documents/{doc_id}/reopen-control")
+def reopen_control(
+    doc_id: str,
+    payload: dict = Body(default={}),
+    current_user: dict = Depends(_current_user),
+) -> dict:
+    """Повернути документ на контроль."""
+    with SessionLocal() as session:
+        doc = _load(session, doc_id)
+        doc.review_status = "pending"
+        doc.response_received_at = None
+        if "expected_response_date" in payload and payload["expected_response_date"]:
+            try:
+                doc.expected_response_date = dt.datetime.fromisoformat(payload["expected_response_date"]).replace(tzinfo=dt.timezone.utc)
+            except Exception:
+                pass
+        elif not doc.expected_response_date:
+            base_date = doc.registered_at or dt.datetime.now(dt.timezone.utc)
+            if base_date.tzinfo is None:
+                base_date = base_date.replace(tzinfo=dt.timezone.utc)
+            doc.expected_response_date = base_date + dt.timedelta(days=30)
+
+        from portal.db import AuditEvent
+        actor_name = (
+            current_user.get("full_name") or current_user.get("email") or "користувач"
+            if isinstance(current_user, dict)
+            else "користувач"
+        )
+        event = AuditEvent(
+            document_id=doc.id,
+            kind="reopen_control",
+            actor=actor_name,
+            detail="Повернуто на контроль",
+        )
+        session.add(event)
+        session.commit()
+        return _review_to_dict(doc)
